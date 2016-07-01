@@ -2,8 +2,6 @@ a golang radius library
 =============================
 [![Build Status](https://travis-ci.org/sergle/radius.svg)](https://travis-ci.org/sergle/radius)
 [![GoDoc](https://godoc.org/github.com/sergle/radius?status.svg)](https://godoc.org/github.com/sergle/radius)
-[![docs examples](https://sourcegraph.com/api/repos/github.com/sergle/radius/badges/docs-examples.png)](https://sourcegraph.com/github.com/sergle/radius)
-[![Total views](https://sourcegraph.com/api/repos/github.com/sergle/radius/counters/views.png)](https://sourcegraph.com/github.com/sergle/radius)
 [![GitHub issues](https://img.shields.io/github/issues/sergle/radius.svg)](https://github.com/sergle/radius/issues)
 [![GitHub stars](https://img.shields.io/github/stars/sergle/radius.svg)](https://github.com/sergle/radius/stargazers)
 [![GitHub forks](https://img.shields.io/github/forks/sergle/radius.svg)](https://github.com/sergle/radius/network)
