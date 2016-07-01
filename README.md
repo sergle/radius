@@ -1,18 +1,18 @@
 a golang radius library
 =============================
-[![Build Status](https://travis-ci.org/bronze1man/radius.svg)](https://travis-ci.org/bronze1man/radius)
-[![GoDoc](https://godoc.org/github.com/bronze1man/radius?status.svg)](https://godoc.org/github.com/bronze1man/radius)
-[![docs examples](https://sourcegraph.com/api/repos/github.com/bronze1man/radius/badges/docs-examples.png)](https://sourcegraph.com/github.com/bronze1man/radius)
-[![Total views](https://sourcegraph.com/api/repos/github.com/bronze1man/radius/counters/views.png)](https://sourcegraph.com/github.com/bronze1man/radius)
-[![GitHub issues](https://img.shields.io/github/issues/bronze1man/radius.svg)](https://github.com/bronze1man/radius/issues)
-[![GitHub stars](https://img.shields.io/github/stars/bronze1man/radius.svg)](https://github.com/bronze1man/radius/stargazers)
-[![GitHub forks](https://img.shields.io/github/forks/bronze1man/radius.svg)](https://github.com/bronze1man/radius/network)
-[![MIT License](http://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](https://github.com/bronze1man/radius/blob/master/LICENSE)
+[![Build Status](https://travis-ci.org/sergle/radius.svg)](https://travis-ci.org/sergle/radius)
+[![GoDoc](https://godoc.org/github.com/sergle/radius?status.svg)](https://godoc.org/github.com/sergle/radius)
+[![docs examples](https://sourcegraph.com/api/repos/github.com/sergle/radius/badges/docs-examples.png)](https://sourcegraph.com/github.com/sergle/radius)
+[![Total views](https://sourcegraph.com/api/repos/github.com/sergle/radius/counters/views.png)](https://sourcegraph.com/github.com/sergle/radius)
+[![GitHub issues](https://img.shields.io/github/issues/sergle/radius.svg)](https://github.com/sergle/radius/issues)
+[![GitHub stars](https://img.shields.io/github/stars/sergle/radius.svg)](https://github.com/sergle/radius/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/sergle/radius.svg)](https://github.com/sergle/radius/network)
+[![MIT License](http://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](https://github.com/sergle/radius/blob/master/LICENSE)
 
 This project forks from https://github.com/bronze1man/radius
 
 ### document
-* http://godoc.org/github.com/bronze1man/radius
+* http://godoc.org/github.com/sergle/radius
 * http://en.wikipedia.org/wiki/RADIUS
 
 ### example
@@ -21,7 +21,7 @@ package main
 
 import (
 	"fmt"
-	"github.com/bronze1man/radius"
+	"github.com/sergle/radius"
 )
 
 type radiusService struct{}
@@ -87,6 +87,7 @@ func main() {
 ### implemented
 * a radius server can handle AccessRequest request from strongswan with ikev1-xauth-psk
 * a radius server can handle AccountingRequest request from strongswan with ikev1-xauth-psk
+* VSA attributes
 
 ### notice
 * A radius client has not been implement.
