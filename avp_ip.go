@@ -1,7 +1,7 @@
 package radius
 
 import (
-    "net"
+	"net"
 )
 
 var avpIP avpIPt
@@ -9,9 +9,11 @@ var avpIP avpIPt
 type avpIPt struct{}
 
 func (s avpIPt) Value(p *Packet, a AVP) interface{} {
-        return net.IP(a.Value)
+	return net.IP(a.Value)
 }
 func (s avpIPt) String(p *Packet, a AVP) string {
-        return net.IP(a.Value).String()
+	return net.IP(a.Value).String()
 }
-
+func (s avpIPt) FromString(v string) []byte {
+	return net.ParseIP(v)
+}

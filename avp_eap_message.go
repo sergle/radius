@@ -1,7 +1,7 @@
 package radius
 
 import (
-    "fmt"
+	"fmt"
 )
 
 var avpEapMessage avpEapMessaget
@@ -9,21 +9,25 @@ var avpEapMessage avpEapMessaget
 type avpEapMessaget struct{}
 
 func (s avpEapMessaget) Value(p *Packet, a AVP) interface{} {
-        eap, err := EapDecode(a.Value)
-        if err != nil {
-                //TODO error handle
-                fmt.Println("EapDecode fail ", err)
-                return nil
-        }
-        return eap
+	eap, err := EapDecode(a.Value)
+	if err != nil {
+		//TODO error handle
+		fmt.Println("EapDecode fail ", err)
+		return nil
+	}
+	return eap
 
 }
 
 func (s avpEapMessaget) String(p *Packet, a AVP) string {
-        eap := s.Value(p, a)
-        if eap == nil {
-                return "nil"
-        }
-        return eap.(*EapPacket).String()
+	eap := s.Value(p, a)
+	if eap == nil {
+		return "nil"
+	}
+	return eap.(*EapPacket).String()
 }
 
+// TODO
+func (s avpEapMessaget) FromString(v string) []byte {
+	return []byte(v)
+}

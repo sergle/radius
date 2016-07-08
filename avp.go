@@ -44,6 +44,7 @@ func (a AVP) StringWithPacket(p *Packet) string {
 type avpDataType interface {
 	Value(p *Packet, a AVP) interface{}
 	String(p *Packet, a AVP) string
+	FromString(v string) []byte
 }
 
 // enums:
