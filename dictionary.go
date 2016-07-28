@@ -239,7 +239,24 @@ func (d *Dictionary) parseValue(attr_name string, const_name string, const_value
 	return nil
 }
 
+var blacklist_dictionary = map[string]int{
+	"dictionary.freeradius.internal": 1,
+	"dictionary.compat":              1,
+	"dictionary.usr.illegal":         1,
+	"dictionary.vqp":                 1,
+	// attribute id > 1byte
+	"dictionary.lucent":  1,
+	"dictionary.starent": 1,
+	"dictionary.usr":     1,
+}
+
 func (d *Dictionary) parseInclude(fname string, inc_name string) error {
+	// ignore files in unsupported format
+	if _, ok := blacklist_dictionary[inc_name]; ok {
+		fmt.Printf("Skip internal/unsupported FreeRADIUS dictionary: %s\n", inc_name)
+		return nil
+	}
+
 	fmt.Printf("-- include file %s --\n", inc_name)
 	// included file locate in the same directory
 	full_name := path.Join(path.Dir(fname), inc_name)
@@ -402,6 +419,10 @@ func (d *Dictionary) NewAVP(attr_name string, attr_value string) AVP {
 	attr_id := d.GetAttributeID(attr_name)
 	attr_type := d.GetAttributeType(attr_name)
 	handler := attr_type_handlers[attr_type]
+	if handler == nil {
+		fmt.Printf("Unknown type %s\n", attr_type)
+		return AVP{}
+	}
 
 	value := handler.FromString(attr_value)
 
