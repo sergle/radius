@@ -50,3 +50,17 @@ func (p PacketCode) String() string {
 
 	return "unknown packet code " + strconv.Itoa(int(p))
 }
+
+func (p PacketCode) IsRequest() bool {
+	if p == AccessRequest || p == AccountingRequest || p == DisconnectRequest || p == CoARequest {
+		return true
+	}
+	return false
+}
+
+func (p PacketCode) IsAccess() bool {
+	if p == AccessRequest || p == AccessAccept || p == AccessReject || p == AccessChallenge {
+		return true
+	}
+	return false
+}
