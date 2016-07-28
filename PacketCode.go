@@ -20,7 +20,7 @@ const (
 	DisconnectReject   PacketCode = 42
 	CoARequest         PacketCode = 43
 	CoAAccept          PacketCode = 44
-	CoaReject          PacketCode = 45
+	CoAReject          PacketCode = 45
 	Reserved           PacketCode = 255
 )
 
@@ -38,7 +38,7 @@ var packetCodeName = map[PacketCode]string{
 	DisconnectReject:   "DisconnectReject",
 	CoARequest:         "CoARequest",
 	CoAAccept:          "CoAAccept",
-	CoaReject:          "CoaReject",
+	CoAReject:          "CoAReject",
 	Reserved:           "Reserved",
 }
 
