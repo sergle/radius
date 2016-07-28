@@ -13,7 +13,7 @@ This project forks from https://github.com/bronze1man/radius
 * http://godoc.org/github.com/sergle/radius
 * http://en.wikipedia.org/wiki/RADIUS
 
-### example
+### server example (see client example below)
 ```go
 package main
 
@@ -85,21 +85,59 @@ func main() {
 ### implemented
 * a radius server can handle AccessRequest request from strongswan with ikev1-xauth-psk
 * a radius server can handle AccountingRequest request from strongswan with ikev1-xauth-psk
-* VSA attributes
+* **VSA attributes**
+* **Dictionary support (from FreeRADIUS)**
+* **simple RADIUS client**
 
 ### notice
-* A radius client has not been implement.
+* ~~A radius client has not been implement.~~
 * It works , but it is not stable.
 
 ### reference
-* EAP MS-CHAPv2 packet format 								http://tools.ietf.org/id/draft-kamath-pppext-eap-mschapv2-01.txt
-* EAP MS-CHAPv2 											https://tools.ietf.org/html/rfc2759
-* RADIUS Access-Request part      							https://tools.ietf.org/html/rfc2865
-* RADIUS Accounting-Request part  							https://tools.ietf.org/html/rfc2866
-* RADIUS Support For Extensible Authentication Protocol 	https://tools.ietf.org/html/rfc3579
-* RADIUS Implementation Issues and Suggested Fixes 			https://tools.ietf.org/html/rfc5080
+* EAP MS-CHAPv2 packet format 				    http://tools.ietf.org/id/draft-kamath-pppext-eap-mschapv2-01.txt
+* EAP MS-CHAPv2 					    https://tools.ietf.org/html/rfc2759
+* RADIUS Access-Request part      			    https://tools.ietf.org/html/rfc2865
+* RADIUS Accounting-Request part  			    https://tools.ietf.org/html/rfc2866
+* RADIUS Support For Extensible Authentication Protocol     https://tools.ietf.org/html/rfc3579
+* RADIUS Implementation Issues and Suggested Fixes 	    https://tools.ietf.org/html/rfc5080
 
 ### TODO
 * avpEapMessaget.Value error handle.
 * implement eap-MSCHAPV2 server side.
-* implement radius client side.
+* ~~implement radius client side.~~
+
+### client example
+```go
+
+package main
+
+import (
+    "fmt"
+    "github.com/sergle/radius"
+    "github.com/sergle/radius/client"
+)
+
+func main() {
+    dict := radius.NewDictionary()
+    err := dict.LoadFile("/usr/share/freeradius/dictionary")
+    if err != nil {
+        fmt.Printf("Failed to load dictionary: %s", err)
+        return
+    }
+
+    client := client.NewClient("127.0.0.1:1812", "gother")
+
+    request := client.NewRequest(radius.DisconnectRequest)
+    request.AddAVP( dict.NewAVP("Acct-Session-Id", "100500") )
+    request.AddAVP( dict.NewAVP("NAS-IP-Address", "10.8.10.3") )
+    fmt.Printf("sending request: %s\n", request.String())
+
+    reply, err := client.Send(request)
+    if err != nil {
+        fmt.Printf("Error: %s\n", err)
+        return
+    }
+    fmt.Printf("Reply: %s\n", reply.String())
+    return
+}
+```
