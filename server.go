@@ -98,7 +98,7 @@ func (s *Server) ListenAndServe() error {
 				}
 			}
 
-			pac, err := DecodePacket(secret, p)
+			pac, err := DecodeRequest(secret, p)
 			if err != nil {
 				fmt.Println("[pac.Decode]", err)
 				return

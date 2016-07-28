@@ -1,6 +1,7 @@
 package radius
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/hmac"
 	_ "crypto/md5"
@@ -8,11 +9,13 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	mrand "math/rand"
 	"net"
 	"strconv"
 )
 
-var ErrMessageAuthenticatorCheckFail = fmt.Errorf("RADIUS Response-Authenticator verification failed")
+var ErrMessageAuthenticatorCheckFail = fmt.Errorf("RADIUS Message-Authenticator verification failed")
+var ErrAuthenticatorCheckFail = fmt.Errorf("RADIUS Authenticator verification failed")
 
 type Packet struct {
 	Secret        string
@@ -39,28 +42,38 @@ func (p *Packet) Copy() *Packet {
 //此方法保证不修改包的内容
 //This method does not modify the contents of the package to ensure
 func (p *Packet) Encode() (b []byte, err error) {
-	p = p.Copy()
-	p.SetAVP(AVP{
-		Type:  MessageAuthenticator,
-		Value: make([]byte, 16),
-	})
-	if p.Code == AccessRequest {
-		_, err := rand.Read(p.Authenticator[:])
-		if err != nil {
-			return nil, err
+	// do not copy
+	// p = p.Copy()
+
+	if p.Code.IsAccess() {
+		// append Message-Authenticator AVP
+		p.SetAVP(AVP{
+			Type:  MessageAuthenticator,
+			Value: make([]byte, 16),
+		})
+
+		if p.Code == AccessRequest && p.Authenticator[0] == 0 {
+			_, err := rand.Read(p.Authenticator[:])
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
+
 	//TODO request的时候重新计算密码
 	// When the password request recalculation
 	b, err = p.encodeNoHash()
 	if err != nil {
 		return
 	}
-	//计算Message-Authenticator,Message-Authenticator被放在最后面
-	//Calculation Message-Authenticator, Message-Authenticator is placed in the rearmost
-	hasher := hmac.New(crypto.MD5.New, []byte(p.Secret))
-	hasher.Write(b)
-	copy(b[len(b)-16:len(b)], hasher.Sum(nil))
+
+	if p.Code.IsAccess() {
+		//计算Message-Authenticator,Message-Authenticator被放在最后面
+		//Calculation Message-Authenticator, Message-Authenticator is placed in the rearmost
+		hasher := hmac.New(crypto.MD5.New, []byte(p.Secret))
+		hasher.Write(b)
+		copy(b[len(b)-16:len(b)], hasher.Sum(nil))
+	}
 
 	// fix up the authenticator
 	// handle request and response stuff.
@@ -69,6 +82,8 @@ func (p *Packet) Encode() (b []byte, err error) {
 	case AccessRequest:
 	case DisconnectRequest, DisconnectAccept, DisconnectReject:
 		fallthrough
+	case CoARequest, CoAAccept, CoAReject:
+		fallthrough
 	case AccessAccept, AccessReject, AccessChallenge, AccountingRequest, AccountingResponse:
 		//rfc2865 page 15 Response Authenticator
 		//rfc2866 page 6 Response Authenticator
@@ -76,7 +91,8 @@ func (p *Packet) Encode() (b []byte, err error) {
 		hasher := crypto.Hash(crypto.MD5).New()
 		hasher.Write(b)
 		hasher.Write([]byte(p.Secret))
-		copy(b[4:20], hasher.Sum(nil))
+		copy(p.Authenticator[:], hasher.Sum(nil))
+		copy(b[4:20], p.Authenticator[:])
 	default:
 		return nil, fmt.Errorf("not handle p.Code %d", p.Code)
 	}
@@ -166,6 +182,20 @@ func (p *Packet) DeleteOneType(attrType AttributeType) {
 	return
 }
 
+func Request(code PacketCode, secret string) *Packet {
+	packet := new(Packet)
+	packet.Secret = secret
+	packet.Code = code
+	packet.Identifier = uint8(mrand.Int31n(255))
+
+	if code == AccessRequest {
+		// generate new - will be used to encode password
+		rand.Read(packet.Authenticator[:])
+	}
+
+	return packet
+}
+
 func (p *Packet) Reply() *Packet {
 	pac := new(Packet)
 	pac.Authenticator = p.Authenticator
@@ -184,11 +214,30 @@ func (p *Packet) Send(c net.PacketConn, addr net.Addr) error {
 	return err
 }
 
-func DecodePacket(Secret string, buf []byte) (p *Packet, err error) {
+// kept for backward compatibility, use DecodeRequest(...)
+func DecodePacket(secret string, buf []byte) (p *Packet, err error) {
+	return decodePacket(secret, buf, nil)
+}
+
+func DecodeRequest(secret string, buf []byte) (p *Packet, err error) {
+	return decodePacket(secret, buf, nil)
+}
+
+func DecodeReply(secret string, buf []byte, request_auth []byte) (p *Packet, err error) {
+	return decodePacket(secret, buf, request_auth)
+}
+
+// decode request/reply
+func decodePacket(Secret string, buf []byte, request_auth []byte) (p *Packet, err error) {
 	p = &Packet{Secret: Secret}
 	p.Code = PacketCode(buf[0])
 	p.Identifier = buf[1]
 	copy(p.Authenticator[:], buf[4:20])
+
+	if err := p.checkAuthenticator(buf, request_auth); err != nil {
+		return p, err
+	}
+
 	//read attributes
 	b := buf[20:]
 	for len(b) >= 2 {
@@ -202,25 +251,62 @@ func DecodePacket(Secret string, buf []byte) (p *Packet, err error) {
 		p.AVPs = append(p.AVPs, attr)
 		b = b[length:]
 	}
+
 	//验证Message-Authenticator,并且通过测试验证此处算法是正确的
 	//Verify Message-Authenticator, and tested to verify the algorithm is correct here
-	err = p.checkMessageAuthenticator()
+	err = p.checkMessageAuthenticator(request_auth)
 	if err != nil {
 		return p, err
 	}
 	return p, nil
 }
 
-//如果没有MessageAuthenticator也算通过
-//If no Message Authenticator can be considered by
-func (p *Packet) checkMessageAuthenticator() (err error) {
+func (p *Packet) checkAuthenticator(buf []byte, request_auth []byte) (err error) {
+	if p.Code == AccessRequest {
+		// it has random authenticator, do not verify
+		return nil
+	}
+
+	hasher := crypto.Hash(crypto.MD5).New()
+	hasher.Write(buf[0:4])
+	if p.Code.IsRequest() {
+		// Accounting, PoD, CoA
+		hasher.Write(make([]byte, 16))
+	} else {
+		// value from request packet
+		hasher.Write(request_auth)
+	}
+	hasher.Write(buf[20:])
+	hasher.Write([]byte(p.Secret))
+	expected := hasher.Sum(nil)
+	if bytes.Compare(expected, p.Authenticator[:]) != 0 {
+		return ErrAuthenticatorCheckFail
+	}
+	// ok
+	return nil
+}
+
+// check value of Message-Authenticator AVP
+func (p *Packet) checkMessageAuthenticator(request_auth []byte) (err error) {
 	Authenticator := p.GetAVP(MessageAuthenticator)
 	if Authenticator == nil {
 		return nil
 	}
 	AuthenticatorValue := Authenticator.Value
 	defer func() { Authenticator.Value = AuthenticatorValue }()
+
+	if !p.Code.IsRequest() {
+		// orig authenticator from request to verify reply
+		p_auth := make([]byte, 16)
+		copy(p_auth, p.Authenticator[:])
+		defer func() { copy(p.Authenticator[:], p_auth) }()
+		copy(p.Authenticator[:], request_auth)
+	}
+
+	// AVP.Value == zero
 	Authenticator.Value = make([]byte, 16)
+
+	// TODO do not encode/decode, verify agains buf[] on packet
 	content, err := p.encodeNoHash()
 	if err != nil {
 		return err
