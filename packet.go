@@ -68,11 +68,13 @@ func (p *Packet) Encode() (b []byte, err error) {
 	}
 
 	if p.Code.IsAccess() {
-		//计算Message-Authenticator,Message-Authenticator被放在最后面
-		//Calculation Message-Authenticator, Message-Authenticator is placed in the rearmost
+		//Calculation Message-Authenticator it is placed in the rearmost
 		hasher := hmac.New(crypto.MD5.New, []byte(p.Secret))
 		hasher.Write(b)
 		copy(b[len(b)-16:len(b)], hasher.Sum(nil))
+		// update value in packet structure
+		avp := p.GetAVP(MessageAuthenticator)
+		copy(avp.Value, b[len(b)-16:len(b)])
 	}
 
 	// fix up the authenticator
@@ -288,12 +290,14 @@ func (p *Packet) checkAuthenticator(buf []byte, request_auth []byte) (err error)
 
 // check value of Message-Authenticator AVP
 func (p *Packet) checkMessageAuthenticator(request_auth []byte) (err error) {
-	Authenticator := p.GetAVP(MessageAuthenticator)
-	if Authenticator == nil {
+	avp := p.GetAVP(MessageAuthenticator)
+	if avp == nil {
 		return nil
 	}
-	AuthenticatorValue := Authenticator.Value
-	defer func() { Authenticator.Value = AuthenticatorValue }()
+	origValue := make([]byte, 16)
+	copy(origValue, avp.Value)
+	// restore after validation
+	defer func() { copy(avp.Value, origValue) }()
 
 	if !p.Code.IsRequest() {
 		// orig authenticator from request to verify reply
@@ -303,8 +307,7 @@ func (p *Packet) checkMessageAuthenticator(request_auth []byte) (err error) {
 		copy(p.Authenticator[:], request_auth)
 	}
 
-	// AVP.Value == zero
-	Authenticator.Value = make([]byte, 16)
+	avp.Value = make([]byte, 16)
 
 	// TODO do not encode/decode, verify agains buf[] on packet
 	content, err := p.encodeNoHash()
@@ -313,7 +316,7 @@ func (p *Packet) checkMessageAuthenticator(request_auth []byte) (err error) {
 	}
 	hasher := hmac.New(crypto.MD5.New, []byte(p.Secret))
 	hasher.Write(content)
-	if !hmac.Equal(hasher.Sum(nil), AuthenticatorValue) {
+	if !hmac.Equal(hasher.Sum(nil), origValue) {
 		return ErrMessageAuthenticatorCheckFail
 	}
 	return nil
