@@ -8,8 +8,9 @@ import (
 )
 
 type Client struct {
-	secret string
-	server string
+	secret  string
+	server  string
+	timeout time.Duration
 }
 
 const sendTimeout time.Duration = 2
@@ -17,6 +18,10 @@ const bufSize int = 4096
 
 func NewClient(server string, secret string) *Client {
 	return &Client{secret: secret, server: server}
+}
+
+func (c *Client) SetTimeout(t time.Duration) {
+	c.timeout = t
 }
 
 func (c *Client) Send(request *radius.Packet) (*radius.Packet, error) {
@@ -40,7 +45,7 @@ func (c *Client) Send(request *radius.Packet) (*radius.Packet, error) {
 	}
 	defer conn.Close()
 
-	conn.SetDeadline(time.Now().Add(sendTimeout * time.Second))
+	conn.SetDeadline(time.Now().Add((c.timeout || sendTimeout) * time.Second))
 	conn.SetWriteBuffer(bufSize)
 	conn.SetReadBuffer(bufSize)
 
