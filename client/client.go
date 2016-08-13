@@ -45,7 +45,12 @@ func (c *Client) Send(request *radius.Packet) (*radius.Packet, error) {
 	}
 	defer conn.Close()
 
-	conn.SetDeadline(time.Now().Add((c.timeout || sendTimeout) * time.Second))
+	timeout = c.timeout
+	if timeout == 0 {
+		timeout = sendTimeout
+	}
+
+	conn.SetDeadline(time.Now().Add(timeout * time.Second))
 	conn.SetWriteBuffer(bufSize)
 	conn.SetReadBuffer(bufSize)
 
