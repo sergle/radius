@@ -45,7 +45,7 @@ func (c *Client) Send(request *radius.Packet) (*radius.Packet, error) {
 	}
 	defer conn.Close()
 
-	timeout = c.timeout
+	timeout := c.timeout
 	if timeout == 0 {
 		timeout = sendTimeout
 	}
