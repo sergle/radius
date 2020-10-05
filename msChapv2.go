@@ -7,7 +7,7 @@ import (
 )
 
 type MsChapV2Packet struct {
-	Eap    *EapPacket //解密的时候的eap信息,不使用里面的data
+	Eap    *EapPacket //The eap information when decrypting, does not use the data inside
 	OpCode MsChapV2OpCode
 	Data   []byte
 }
@@ -34,7 +34,7 @@ func MsChapV2PacketFromEap(eap *EapPacket) (p *MsChapV2Packet, err error) {
 	return p, nil
 }
 
-//不包括eap的信息
+//Does not include eap information
 func (p *MsChapV2Packet) String() string {
 	return fmt.Sprintf("OpCode:%s Data:[%#v]", p.OpCode, p.Data)
 }

@@ -83,7 +83,7 @@ func (a *EapPacket) String() string {
 func (a *EapPacket) valueString() string {
 	switch a.Type {
 	case EapTypeIdentity:
-		return fmt.Sprintf("%#v", string(a.Data)) //应该是字符串,但是也有可能被搞错
+		return fmt.Sprintf("%#v", string(a.Data)) //It should be a string, but it may be mistaken
 	case EapTypeMSCHAPV2:
 		mcv, err := MsChapV2PacketFromEap(a)
 		if err != nil {
