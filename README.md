@@ -119,7 +119,6 @@ package main
 import (
     "fmt"
     "github.com/sergle/radius"
-    "github.com/sergle/radius/client"
 )
 
 func main() {
@@ -130,7 +129,7 @@ func main() {
         return
     }
 
-    client := client.NewClient("127.0.0.1:1812", "gother")
+    client := radius.NewRadClient("127.0.0.1:1812", "secret")
 
     request := client.NewRequest(radius.DisconnectRequest)
     request.AddAVP( dict.NewAVP("Acct-Session-Id", "100500") )

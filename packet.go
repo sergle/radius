@@ -31,7 +31,7 @@ func (p *Packet) Copy() *Packet {
 		Secret:        p.Secret,
 		Code:          p.Code,
 		Identifier:    p.Identifier,
-		Authenticator: p.Authenticator, //这个应该是拷贝
+		Authenticator: p.Authenticator, // This should be a copy
 	}
 	outP.AVPs = make([]AVP, len(p.AVPs))
 	for i := range p.AVPs {
@@ -40,8 +40,7 @@ func (p *Packet) Copy() *Packet {
 	return outP
 }
 
-//此方法保证不修改包的内容
-//This method does not modify the contents of the package to ensure
+//This method guarantees that the contents of the package are not modified
 func (p *Packet) Encode() (b []byte, err error) {
 	// do not copy
 	// p = p.Copy()
@@ -61,7 +60,6 @@ func (p *Packet) Encode() (b []byte, err error) {
 		}
 	}
 
-	//TODO request的时候重新计算密码
 	// When the password request recalculation
 	b, err = p.encodeNoHash()
 	if err != nil {
@@ -155,8 +153,7 @@ func (p *Packet) AddVSA(vsa VSA) {
 	p.AddAVP(vsa.ToAVP())
 }
 
-//删除一个AVP
-//Delete a AVP
+//Delete one AVP
 func (p *Packet) DeleteAVP(avp *AVP) {
 	for i := range p.AVPs {
 		if &(p.AVPs[i]) == avp {
@@ -259,8 +256,7 @@ func decodePacket(Secret string, buf []byte, request_auth []byte) (p *Packet, er
 		b = b[length:]
 	}
 
-	//验证Message-Authenticator,并且通过测试验证此处算法是正确的
-	//Verify Message-Authenticator, and tested to verify the algorithm is correct here
+	//Verify the Message-Authenticator and verify that the algorithm here is correct through testing
 	err = p.checkMessageAuthenticator(request_auth)
 	if err != nil {
 		return p, err
