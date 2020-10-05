@@ -4,7 +4,6 @@ import (
     "fmt"
 
     "github.com/sergle/radius"
-    "github.com/sergle/radius/client"
 )
 
 func main() {
@@ -15,7 +14,7 @@ func main() {
         return
     }
 
-    client := client.NewClient("127.0.0.1:1812", "gother")
+    client := radius.NewRadClient("127.0.0.1:1812", "gopher")
 
     // FIXME no support yet for Password encoding
     //request := client.NewRequest(radius.AccessRequest)

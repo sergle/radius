@@ -1,13 +1,18 @@
 a golang radius library
 =============================
 [![Build Status](https://travis-ci.org/sergle/radius.svg)](https://travis-ci.org/sergle/radius)
-[![GoDoc](https://godoc.org/github.com/sergle/radius?status.svg)](https://godoc.org/github.com/sergle/radius)
+[![PkgGoDev](https://pkg.go.dev/badge/sergle/radius)](https://pkg.go.dev/sergle/radius)
 [![GitHub issues](https://img.shields.io/github/issues/sergle/radius.svg)](https://github.com/sergle/radius/issues)
 [![GitHub stars](https://img.shields.io/github/stars/sergle/radius.svg)](https://github.com/sergle/radius/stargazers)
 [![GitHub forks](https://img.shields.io/github/forks/sergle/radius.svg)](https://github.com/sergle/radius/network)
 [![MIT License](http://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](https://github.com/sergle/radius/blob/master/LICENSE)
 
 This project forks from https://github.com/bronze1man/radius
+
+Additional features included:
+* Dictionary file support (FreeRADIUS-compatible)
+* VSA attributes
+* Simple RADIUS client
 
 ### document
 * http://godoc.org/github.com/sergle/radius

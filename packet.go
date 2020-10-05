@@ -23,6 +23,7 @@ type Packet struct {
 	Identifier    uint8
 	Authenticator [16]byte
 	AVPs          []AVP
+	ClientAddr    string
 }
 
 func (p *Packet) Copy() *Packet {
@@ -231,6 +232,10 @@ func DecodeReply(secret string, buf []byte, request_auth []byte) (p *Packet, err
 
 // decode request/reply
 func decodePacket(Secret string, buf []byte, request_auth []byte) (p *Packet, err error) {
+	if len(buf) < 20 {
+		return nil, errors.New("invalid length")
+	}
+
 	p = &Packet{Secret: Secret}
 	p.Code = PacketCode(buf[0])
 	p.Identifier = buf[1]
@@ -323,7 +328,8 @@ func (p *Packet) checkMessageAuthenticator(request_auth []byte) (err error) {
 }
 
 func (p *Packet) String() string {
-	s := "Code: " + p.Code.String() + "\n" +
+	s := "From: " + p.ClientAddr + "\n" +
+		"Code: " + p.Code.String() + "\n" +
 		"Identifier: " + strconv.Itoa(int(p.Identifier)) + "\n" +
 		"Authenticator: " + fmt.Sprintf("%#v", p.Authenticator) + "\n"
 	for _, avp := range p.AVPs {

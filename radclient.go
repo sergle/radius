@@ -1,13 +1,11 @@
-package client
+package radius
 
 import (
 	"net"
 	"time"
-
-	"github.com/sergle/radius"
 )
 
-type Client struct {
+type RadClient struct {
 	secret  string
 	server  string
 	timeout time.Duration
@@ -16,15 +14,15 @@ type Client struct {
 const sendTimeout time.Duration = 2
 const bufSize int = 4096
 
-func NewClient(server string, secret string) *Client {
-	return &Client{secret: secret, server: server}
+func NewRadClient(server string, secret string) *RadClient {
+	return &RadClient{secret: secret, server: server}
 }
 
-func (c *Client) SetTimeout(t time.Duration) {
+func (c *RadClient) SetTimeout(t time.Duration) {
 	c.timeout = t
 }
 
-func (c *Client) Send(request *radius.Packet) (*radius.Packet, error) {
+func (c *RadClient) Send(request *Packet) (*Packet, error) {
 	buf, err := request.Encode()
 	if err != nil {
 		return nil, err
@@ -67,7 +65,7 @@ func (c *Client) Send(request *radius.Packet) (*radius.Packet, error) {
 		return nil, err
 	}
 
-	reply, err := radius.DecodeReply(c.secret, b[:n], request_auth)
+	reply, err := DecodeReply(c.secret, b[:n], request_auth)
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +74,7 @@ func (c *Client) Send(request *radius.Packet) (*radius.Packet, error) {
 }
 
 // create empty packet
-func (c *Client) NewRequest(code radius.PacketCode) *radius.Packet {
-	request := radius.Request(code, c.secret)
+func (c *RadClient) NewRequest(code PacketCode) *Packet {
+	request := Request(code, c.secret)
 	return request
 }
