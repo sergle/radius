@@ -85,9 +85,9 @@ func main() {
 
     select {
         case <-signalChan:
-            log.Println("stopping server...")
+            log.Printf("stopping server...\n")
             s.Stop()
         case err := <-errChan:
-            log.Println("[ERR] %v", err.Error())
+            log.Printf("[ERR] %v", err.Error())
     }
 }

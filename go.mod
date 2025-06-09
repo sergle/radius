@@ -1,3 +1,3 @@
 module github.com/sergle/radius
 
-go 1.15
+go 1.21
