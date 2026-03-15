@@ -66,7 +66,7 @@ import (
 )
 
 func main() {
-	handler := radius.HandlerFunc(func(request *radius.Packet) *radius.Packet {
+	handler := radius.HandlerFunc(func(ctx context.Context, request *radius.Packet) *radius.Packet {
 		reply := request.Reply()
 		if request.Code == radius.AccessRequest {
 			if request.GetUsername() == "admin" && request.GetPassword() == "secret" {

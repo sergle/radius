@@ -32,7 +32,7 @@ import (
 )
 
 func main() {
-	handler := radius.HandlerFunc(func(request *radius.Packet) *radius.Packet {
+	handler := radius.HandlerFunc(func(ctx context.Context, request *radius.Packet) *radius.Packet {
 		log.Printf("Received %s from %s", request.Code, request.ClientAddr)
 		
 		reply := request.Reply()

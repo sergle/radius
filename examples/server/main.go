@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"log"
 	"os"
@@ -55,7 +56,7 @@ func main() {
 	var cnt int64
 
 	// Create the handler as a closure to keep it clean and avoid struct clutter
-	handler := radius.HandlerFunc(func(request *radius.Packet) *radius.Packet {
+	handler := radius.HandlerFunc(func(ctx context.Context, request *radius.Packet) *radius.Packet {
 		count := atomic.AddInt64(&cnt, 1)
 		log.Printf("[%d] [Authenticate] %s\n", count, request.String())
 
