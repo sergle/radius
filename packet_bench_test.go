@@ -35,6 +35,21 @@ func BenchmarkDecodePacketLarge(b *testing.B) {
 	}
 }
 
+func BenchmarkDecodePacketPooledLarge(b *testing.B) {
+	rawPacket := getLargeRawPacket()
+	secret := "secret"
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		p, err := DecodeRequestPooled(secret, rawPacket)
+		if err != nil {
+			b.Fatal(err)
+		}
+		p.Release()
+	}
+}
+
 func BenchmarkDecodePacketLazyLarge(b *testing.B) {
 	rawPacket := getLargeRawPacket()
 	secret := "secret"
@@ -43,6 +58,39 @@ func BenchmarkDecodePacketLazyLarge(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_, err := DecodeRequestLazy(secret, rawPacket)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkEncodePacket(b *testing.B) {
+	p := Request(AccessRequest, "secret")
+	for i := 0; i < 20; i++ {
+		p.AddAVP(AVP{Type: 1, Value: []byte("benchmark-x")})
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := p.Encode()
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkEncodePacketTo(b *testing.B) {
+	p := Request(AccessRequest, "secret")
+	for i := 0; i < 20; i++ {
+		p.AddAVP(AVP{Type: 1, Value: []byte("benchmark-x")})
+	}
+	buf := make([]byte, 4096)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := p.EncodeTo(buf)
 		if err != nil {
 			b.Fatal(err)
 		}

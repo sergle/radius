@@ -14,6 +14,7 @@ This project forks from https://github.com/bronze1man/radius
 - **Builtin Dictionary**: Minimal standard attributes included out-of-the-box.
 - **Template System**: Pre-resolve attributes and VSAs for packet construction.
 - **Lazy Decoding**: Zero-allocation iterator-based decoding for high-performance use cases.
+- **Allocation Pooling**: Use `sync.Pool` for `Packet` structs to reach absolute zero-allocation.
 - **Enhanced Testing**: Comprehensive test suite including "golden data" verification.
 
 ## Installation
@@ -89,6 +90,28 @@ packet.EachAVP(func(attr radius.AVP) bool {
     log.Printf("Found AVP: %d", attr.Type)
     return true
 })
+```
+
+## High Performance: Zero-Allocation Pooling
+For the absolute highest performance, use `sync.Pool` and direct buffer encoding.
+
+### Pooled Decoding
+```go
+// Acquire a packet from the internal pool (Zero B/op)
+packet, err := radius.DecodeRequestPooled(secret, buf)
+if err != nil {
+    log.Fatal(err)
+}
+defer packet.Release() // Crucial: Return packet to the pool
+
+log.Printf("User: %s", packet.GetUsername())
+```
+
+### Direct Encoding
+```go
+// Encode directly into a provided buffer, avoiding allocations
+buf := make([]byte, 4096)
+n, err := packet.EncodeTo(buf)
 ```
 
 ## Migration Guide (v1 to v2)

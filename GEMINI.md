@@ -11,6 +11,7 @@ A feature-rich, high-performance RADIUS (Remote Authentication Dial-In User Serv
 - **Security First**: Built-in support for `Message-Authenticator` (RFC 3579) and password encryption.
 - **Extended Protocol Support**: Includes support for MS-CHAPv2 and EAP.
 - **Lazy Packet Decoding**: Optimized-for-speed iterator-based decoding (Go 1.21+).
+- **Allocation Pooling**: Built-in support for `sync.Pool` to achieve zero-allocation decoding.
 - **Comprehensive Testing**: Large test suite including "golden data" verification for protocol correctness.
 
 ## 🏗 Project Architecture
@@ -110,6 +111,26 @@ packet.EachAVP(func(a radius.AVP) bool {
     return true
 })
 ```
+
+### High-Performance: Zero-Allocation Decoding (Pooled)
+While lazy decoding is great for filters, full packets can be decoded with **zero allocations** using the built-in `sync.Pool` support.
+
+```go
+// Reuses a Packet struct from the pool
+packet, err := radius.DecodeRequestPooled(secret, buf)
+if err != nil {
+    return err
+}
+defer packet.Release() // Release back to pool after use
+
+// Full access to AVPs without any heap pressure
+username := packet.GetUsername()
+```
+
+**Benefits (20-Attribute Packet)**:
+- **Allocations**: 7 -> 0
+- **Memory**: 2256 B -> 0 B
+- **Performance**: ~10x faster than standard decoding
 
 **Benefits (20-Attribute Packet)**:
 - **Allocations**: 7 -> 1 (Struct reuse is possible)

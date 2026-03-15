@@ -12,6 +12,7 @@ import (
 	mrand "math/rand"
 	"net"
 	"strconv"
+	"sync"
 )
 
 var ErrMessageAuthenticatorCheckFail = fmt.Errorf("RADIUS Message-Authenticator verification failed")
@@ -25,6 +26,35 @@ type Packet struct {
 	AVPs          []AVP
 	RawAVPs       []byte // Unparsed attributes for lazy decoding
 	ClientAddr    string
+}
+
+var packetPool = sync.Pool{
+	New: func() interface{} {
+		return &Packet{
+			AVPs: make([]AVP, 0, 10),
+		}
+	},
+}
+
+// Release returns the packet to the pool.
+// The packet should not be used after being released.
+func (p *Packet) Release() {
+	if p == nil {
+		return
+	}
+	p.Reset()
+	packetPool.Put(p)
+}
+
+// Reset clears the packet state for reuse.
+func (p *Packet) Reset() {
+	p.Secret = ""
+	p.Code = 0
+	p.Identifier = 0
+	p.Authenticator = [16]byte{}
+	p.AVPs = p.AVPs[:0]
+	p.RawAVPs = nil
+	p.ClientAddr = ""
 }
 
 func (p *Packet) Copy() *Packet {
@@ -43,9 +73,16 @@ func (p *Packet) Copy() *Packet {
 
 // This method guarantees that the contents of the package are not modified
 func (p *Packet) Encode() (b []byte, err error) {
-	// do not copy
-	// p = p.Copy()
+	b = make([]byte, 4096)
+	n, err := p.EncodeTo(b)
+	if err != nil {
+		return nil, err
+	}
+	return b[:n], nil
+}
 
+// EncodeTo encodes the packet into the provided buffer.
+func (p *Packet) EncodeTo(b []byte) (n int, err error) {
 	if p.Code.IsAccess() {
 		// append Message-Authenticator AVP
 		p.SetAVP(AVP{
@@ -56,13 +93,13 @@ func (p *Packet) Encode() (b []byte, err error) {
 		if p.Code == AccessRequest && p.Authenticator[0] == 0 {
 			_, err := rand.Read(p.Authenticator[:])
 			if err != nil {
-				return nil, err
+				return 0, err
 			}
 		}
 	}
 
 	// When the password request recalculation
-	b, err = p.encodeNoHash()
+	n, err = p.encodeNoHashTo(b)
 	if err != nil {
 		return
 	}
@@ -70,11 +107,11 @@ func (p *Packet) Encode() (b []byte, err error) {
 	if p.Code.IsAccess() {
 		//Calculation Message-Authenticator it is placed in the rearmost
 		hasher := hmac.New(crypto.MD5.New, []byte(p.Secret))
-		hasher.Write(b)
-		copy(b[len(b)-16:len(b)], hasher.Sum(nil))
+		hasher.Write(b[:n])
+		copy(b[n-16:n], hasher.Sum(nil))
 		// update value in packet structure
 		avp := p.GetAVP(AttrMessageAuthenticator)
-		copy(avp.Value, b[len(b)-16:len(b)])
+		copy(avp.Value, b[n-16:n])
 	}
 
 	// fix up the authenticator
@@ -87,23 +124,31 @@ func (p *Packet) Encode() (b []byte, err error) {
 	case CoARequest, CoAAccept, CoAReject:
 		fallthrough
 	case AccessAccept, AccessReject, AccessChallenge, AccountingRequest, AccountingResponse:
-		//rfc2865 page 15 Response Authenticator
-		//rfc2866 page 6 Response Authenticator
-		//rfc2866 page 6 Request Authenticator
 		hasher := crypto.Hash(crypto.MD5).New()
-		hasher.Write(b)
+		hasher.Write(b[:n])
 		hasher.Write([]byte(p.Secret))
 		copy(p.Authenticator[:], hasher.Sum(nil))
 		copy(b[4:20], p.Authenticator[:])
 	default:
-		return nil, fmt.Errorf("not handle p.Code %d", p.Code)
+		return 0, fmt.Errorf("not handle p.Code %d", p.Code)
 	}
 
-	return b, err
+	return n, nil
 }
 
 func (p *Packet) encodeNoHash() (b []byte, err error) {
 	b = make([]byte, 4096)
+	n, err := p.encodeNoHashTo(b)
+	if err != nil {
+		return nil, err
+	}
+	return b[:n], nil
+}
+
+func (p *Packet) encodeNoHashTo(b []byte) (n int, err error) {
+	if len(b) < 20 {
+		return 0, errors.New("buffer too small")
+	}
 	b[0] = uint8(p.Code)
 	b[1] = uint8(p.Identifier)
 	copy(b[4:20], p.Authenticator[:])
@@ -115,17 +160,20 @@ func (p *Packet) encodeNoHash() (b []byte, err error) {
 			n, err := p.AVPs[i].Encode(bb)
 			written += n
 			if err != nil {
-				return nil, err
+				return 0, err
 			}
 			bb = bb[n:]
 		}
 	} else if len(p.RawAVPs) > 0 {
+		if len(b) < 20+len(p.RawAVPs) {
+			return 0, errors.New("buffer too small")
+		}
 		copy(b[20:], p.RawAVPs)
 		written += len(p.RawAVPs)
 	}
 
 	binary.BigEndian.PutUint16(b[2:4], uint16(written))
-	return b[:written], nil
+	return written, nil
 }
 
 func (p *Packet) HasAVP(attrType AttributeType) bool {
@@ -286,6 +334,26 @@ func DecodeReply(secret string, buf []byte, request_auth []byte) (p *Packet, err
 	return decodePacket(secret, buf, request_auth)
 }
 
+func DecodeRequestPooled(secret string, buf []byte) (p *Packet, err error) {
+	p = packetPool.Get().(*Packet)
+	err = decodePacketTo(p, secret, buf, nil)
+	if err != nil {
+		p.Release()
+		return nil, err
+	}
+	return p, nil
+}
+
+func DecodeReplyPooled(secret string, buf []byte, request_auth []byte) (p *Packet, err error) {
+	p = packetPool.Get().(*Packet)
+	err = decodePacketTo(p, secret, buf, request_auth)
+	if err != nil {
+		p.Release()
+		return nil, err
+	}
+	return p, nil
+}
+
 func DecodeRequestLazy(secret string, buf []byte) (p *Packet, err error) {
 	return decodePacketLazy(secret, buf, nil)
 }
@@ -296,9 +364,15 @@ func DecodeReplyLazy(secret string, buf []byte, request_auth []byte) (p *Packet,
 
 // decode request/reply
 func decodePacket(Secret string, buf []byte, request_auth []byte) (p *Packet, err error) {
-	p, err = decodePacketHeader(Secret, buf, request_auth)
+	p = &Packet{Secret: Secret}
+	err = decodePacketTo(p, Secret, buf, request_auth)
+	return p, err
+}
+
+func decodePacketTo(p *Packet, Secret string, buf []byte, request_auth []byte) error {
+	err := decodePacketHeaderTo(p, Secret, buf, request_auth)
 	if err != nil {
-		return p, err
+		return err
 	}
 
 	//read attributes
@@ -306,7 +380,7 @@ func decodePacket(Secret string, buf []byte, request_auth []byte) (p *Packet, er
 	for len(b) >= 2 {
 		length := uint8(b[1])
 		if int(length) > len(b) || length < 2 {
-			return nil, errors.New("invalid length")
+			return errors.New("invalid length")
 		}
 		attr := AVP{}
 		attr.Type = AttributeType(b[0])
@@ -318,9 +392,9 @@ func decodePacket(Secret string, buf []byte, request_auth []byte) (p *Packet, er
 	//Verify the Message-Authenticator and verify that the algorithm here is correct through testing
 	err = p.checkMessageAuthenticator(request_auth)
 	if err != nil {
-		return p, err
+		return err
 	}
-	return p, nil
+	return nil
 }
 
 func decodePacketLazy(Secret string, buf []byte, request_auth []byte) (p *Packet, err error) {
@@ -341,19 +415,25 @@ func decodePacketLazy(Secret string, buf []byte, request_auth []byte) (p *Packet
 }
 
 func decodePacketHeader(Secret string, buf []byte, request_auth []byte) (p *Packet, err error) {
+	p = &Packet{Secret: Secret}
+	err = decodePacketHeaderTo(p, Secret, buf, request_auth)
+	return p, err
+}
+
+func decodePacketHeaderTo(p *Packet, Secret string, buf []byte, request_auth []byte) error {
 	if len(buf) < 20 {
-		return nil, errors.New("invalid length")
+		return errors.New("invalid length")
 	}
 
-	p = &Packet{Secret: Secret}
+	p.Secret = Secret
 	p.Code = PacketCode(buf[0])
 	p.Identifier = buf[1]
 	copy(p.Authenticator[:], buf[4:20])
 
 	if err := p.checkAuthenticator(buf, request_auth); err != nil {
-		return p, err
+		return err
 	}
-	return p, nil
+	return nil
 }
 
 func (p *Packet) checkAuthenticator(buf []byte, request_auth []byte) (err error) {
@@ -404,12 +484,14 @@ func (p *Packet) checkMessageAuthenticator(request_auth []byte) (err error) {
 
 	// TODO do not encode/decode, verify agains buf[] on packet
 	// For lazy packets, we must use encodeNoHash which now handles RawAVPs
-	content, err := p.encodeNoHash()
+	// We use a stack buffer to avoid allocation
+	var buf [4096]byte
+	n, err := p.encodeNoHashTo(buf[:])
 	if err != nil {
 		return err
 	}
 	hasher := hmac.New(crypto.MD5.New, []byte(p.Secret))
-	hasher.Write(content)
+	hasher.Write(buf[:n])
 	if !hmac.Equal(hasher.Sum(nil), origValue) {
 		return ErrMessageAuthenticatorCheckFail
 	}
