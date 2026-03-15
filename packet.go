@@ -23,6 +23,7 @@ type Packet struct {
 	Identifier    uint8
 	Authenticator [16]byte
 	AVPs          []AVP
+	RawAVPs       []byte // Unparsed attributes for lazy decoding
 	ClientAddr    string
 }
 
@@ -107,36 +108,94 @@ func (p *Packet) encodeNoHash() (b []byte, err error) {
 	b[1] = uint8(p.Identifier)
 	copy(b[4:20], p.Authenticator[:])
 	written := 20
-	bb := b[20:]
-	for i, _ := range p.AVPs {
-		n, err := p.AVPs[i].Encode(bb)
-		written += n
-		if err != nil {
-			return nil, err
+
+	if len(p.AVPs) > 0 {
+		bb := b[20:]
+		for i := range p.AVPs {
+			n, err := p.AVPs[i].Encode(bb)
+			written += n
+			if err != nil {
+				return nil, err
+			}
+			bb = bb[n:]
 		}
-		bb = bb[n:]
+	} else if len(p.RawAVPs) > 0 {
+		copy(b[20:], p.RawAVPs)
+		written += len(p.RawAVPs)
 	}
+
 	binary.BigEndian.PutUint16(b[2:4], uint16(written))
 	return b[:written], nil
 }
 
 func (p *Packet) HasAVP(attrType AttributeType) bool {
-	for i, _ := range p.AVPs {
-		if p.AVPs[i].Type == attrType {
+	if len(p.AVPs) > 0 {
+		for i := range p.AVPs {
+			if p.AVPs[i].Type == attrType {
+				return true
+			}
+		}
+		return false
+	}
+	b := p.RawAVPs
+	for len(b) >= 2 {
+		length := uint8(b[1])
+		if int(length) > len(b) || length < 2 {
+			return false
+		}
+		if AttributeType(b[0]) == attrType {
 			return true
 		}
+		b = b[length:]
 	}
 	return false
 }
 
 // get one avp
 func (p *Packet) GetAVP(attrType AttributeType) *AVP {
-	for i := range p.AVPs {
-		if p.AVPs[i].Type == attrType {
-			return &p.AVPs[i]
+	if len(p.AVPs) > 0 {
+		for i := range p.AVPs {
+			if p.AVPs[i].Type == attrType {
+				return &p.AVPs[i]
+			}
 		}
+		return nil
+	}
+	b := p.RawAVPs
+	for len(b) >= 2 {
+		length := uint8(b[1])
+		if int(length) > len(b) || length < 2 {
+			return nil
+		}
+		if AttributeType(b[0]) == attrType {
+			return &AVP{Type: attrType, Value: b[2:length]}
+		}
+		b = b[length:]
 	}
 	return nil
+}
+
+func (p *Packet) EachAVP(fn func(a AVP) bool) {
+	if len(p.AVPs) > 0 {
+		for i := range p.AVPs {
+			if !fn(p.AVPs[i]) {
+				return
+			}
+		}
+		return
+	}
+
+	b := p.RawAVPs
+	for len(b) >= 2 {
+		length := uint8(b[1])
+		if int(length) > len(b) || length < 2 {
+			return
+		}
+		if !fn(AVP{Type: AttributeType(b[0]), Value: b[2:length]}) {
+			return
+		}
+		b = b[length:]
+	}
 }
 
 // set one avp,remove all other same type
@@ -227,8 +286,61 @@ func DecodeReply(secret string, buf []byte, request_auth []byte) (p *Packet, err
 	return decodePacket(secret, buf, request_auth)
 }
 
+func DecodeRequestLazy(secret string, buf []byte) (p *Packet, err error) {
+	return decodePacketLazy(secret, buf, nil)
+}
+
+func DecodeReplyLazy(secret string, buf []byte, request_auth []byte) (p *Packet, err error) {
+	return decodePacketLazy(secret, buf, request_auth)
+}
+
 // decode request/reply
 func decodePacket(Secret string, buf []byte, request_auth []byte) (p *Packet, err error) {
+	p, err = decodePacketHeader(Secret, buf, request_auth)
+	if err != nil {
+		return p, err
+	}
+
+	//read attributes
+	b := buf[20:]
+	for len(b) >= 2 {
+		length := uint8(b[1])
+		if int(length) > len(b) || length < 2 {
+			return nil, errors.New("invalid length")
+		}
+		attr := AVP{}
+		attr.Type = AttributeType(b[0])
+		attr.Value = b[2:length]
+		p.AVPs = append(p.AVPs, attr)
+		b = b[length:]
+	}
+
+	//Verify the Message-Authenticator and verify that the algorithm here is correct through testing
+	err = p.checkMessageAuthenticator(request_auth)
+	if err != nil {
+		return p, err
+	}
+	return p, nil
+}
+
+func decodePacketLazy(Secret string, buf []byte, request_auth []byte) (p *Packet, err error) {
+	p, err = decodePacketHeader(Secret, buf, request_auth)
+	if err != nil {
+		return p, err
+	}
+	p.RawAVPs = buf[20:]
+
+	// Verify the Message-Authenticator
+	// Note: Message-Authenticator verification requires walking the attributes
+	// if we want to be fully lazy, we could defer this, but it's safer to check now.
+	err = p.checkMessageAuthenticator(request_auth)
+	if err != nil {
+		return p, err
+	}
+	return p, nil
+}
+
+func decodePacketHeader(Secret string, buf []byte, request_auth []byte) (p *Packet, err error) {
 	if len(buf) < 20 {
 		return nil, errors.New("invalid length")
 	}
@@ -239,26 +351,6 @@ func decodePacket(Secret string, buf []byte, request_auth []byte) (p *Packet, er
 	copy(p.Authenticator[:], buf[4:20])
 
 	if err := p.checkAuthenticator(buf, request_auth); err != nil {
-		return p, err
-	}
-
-	//read attributes
-	b := buf[20:]
-	for len(b) >= 2 {
-		length := uint8(b[1])
-		if int(length) > len(b) {
-			return nil, errors.New("invalid length")
-		}
-		attr := AVP{}
-		attr.Type = AttributeType(b[0])
-		attr.Value = append(attr.Value, b[2:length]...)
-		p.AVPs = append(p.AVPs, attr)
-		b = b[length:]
-	}
-
-	//Verify the Message-Authenticator and verify that the algorithm here is correct through testing
-	err = p.checkMessageAuthenticator(request_auth)
-	if err != nil {
 		return p, err
 	}
 	return p, nil
@@ -311,6 +403,7 @@ func (p *Packet) checkMessageAuthenticator(request_auth []byte) (err error) {
 	avp.Value = make([]byte, 16)
 
 	// TODO do not encode/decode, verify agains buf[] on packet
+	// For lazy packets, we must use encodeNoHash which now handles RawAVPs
 	content, err := p.encodeNoHash()
 	if err != nil {
 		return err

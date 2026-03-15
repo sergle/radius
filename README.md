@@ -13,6 +13,7 @@ This project forks from https://github.com/bronze1man/radius
 - **Dictionary Support**: Full support for FreeRADIUS-style dictionary files.
 - **Builtin Dictionary**: Minimal standard attributes included out-of-the-box.
 - **Template System**: Pre-resolve attributes and VSAs for packet construction.
+- **Lazy Decoding**: Zero-allocation iterator-based decoding for high-performance use cases.
 - **Enhanced Testing**: Comprehensive test suite including "golden data" verification.
 
 ## Installation
@@ -71,6 +72,23 @@ func main() {
 	}
 	log.Printf("Reply: %s", reply.Code)
 }
+```
+
+## High Performance: Lazy Decoding
+For high-load proxies or filters where performance is critical, use lazy decoding to avoid unnecessary allocations.
+
+```go
+// Decode without parsing attributes upfront
+packet, _ := radius.DecodeRequestLazy(secret, buf)
+
+// Attributes are parsed on-demand when using GetAVP or EachAVP
+username := packet.GetUsername()
+
+// Iterate over all attributes without heap allocations
+packet.EachAVP(func(attr radius.AVP) bool {
+    log.Printf("Found AVP: %d", attr.Type)
+    return true
+})
 ```
 
 ## Migration Guide (v1 to v2)
