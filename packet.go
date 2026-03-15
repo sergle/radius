@@ -676,7 +676,11 @@ func (p *Packet) GetEAPMessage() *EapPacket {
 	if avp == nil {
 		return nil
 	}
-	return avp.Decode(p).(*EapPacket)
+	val := avp.Decode(p)
+	if eap, ok := val.(*EapPacket); ok {
+		return eap
+	}
+	return nil
 }
 
 func (p *Packet) GetNASPortType() NASPortTypeEnum {

@@ -23,6 +23,10 @@ func (s AvpPassword) Value(p *Packet, a AVP) interface{} {
 	hash := crypto.Hash(crypto.MD5).New()
 	blocks := 0
 
+	if len(b)%blockSize != 0 {
+		return ""
+	}
+
 	for len(b) > 0 {
 		hash.Write(append([]byte(p.Secret), last...))
 		digest := hash.Sum(nil)

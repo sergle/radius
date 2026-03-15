@@ -12,10 +12,16 @@ var avpUint32 AvpUint32
 type AvpUint32 struct{}
 
 func (s AvpUint32) Value(p *Packet, a AVP) interface{} {
+	if len(a.Value) < uint32Size {
+		return uint32(0)
+	}
 	return uint32(binary.BigEndian.Uint32(a.Value))
 }
 
 func (s AvpUint32) String(p *Packet, a AVP) string {
+	if len(a.Value) < uint32Size {
+		return "invalid"
+	}
 	return strconv.Itoa(int(binary.BigEndian.Uint32(a.Value)))
 }
 

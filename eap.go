@@ -122,8 +122,8 @@ func EapDecode(b []byte) (eap *EapPacket, err error) {
 		return nil, fmt.Errorf("[EapDecode] protocol error input too small 1")
 	}
 	length := binary.BigEndian.Uint16(b[2:4])
-	if len(b) < int(length) {
-		return nil, fmt.Errorf("[EapDecode] protocol error input too small 2")
+	if length < 5 || len(b) < int(length) {
+		return nil, fmt.Errorf("[EapDecode] protocol error input too small")
 	}
 	eap = &EapPacket{
 		Code:       EapCode(b[0]),
