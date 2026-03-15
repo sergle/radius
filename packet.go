@@ -339,14 +339,30 @@ func (p *Packet) GetUsername() (username string) {
 	if avp == nil {
 		return ""
 	}
-	return avp.Decode(p).(string)
+	val := avp.Decode(p)
+	if s, ok := val.(string); ok {
+		return s
+	}
+	if b, ok := val.([]byte); ok {
+		return string(b)
+	}
+	return ""
 }
 func (p *Packet) GetPassword() (password string) {
 	avp := p.GetAVP(AttrUserPassword)
 	if avp == nil {
 		return ""
 	}
-	return avp.Decode(p).(string)
+	val := avp.Decode(p)
+	if s, ok := val.(string); ok {
+		return s
+	}
+	if _, ok := val.([]byte); ok {
+		// If no dictionary is loaded, we can't automatically decrypt via Decode.
+		// However, we can use the avpPassword handler directly.
+		return avpPassword.Value(p, *avp).(string)
+	}
+	return ""
 }
 func (p *Packet) AddPassword(password string) {
 	p.SetAVP(AVP{
@@ -360,7 +376,14 @@ func (p *Packet) GetNasIpAddress() (ip net.IP) {
 	if avp == nil {
 		return nil
 	}
-	return avp.Decode(p).(net.IP)
+	val := avp.Decode(p)
+	if ip, ok := val.(net.IP); ok {
+		return ip
+	}
+	if b, ok := val.([]byte); ok {
+		return net.IP(b)
+	}
+	return nil
 }
 
 func (p *Packet) GetAcctStatusType() AcctStatusTypeEnum {
@@ -372,7 +395,13 @@ func (p *Packet) GetAcctStatusType() AcctStatusTypeEnum {
 	if v, ok := val.(AcctStatusTypeEnum); ok {
 		return v
 	}
-	return AcctStatusTypeEnum(val.(uint32))
+	if i, ok := val.(uint32); ok {
+		return AcctStatusTypeEnum(i)
+	}
+	if b, ok := val.([]byte); ok && len(b) == 4 {
+		return AcctStatusTypeEnum(binary.BigEndian.Uint32(b))
+	}
+	return AcctStatusTypeEnum(0)
 }
 
 func (p *Packet) GetAcctSessionId() string {
@@ -380,18 +409,35 @@ func (p *Packet) GetAcctSessionId() string {
 	if avp == nil {
 		return ""
 	}
-	return avp.Decode(p).(string)
+	val := avp.Decode(p)
+	if s, ok := val.(string); ok {
+		return s
+	}
+	if b, ok := val.([]byte); ok {
+		return string(b)
+	}
+	return ""
 }
 
 func (p *Packet) GetAcctTotalOutputOctets() uint64 {
 	out := uint64(0)
 	avp := p.GetAVP(AttrAcctOutputOctets)
 	if avp != nil {
-		out += uint64(avp.Decode(p).(uint32))
+		val := avp.Decode(p)
+		if i, ok := val.(uint32); ok {
+			out += uint64(i)
+		} else if b, ok := val.([]byte); ok && len(b) == 4 {
+			out += uint64(binary.BigEndian.Uint32(b))
+		}
 	}
 	avp = p.GetAVP(AttrAcctOutputGigawords)
 	if avp != nil {
-		out += uint64(avp.Decode(p).(uint32)) << 32
+		val := avp.Decode(p)
+		if i, ok := val.(uint32); ok {
+			out += uint64(i) << 32
+		} else if b, ok := val.([]byte); ok && len(b) == 4 {
+			out += uint64(binary.BigEndian.Uint32(b)) << 32
+		}
 	}
 	return out
 }
@@ -400,11 +446,21 @@ func (p *Packet) GetAcctTotalInputOctets() uint64 {
 	out := uint64(0)
 	avp := p.GetAVP(AttrAcctInputOctets)
 	if avp != nil {
-		out += uint64(avp.Decode(p).(uint32))
+		val := avp.Decode(p)
+		if i, ok := val.(uint32); ok {
+			out += uint64(i)
+		} else if b, ok := val.([]byte); ok && len(b) == 4 {
+			out += uint64(binary.BigEndian.Uint32(b))
+		}
 	}
 	avp = p.GetAVP(AttrAcctInputGigawords)
 	if avp != nil {
-		out += uint64(avp.Decode(p).(uint32)) << 32
+		val := avp.Decode(p)
+		if i, ok := val.(uint32); ok {
+			out += uint64(i) << 32
+		} else if b, ok := val.([]byte); ok && len(b) == 4 {
+			out += uint64(binary.BigEndian.Uint32(b)) << 32
+		}
 	}
 	return out
 }
@@ -415,7 +471,14 @@ func (p *Packet) GetNASPort() uint32 {
 	if avp == nil {
 		return 0
 	}
-	return avp.Decode(p).(uint32)
+	val := avp.Decode(p)
+	if i, ok := val.(uint32); ok {
+		return i
+	}
+	if b, ok := val.([]byte); ok && len(b) == 4 {
+		return binary.BigEndian.Uint32(b)
+	}
+	return 0
 }
 
 func (p *Packet) GetNASIdentifier() string {
@@ -423,7 +486,14 @@ func (p *Packet) GetNASIdentifier() string {
 	if avp == nil {
 		return ""
 	}
-	return avp.Decode(p).(string)
+	val := avp.Decode(p)
+	if s, ok := val.(string); ok {
+		return s
+	}
+	if b, ok := val.([]byte); ok {
+		return string(b)
+	}
+	return ""
 }
 
 func (p *Packet) GetEAPMessage() *EapPacket {
@@ -443,7 +513,13 @@ func (p *Packet) GetNASPortType() NASPortTypeEnum {
 	if v, ok := val.(NASPortTypeEnum); ok {
 		return v
 	}
-	return NASPortTypeEnum(val.(uint32))
+	if i, ok := val.(uint32); ok {
+		return NASPortTypeEnum(i)
+	}
+	if b, ok := val.([]byte); ok && len(b) == 4 {
+		return NASPortTypeEnum(binary.BigEndian.Uint32(b))
+	}
+	return NASPortTypeEnum(0)
 }
 
 func (p *Packet) GetServiceType() ServiceTypeEnum {
@@ -455,5 +531,11 @@ func (p *Packet) GetServiceType() ServiceTypeEnum {
 	if v, ok := val.(ServiceTypeEnum); ok {
 		return v
 	}
-	return ServiceTypeEnum(val.(uint32))
+	if i, ok := val.(uint32); ok {
+		return ServiceTypeEnum(i)
+	}
+	if b, ok := val.([]byte); ok && len(b) == 4 {
+		return ServiceTypeEnum(binary.BigEndian.Uint32(b))
+	}
+	return ServiceTypeEnum(0)
 }
