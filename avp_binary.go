@@ -4,16 +4,16 @@ import (
 	"fmt"
 )
 
-var avpBinary avpBinaryt
+var avpBinary AvpBinary
 
-type avpBinaryt struct{}
+type AvpBinary struct{}
 
-func (s avpBinaryt) Value(p *Packet, a AVP) interface{} {
+func (s AvpBinary) Value(p *Packet, a AVP) interface{} {
 	return a.Value
 }
-func (s avpBinaryt) String(p *Packet, a AVP) string {
+func (s AvpBinary) String(p *Packet, a AVP) string {
 	return fmt.Sprintf("%#v", a.Value)
 }
-func (s avpBinaryt) FromString(v string) []byte {
+func (s AvpBinary) FromString(v string) []byte {
 	return []byte(v)
 }

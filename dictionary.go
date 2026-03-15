@@ -2,16 +2,69 @@ package radius
 
 import (
 	"bufio"
+	"encoding/binary"
 	"errors"
 	"fmt"
+
+	"log"
 	"os"
-	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
-	"unicode"
+	"sync"
+	// ASCII whitespace checker for RADIUS files (only space and tab)
 )
 
+// isSpace checks for ASCII space or tab characters.
+var isSpace = func(r rune) bool { return r == ' ' || r == '\t' }
+
+// splitLine splits a line into fields using ASCII whitespace without extra allocations.
+func splitLine(line string) []string {
+	var fields []string
+	start := -1
+	for i, r := range line {
+		if isSpace(r) {
+			if start != -1 {
+				fields = append(fields, line[start:i])
+				start = -1
+			}
+		} else {
+			if start == -1 {
+				start = i
+			}
+		}
+	}
+	if start != -1 {
+		fields = append(fields, line[start:])
+	}
+	return fields
+}
+
+var (
+	defaultDictionary   *Dictionary
+	defaultDictionaryMu sync.RWMutex
+)
+
+func init() {
+	defaultDictionary = NewDictionary()
+}
+
+// SetDefaultDictionary sets the dictionary used for package-level lookups (like AVP.Decode)
+func SetDefaultDictionary(d *Dictionary) {
+	defaultDictionaryMu.Lock()
+	defer defaultDictionaryMu.Unlock()
+	defaultDictionary = d
+}
+
+// GetDefaultDictionary returns the current default dictionary
+func GetDefaultDictionary() *Dictionary {
+	defaultDictionaryMu.RLock()
+	defer defaultDictionaryMu.RUnlock()
+	return defaultDictionary
+}
+
 type Dictionary struct {
+	sync.RWMutex
 	// map attribute name to id
 	attr_id map[string]AttributeType
 	// map attribute it to name
@@ -64,10 +117,16 @@ func NewDictionary() *Dictionary {
 }
 
 func (d *Dictionary) LoadFile(fname string) error {
-	fmt.Printf("Reading file %s\n", fname)
+	d.Lock()
+	defer d.Unlock()
+	return d.loadFileInternal(fname)
+}
+
+func (d *Dictionary) loadFileInternal(fname string) error {
+	log.Printf("Reading file %s\n", fname)
 
 	if _, ok := d.flist[fname]; ok {
-		fmt.Printf("File %s already read\n", fname)
+		log.Printf("File %s already read\n", fname)
 		return nil
 	}
 
@@ -75,7 +134,7 @@ func (d *Dictionary) LoadFile(fname string) error {
 
 	file, err := os.Open(fname)
 	if err != nil {
-		fmt.Printf("Failed to open file %s, error %s\n", fname, err)
+		log.Printf("Failed to open file %s, error %s\n", fname, err)
 		return err
 	}
 	defer file.Close()
@@ -85,16 +144,7 @@ func (d *Dictionary) LoadFile(fname string) error {
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		//fmt.Printf("Line: %s\n", line)
-
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-
-		if strings.HasPrefix(line, "#") {
-			continue
-		}
+		//log.Printf("Line: %s\n", line)
 
 		err := d.parseLine(fname, line)
 		if err != nil {
@@ -108,36 +158,63 @@ func (d *Dictionary) LoadFile(fname string) error {
 func (d *Dictionary) parseLine(fname string, line string) error {
 
 	// ATTRIBUTE     User-Name                               1       string
-	parts := strings.FieldsFunc(line, func(c rune) bool { return unicode.IsSpace(c) })
+	parts := splitLine(line)
 
 	if len(parts) == 0 {
+		return nil
+	}
+
+	if strings.HasPrefix(parts[0], "#") {
 		return nil
 	}
 
 	cmd := parts[0]
 	switch cmd {
 	case "ATTRIBUTE":
+		if len(parts) < 4 {
+			return errors.New("Invalid ATTRIBUTE line: " + line)
+		}
 		return d.parseAttribute(parts[1], parts[2], parts[3])
 	case "VALUE":
+		if len(parts) < 4 {
+			return errors.New("Invalid VALUE line: " + line)
+		}
 		return d.parseValue(parts[1], parts[2], parts[3])
 	case "$INCLUDE":
+		if len(parts) < 2 {
+			return errors.New("Invalid $INCLUDE line: " + line)
+		}
 		return d.parseInclude(fname, parts[1])
 	case "VENDOR":
+		if len(parts) < 3 {
+			return errors.New("Invalid VENDOR line: " + line)
+		}
 		return d.parseVendor(parts[1], parts[2])
 	case "BEGIN-VENDOR":
+		if len(parts) < 2 {
+			return errors.New("Invalid BEGIN-VENDOR line: " + line)
+		}
 		return d.parseBeginVendor(parts[1])
 	case "END-VENDOR":
+		if len(parts) < 2 {
+			return errors.New("Invalid END-VENDOR line: " + line)
+		}
 		return d.parseEndVendor(parts[1])
 	case "BEGIN-TLV":
+		if len(parts) < 2 {
+			return errors.New("Invalid BEGIN-TLV line: " + line)
+		}
 		return d.parseBeginTLV(parts[1])
 	case "END-TLV":
+		if len(parts) < 2 {
+			return errors.New("Invalid END-TLV line: " + line)
+		}
 		return d.parseEndTLV(parts[1])
 	default:
-		fmt.Printf("UNKNOWN cmd: %s\n", cmd)
+		log.Printf("UNKNOWN cmd: %s\n", cmd)
 		return errors.New("Unsupported command " + cmd)
 	}
 
-	return nil
 }
 
 func (d *Dictionary) parseAttribute(attr_name string, attr_id string, attr_type string) error {
@@ -150,7 +227,7 @@ func (d *Dictionary) parseAttribute(attr_name string, attr_id string, attr_type 
 	// 0 - guess base (0x for hex)
 	a_id, err := strconv.ParseUint(attr_id, 0, 8)
 	if err != nil {
-		fmt.Printf("Failed to convert attr %s id %s to uint: %s. Ignoring\n", attr_name, attr_id, err)
+		log.Printf("Failed to convert attr %s id %s to uint: %s. Ignoring\n", attr_name, attr_id, err)
 		// ignore errors
 		return nil
 	}
@@ -158,7 +235,7 @@ func (d *Dictionary) parseAttribute(attr_name string, attr_id string, attr_type 
 	//TODO WiMAX
 	if d.current_tlv > 0 {
 		// ignore tlv sub-attributes
-		fmt.Printf("Ignore TVL attribute %s\n", attr_name)
+		log.Printf("Ignore TVL attribute %s\n", attr_name)
 		return nil
 	}
 
@@ -177,7 +254,7 @@ func (d *Dictionary) parseAttribute(attr_name string, attr_id string, attr_type 
 		d.attr_id[attr_name] = AttributeType(a_id)
 		d.attr_name[AttributeType(a_id)] = attr_name
 		d.attr_type[attr_name] = attr_type
-		//fmt.Printf("Attr %s has id %d and type %s\n", attr_name, a_id, attr_type)
+		//log.Printf("Attr %s has id %d and type %s\n", attr_name, a_id, attr_type)
 	}
 
 	return nil
@@ -187,19 +264,19 @@ func (d *Dictionary) parseValue(attr_name string, const_name string, const_value
 	//TODO WiMAX
 	if d.current_tlv > 0 {
 		// ignore tlv sub-attributes
-		fmt.Printf("Ignore TVL attribute %s\n", attr_name)
+		log.Printf("Ignore TVL attribute %s\n", attr_name)
 		return nil
 	}
 
 	var present bool
 	if d.current_vendor > 0 {
-		present = d.HasVSAAttribute(d.current_vendor, attr_name)
+		_, present = d.vsa_attr_id[d.current_vendor][attr_name]
 	} else {
-		present = d.HasAttribute(attr_name)
+		_, present = d.attr_id[attr_name]
 	}
 
 	if !present {
-		fmt.Printf("Value %s for non-existing attribute %s\n", const_name, attr_name)
+		log.Printf("Value %s for non-existing attribute %s\n", const_name, attr_name)
 		// ignore 'compat' errors
 		return nil
 	}
@@ -207,7 +284,7 @@ func (d *Dictionary) parseValue(attr_name string, const_name string, const_value
 	// some values defined as 0x.. - using '0' to auto-detect
 	c_id, err := strconv.ParseUint(const_value, 0, 32)
 	if err != nil {
-		fmt.Printf("Failed to convert constant value to int: %s\n", err)
+		log.Printf("Failed to convert constant value to int: %s\n", err)
 		return err
 	}
 
@@ -233,7 +310,7 @@ func (d *Dictionary) parseValue(attr_name string, const_name string, const_value
 
 		d.const_id[attr_name][const_name] = uint32(c_id)
 		d.const_name[attr_name][uint32(c_id)] = const_name
-		//fmt.Printf("Attr %s has value %s = %s\n", attr_name, const_name, const_value)
+		//log.Printf("Attr %s has value %s = %s\n", attr_name, const_name, const_value)
 	}
 
 	return nil
@@ -253,22 +330,22 @@ var blacklist_dictionary = map[string]int{
 func (d *Dictionary) parseInclude(fname string, inc_name string) error {
 	// ignore files in unsupported format
 	if _, ok := blacklist_dictionary[inc_name]; ok {
-		fmt.Printf("Skip internal/unsupported FreeRADIUS dictionary: %s\n", inc_name)
+		log.Printf("Skip internal/unsupported FreeRADIUS dictionary: %s\n", inc_name)
 		return nil
 	}
 
-	fmt.Printf("-- include file %s --\n", inc_name)
+	log.Printf("-- include file %s --\n", inc_name)
 	// included file locate in the same directory
-	full_name := path.Join(path.Dir(fname), inc_name)
+	full_name := filepath.Join(filepath.Dir(fname), inc_name)
 	// clear vendor
 	d.current_vendor = 0
-	return d.LoadFile(full_name)
+	return d.loadFileInternal(full_name)
 }
 
 func (d *Dictionary) parseVendor(vendor_name string, vendor_id string) error {
 	v_id, err := strconv.ParseUint(vendor_id, 0, 32)
 	if err != nil {
-		fmt.Printf("Failed to convert vendor id: %s\n", err)
+		log.Printf("Failed to convert vendor id: %s\n", err)
 		return err
 	}
 
@@ -281,8 +358,8 @@ func (d *Dictionary) parseVendor(vendor_name string, vendor_id string) error {
 func (d *Dictionary) parseBeginVendor(vendor_name string) error {
 	v_id, ok := d.vendor_id[vendor_name]
 	if !ok {
-		fmt.Printf("Vendor %s not found", vendor_name)
-		return errors.New("Unknown vendor " + vendor_name)
+		log.Printf("vendor %s not found", vendor_name)
+		return errors.New("unknown vendor " + vendor_name)
 	}
 	d.current_vendor = v_id
 	return nil
@@ -291,12 +368,12 @@ func (d *Dictionary) parseBeginVendor(vendor_name string) error {
 func (d *Dictionary) parseEndVendor(vendor_name string) error {
 	v_id, ok := d.vendor_id[vendor_name]
 	if !ok {
-		fmt.Printf("Vendor %s not found", vendor_name)
-		return errors.New("Unknown vendor " + vendor_name)
+		log.Printf("vendor %s not found", vendor_name)
+		return errors.New("unknown vendor " + vendor_name)
 	}
 
 	if d.current_vendor == 0 || d.current_vendor != v_id {
-		return errors.New("Unexpected END-VENDOR found")
+		return errors.New("unexpected END-VENDOR found")
 	}
 
 	d.current_vendor = 0
@@ -307,7 +384,7 @@ func (d *Dictionary) parseEndVendor(vendor_name string) error {
 func (d *Dictionary) parseBeginTLV(attr_name string) error {
 	a_id, ok := d.vsa_attr_id[d.current_vendor][attr_name]
 	if !ok {
-		fmt.Printf("TLV attribute %s not found\n", attr_name)
+		log.Printf("TLV attribute %s not found\n", attr_name)
 		return errors.New("Unknown TLV attribute " + attr_name)
 	}
 	d.current_tlv = a_id
@@ -317,13 +394,13 @@ func (d *Dictionary) parseBeginTLV(attr_name string) error {
 func (d *Dictionary) parseEndTLV(attr_name string) error {
 	a_id, ok := d.vsa_attr_id[d.current_vendor][attr_name]
 	if !ok {
-		fmt.Printf("TLV attribute %s not found\n", attr_name)
+		log.Printf("TLV attribute %s not found\n", attr_name)
 		return errors.New("Unknown TLV attribute " + attr_name)
 	}
 
 	if d.current_tlv == 0 || d.current_tlv != a_id {
-		fmt.Printf("Current TLV %d expected %d", d.current_tlv, a_id)
-		return errors.New("Unexpected END-TLV")
+		log.Printf("Current TLV %d expected %d", d.current_tlv, a_id)
+		return errors.New("unexpected END-TLV")
 	}
 
 	d.current_tlv = 0
@@ -332,10 +409,13 @@ func (d *Dictionary) parseEndTLV(attr_name string) error {
 
 // attribute type to handler mapping
 var attr_type_handlers = map[string]avpDataType{
-	"integer": avpUint32,
-	"ipaddr":  avpIP,
-	"string":  avpString,
-	"octets":  avpBinary,
+	"integer":    avpUint32,
+	"ipaddr":     avpIP,
+	"string":     avpString,
+	"octets":     avpBinary,
+	"password":   avpPassword,
+	"vsa":        avpVendor,
+	"eapmessage": avpEapMessage,
 	// "byte"
 	// "ipv6addr"
 	// "short"
@@ -350,68 +430,121 @@ var attr_type_handlers = map[string]avpDataType{
 }
 
 func (d *Dictionary) DecodeAVPValue(p *Packet, a AVP) string {
-	if a.Type == UserPassword {
+	if a.Type == AttrUserPassword {
 		return avpPassword.String(p, a)
-	} else if a.Type == VendorSpecific {
+	} else if a.Type == AttrVendorSpecific {
 		vsa := ToVSA(a)
 
 		vendor_name := d.GetVendorName(vsa.Vendor)
 		attr_name := d.GetVSAAttributeName(vsa.Vendor, vsa.Type)
 		attr_type := d.GetVSAAttributeType(vsa.Vendor, attr_name)
 		handler := attr_type_handlers[attr_type]
+		if handler == nil {
+			handler = avpBinary
+		}
+
+		valStr := handler.String(p, AVP{Value: vsa.Value})
+		// Try to lookup enum name for VSAs too
+		if attr_type == "integer" {
+			vID := binary.BigEndian.Uint32(vsa.Value)
+			d.RLock()
+			if d.vsa_const_name[vsa.Vendor] != nil && d.vsa_const_name[vsa.Vendor][attr_name] != nil {
+				if enumName, ok := d.vsa_const_name[vsa.Vendor][attr_name][vID]; ok {
+					valStr = enumName
+				}
+			}
+			d.RUnlock()
+		}
 
 		return fmt.Sprintf("{Vendor:%s #%d, Attr: %s #%d, Value: %s}",
-			vendor_name, vsa.Vendor, attr_name, vsa.Type, handler.String(p, AVP{Value: vsa.Value}))
+			vendor_name, vsa.Vendor, attr_name, vsa.Type, valStr)
 
 	}
 
 	attr_name := d.GetAttributeName(a.Type)
 	attr_type := d.GetAttributeType(attr_name)
 	handler := attr_type_handlers[attr_type]
+	if handler == nil {
+		handler = avpBinary
+	}
+
+	// Try to lookup enum name for standard attributes
+	if attr_type == "integer" {
+		vID := binary.BigEndian.Uint32(a.Value)
+		d.RLock()
+		if d.const_name[attr_name] != nil {
+			if enumName, ok := d.const_name[attr_name][vID]; ok {
+				d.RUnlock()
+				return enumName
+			}
+		}
+		d.RUnlock()
+	}
+
 	return handler.String(p, a)
 }
 
 // public
 
 func (d *Dictionary) GetAttributeID(attr_name string) AttributeType {
+	d.RLock()
+	defer d.RUnlock()
 	return d.attr_id[attr_name]
 }
 
 func (d *Dictionary) HasAttribute(attr_name string) bool {
+	d.RLock()
+	defer d.RUnlock()
 	_, present := d.attr_id[attr_name]
 	return present
 }
 
 func (d *Dictionary) GetAttributeName(attr_id AttributeType) string {
+	d.RLock()
+	defer d.RUnlock()
 	return d.attr_name[attr_id]
 }
 
 func (d *Dictionary) GetAttributeType(attr_name string) string {
+	d.RLock()
+	defer d.RUnlock()
 	return d.attr_type[attr_name]
 }
 
 func (d *Dictionary) GetVSAAttributeID(vendor_id VendorID, attr_name string) VendorAttr {
+	d.RLock()
+	defer d.RUnlock()
 	return d.vsa_attr_id[vendor_id][attr_name]
 }
 
 func (d *Dictionary) HasVSAAttribute(vendor_id VendorID, attr_name string) bool {
+	d.RLock()
+	defer d.RUnlock()
 	_, present := d.vsa_attr_id[vendor_id][attr_name]
 	return present
 }
 
 func (d *Dictionary) GetVSAAttributeName(vendor_id VendorID, attr_id VendorAttr) string {
+	d.RLock()
+	defer d.RUnlock()
 	return d.vsa_attr_name[vendor_id][attr_id]
 }
 
 func (d *Dictionary) GetVSAAttributeType(vendor_id VendorID, attr_name string) string {
+	d.RLock()
+	defer d.RUnlock()
 	return d.vsa_attr_type[vendor_id][attr_name]
 }
 
 func (d *Dictionary) GetVendorName(vendor_id VendorID) string {
+	d.RLock()
+	defer d.RUnlock()
 	return d.vendor_name[vendor_id]
 }
 
 func (d *Dictionary) GetVendorID(vendor_name string) VendorID {
+	d.RLock()
+	defer d.RUnlock()
 	return d.vendor_id[vendor_name]
 }
 
@@ -420,7 +553,7 @@ func (d *Dictionary) NewAVP(attr_name string, attr_value string) AVP {
 	attr_type := d.GetAttributeType(attr_name)
 	handler := attr_type_handlers[attr_type]
 	if handler == nil {
-		fmt.Printf("Unknown type %s\n", attr_type)
+		log.Printf("Unknown type %s\n", attr_type)
 		return AVP{}
 	}
 

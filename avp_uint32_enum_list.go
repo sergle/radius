@@ -6,12 +6,12 @@ import (
 )
 
 // not used?
-type avpUint32EnumList []string
+type AvpUint32EnumList []string
 
-func (s avpUint32EnumList) Value(p *Packet, a AVP) interface{} {
+func (s AvpUint32EnumList) Value(p *Packet, a AVP) interface{} {
 	return uint32(binary.BigEndian.Uint32(a.Value))
 }
-func (s avpUint32EnumList) String(p *Packet, a AVP) string {
+func (s AvpUint32EnumList) String(p *Packet, a AVP) string {
 	number := int(binary.BigEndian.Uint32(a.Value))
 	if number > len(s) {
 		return "unknow " + strconv.Itoa(number)
@@ -24,6 +24,6 @@ func (s avpUint32EnumList) String(p *Packet, a AVP) string {
 }
 
 // TODO
-func (s avpUint32EnumList) FromString(v string) []byte {
+func (s AvpUint32EnumList) FromString(v string) []byte {
 	return []byte(v)
 }

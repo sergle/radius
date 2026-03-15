@@ -31,17 +31,18 @@ func (c *RadClient) Send(request *Packet) (*Packet, error) {
 	request_auth := make([]byte, 16)
 	copy(request_auth, request.Authenticator[:])
 
-	addr, err := net.ResolveUDPAddr("udp", c.server)
-	if err != nil {
-		return nil, err
-	}
-
-	// TODO reuse connection
-	conn, err := net.DialUDP("udp", nil, addr)
+	// In v2, we dial once per Send for simplicity, but we've removed the redundant ResolveUDPAddr
+	// and narrowed the Dial to net.Dial for better versatility.
+	conn, err := net.Dial("udp", c.server)
 	if err != nil {
 		return nil, err
 	}
 	defer conn.Close()
+
+	if udpConn, ok := conn.(*net.UDPConn); ok {
+		udpConn.SetWriteBuffer(bufSize)
+		udpConn.SetReadBuffer(bufSize)
+	}
 
 	timeout := c.timeout
 	if timeout == 0 {
@@ -49,8 +50,6 @@ func (c *RadClient) Send(request *Packet) (*Packet, error) {
 	}
 
 	conn.SetDeadline(time.Now().Add(timeout * time.Second))
-	conn.SetWriteBuffer(bufSize)
-	conn.SetReadBuffer(bufSize)
 
 	_, err = conn.Write(buf)
 	if err != nil {
@@ -59,9 +58,8 @@ func (c *RadClient) Send(request *Packet) (*Packet, error) {
 
 	// read answer (n bytes)
 	b := make([]byte, bufSize)
-	n, _, err := conn.ReadFrom(b)
+	n, err := conn.Read(b)
 	if err != nil {
-		// TODO ignore timeouts
 		return nil, err
 	}
 

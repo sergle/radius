@@ -1,38 +1,78 @@
 package main
 
 import (
-    "fmt"
+	"flag"
+	"log"
+	"os"
 
-    "github.com/sergle/radius"
+	"github.com/sergle/radius/v2"
 )
 
 func main() {
-    dict := radius.NewDictionary()
-    err := dict.LoadFile("/usr/share/freeradius/dictionary")
-    if err != nil {
-        fmt.Printf("Failed to load dictionary: %s", err)
-        return
-    }
+	dictPath := flag.String("dict", os.Getenv("RADIUS_DICT"), "Path to RADIUS dictionary file")
+	addr := flag.String("addr", "127.0.0.1:1812", "RADIUS server address")
+	secret := flag.String("secret", "gopher", "RADIUS shared secret")
+	user := flag.String("user", "a", "Username for Access-Request")
+	pass := flag.String("pass", "a", "Password for Access-Request")
+	reqType := flag.String("type", "auth", "Request type: 'auth' (Access-Request) or 'disc' (Disconnect-Request)")
+	flag.Parse()
 
-    client := radius.NewRadClient("127.0.0.1:1812", "gopher")
+	// Dictionary resolution logic
+	if *dictPath == "" {
+		defaults := []string{
+			"../../dictionary.builtin",
+			"./dictionary",
+		}
+		for _, p := range defaults {
+			if _, err := os.Stat(p); err == nil {
+				*dictPath = p
+				break
+			}
+		}
+	}
 
-    // FIXME no support yet for Password encoding
-    //request := client.NewRequest(radius.AccessRequest)
-    // request.AddAVP( dict.NewAVP("User-Name", "a") )
-    //request.AddAVP( dict.NewAVP("User-Password", "a") )
+	dict := radius.NewDictionary()
+	if *dictPath != "" {
+		err := dict.LoadFile(*dictPath)
+		if err != nil {
+			log.Fatalf("Failed to load dictionary from %s: %v", *dictPath, err)
+		}
+		log.Printf("Loaded dictionary from %s", *dictPath)
+	}
 
-    request := client.NewRequest(radius.DisconnectRequest)
-    request.AddAVP( dict.NewAVP("Acct-Session-Id", "100500") )
-    request.AddAVP( dict.NewAVP("NAS-IP-Address", "10.8.10.3") )
-    fmt.Printf("sending request: %s\n", request.String())
+	client := radius.NewRadClient(*addr, *secret)
 
-    reply, err := client.Send(request)
-    if err != nil {
-        fmt.Printf("Error: %s\n", err)
-        return
-    }
+	// Example of using a RequestTemplate (Prepared Statement)
+	// This pre-resolves attribute IDs and types once.
+	authTemplate, err := dict.CreateRequestTemplate(radius.AccessRequest, "User-Name", "User-Password")
+	if err != nil {
+		log.Fatalf("Failed to create auth template: %v", err)
+	}
 
-    fmt.Printf("Reply: %s\n", reply.String())
+	discTemplate, err := dict.CreateRequestTemplate(radius.DisconnectRequest, "Acct-Session-Id", "NAS-IP-Address")
+	if err != nil {
+		log.Fatalf("Failed to create disc template: %v", err)
+	}
 
-    return
+	var request *radius.Packet
+	switch *reqType {
+	case "auth":
+		// Use the template to create a request with specific values
+		request = authTemplate.CreateRequest(client, *user, *pass)
+		log.Printf("Created Access-Request (via template) for user: %s", *user)
+	case "disc":
+		// Use the template to create a request with specific values
+		request = discTemplate.CreateRequest(client, "100500", "10.8.10.3")
+		log.Println("Created Disconnect-Request (via template)")
+	default:
+		log.Fatalf("Unknown request type: %s", *reqType)
+	}
+
+	log.Printf("Sending request to %s...", *addr)
+	reply, err := client.Send(request)
+	if err != nil {
+		log.Fatalf("Error sending request: %v", err)
+	}
+
+	log.Printf("Received reply:\n%s", reply.String())
 }

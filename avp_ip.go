@@ -4,16 +4,23 @@ import (
 	"net"
 )
 
-var avpIP avpIPt
+var avpIP AvpIP
 
-type avpIPt struct{}
+type AvpIP struct{}
 
-func (s avpIPt) Value(p *Packet, a AVP) interface{} {
+func (s AvpIP) Value(p *Packet, a AVP) interface{} {
 	return net.IP(a.Value)
 }
-func (s avpIPt) String(p *Packet, a AVP) string {
+func (s AvpIP) String(p *Packet, a AVP) string {
 	return net.IP(a.Value).String()
 }
-func (s avpIPt) FromString(v string) []byte {
-	return net.ParseIP(v)
+func (s AvpIP) FromString(v string) []byte {
+	ip := net.ParseIP(v)
+	if ip == nil {
+		return nil
+	}
+	if ip4 := ip.To4(); ip4 != nil {
+		return ip4
+	}
+	return ip
 }

@@ -1,0 +1,76 @@
+# Minimal builtin dictionary for basic functionality without external files
+ATTRIBUTE	User-Name		1	string
+ATTRIBUTE	User-Password		2	password
+ATTRIBUTE	NAS-IP-Address		4	ipaddr
+ATTRIBUTE	NAS-Port		5	integer
+ATTRIBUTE	Service-Type		6	integer
+VALUE		Service-Type		Login			1
+VALUE		Service-Type		Framed			2
+VALUE		Service-Type		Callback-Login		3
+VALUE		Service-Type		Callback-Framed		4
+VALUE		Service-Type		Outbound		5
+VALUE		Service-Type		Administrative		6
+VALUE		Service-Type		NAS-Prompt		7
+VALUE		Service-Type		Authenticate-Only	8
+VALUE		Service-Type		Callback-NAS-Prompt	9
+
+ATTRIBUTE	Reply-Message		18	string
+ATTRIBUTE	Vendor-Specific		26	vsa
+ATTRIBUTE	Called-Station-Id	30	string
+ATTRIBUTE	Calling-Station-Id	31	string
+ATTRIBUTE	NAS-Identifier		32	string
+
+ATTRIBUTE	Acct-Status-Type	40	integer
+VALUE		Acct-Status-Type	Start			1
+VALUE		Acct-Status-Type	Stop			2
+VALUE		Acct-Status-Type	Interim-Update		3
+VALUE		Acct-Status-Type	Accounting-On		7
+VALUE		Acct-Status-Type	Accounting-Off		8
+
+ATTRIBUTE	Acct-Input-Octets	42	integer
+ATTRIBUTE	Acct-Output-Octets	43	integer
+ATTRIBUTE	Acct-Session-Id		44	string
+
+ATTRIBUTE	Acct-Terminate-Cause	49	integer
+VALUE		Acct-Terminate-Cause	User-Request		1
+VALUE		Acct-Terminate-Cause	Lost-Carrier		2
+VALUE		Acct-Terminate-Cause	Lost-Service		3
+VALUE		Acct-Terminate-Cause	Idle-Timeout		4
+VALUE		Acct-Terminate-Cause	Session-Timeout		5
+VALUE		Acct-Terminate-Cause	Admin-Reset		6
+VALUE		Acct-Terminate-Cause	Admin-Reboot		7
+VALUE		Acct-Terminate-Cause	Port-Error		8
+VALUE		Acct-Terminate-Cause	NAS-Error		9
+VALUE		Acct-Terminate-Cause	NAS-Request		10
+VALUE		Acct-Terminate-Cause	NAS-Reboot		11
+VALUE		Acct-Terminate-Cause	Port-Unneeded		12
+VALUE		Acct-Terminate-Cause	Port-Preempted		13
+VALUE		Acct-Terminate-Cause	Port-Suspended		14
+VALUE		Acct-Terminate-Cause	Service-Unavailable	15
+VALUE		Acct-Terminate-Cause	Callback		16
+VALUE		Acct-Terminate-Cause	User-Error		17
+VALUE		Acct-Terminate-Cause	Host-Request		18
+
+ATTRIBUTE	Acct-Input-Gigawords	52	integer
+ATTRIBUTE	Acct-Output-Gigawords	53	integer
+
+ATTRIBUTE	NAS-Port-Type		61	integer
+VALUE		NAS-Port-Type		Async			0
+VALUE		NAS-Port-Type		Sync			1
+VALUE		NAS-Port-Type		ISDN-Sync		2
+VALUE		NAS-Port-Type		ISDN-Async-v110		3
+VALUE		NAS-Port-Type		ISDN-Async-v120		4
+VALUE		NAS-Port-Type		Virtual			5
+VALUE		NAS-Port-Type		SDSL			6
+VALUE		NAS-Port-Type		ADSL-CAP		7
+VALUE		NAS-Port-Type		ADSL-DMT		8
+VALUE		NAS-Port-Type		IDSL			9
+VALUE		NAS-Port-Type		Ethernet		10
+VALUE		NAS-Port-Type		xDSL			11
+VALUE		NAS-Port-Type		Cable			12
+VALUE		NAS-Port-Type		Wireless-Other		13
+VALUE		NAS-Port-Type		Wireless-802.11		14
+
+ATTRIBUTE	EAP-Message		79	eapmessage
+ATTRIBUTE	Message-Authenticator	80	octets
+ATTRIBUTE	NAS-Port-Id		87	string

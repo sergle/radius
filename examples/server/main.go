@@ -1,93 +1,114 @@
 package main
 
 import (
-    "fmt"
-    "os"
-    "os/signal"
-    "syscall"
-    "log"
-    "time"
+	"flag"
+	"log"
+	"os"
+	"os/signal"
+	"sync/atomic"
+	"syscall"
 
-    "github.com/sergle/radius"
+	"github.com/sergle/radius/v2"
 )
 
-type radiusService struct{}
-
-var cnt int = 0
-var dict *radius.Dictionary
-
-func (p radiusService) RadiusHandle(request *radius.Packet) *radius.Packet {
-    // a pretty print of the request.
-    fmt.Printf("%d [Authenticate] %s\n", cnt, request.String())
-
-    for _, avp := range request.AVPs {
-        fmt.Printf("AVP: %#v\n", avp)
-        attr_name := dict.GetAttributeName(avp.Type)
-        attr_type := dict.GetAttributeType(attr_name)
-        fmt.Printf("  name: %s type: %s value: %s\n", attr_name, attr_type, dict.DecodeAVPValue(request, avp))
-    }
-
-    time.Sleep(100 * time.Millisecond)
-    cnt = cnt + 1
-    npac := request.Reply()
-    switch request.Code {
-    case radius.AccessRequest:
-        // check username and password
-        if request.GetUsername() == "a" && request.GetPassword() == "a" {
-            npac.Code = radius.AccessAccept
-            npac.AVPs = append(npac.AVPs, radius.AVP{Type: radius.ReplyMessage, Value: []byte("All OK!")})
-            fmt.Printf("Reply: %s\n", npac.String())
-            return npac
-        } else {
-            npac.Code = radius.AccessReject
-            npac.AVPs = append(npac.AVPs, radius.AVP{Type: radius.ReplyMessage, Value: []byte("you dick!")})
-            fmt.Printf("Reply: %s\n", npac.String())
-            return npac
-        }
-    case radius.AccountingRequest:
-        // accounting start or end
-        npac.Code = radius.AccountingResponse
-        return npac
-    case radius.DisconnectRequest:
-        npac.Code = radius.DisconnectAccept
-        npac.AddAVP( dict.NewAVP("Reply-Message", "Session disconnected") )
-        npac.AddVSA( dict.NewVSA("Cisco", "h323-remote-address", "10.20.30.41") )
-        fmt.Printf("Reply: %s\n", npac.String())
-        return npac
-    default:
-        npac.Code = radius.AccessAccept
-        fmt.Printf("Reply: %s\n", npac.String())
-        return npac
-    }
-}
-
 func main() {
-    dict = radius.NewDictionary()
-    err := dict.LoadFile("/usr/share/freeradius/dictionary")
-    if err != nil {
-        fmt.Printf("Failed to load dictionary: %s", err)
-        return
-    }
+	dictPath := flag.String("dict", os.Getenv("RADIUS_DICT"), "Path to RADIUS dictionary file")
+	addr := flag.String("addr", "127.0.0.1:1812", "Address to listen on")
+	secret := flag.String("secret", "gopher", "RADIUS shared secret")
+	flag.Parse()
+	if *dictPath == "" {
+		defaults := []string{
+			"../../dictionary.builtin",
+			"./dictionary",
+		}
+		for _, p := range defaults {
+			if _, err := os.Stat(p); err == nil {
+				*dictPath = p
+				break
+			}
+		}
+	}
 
-    s := radius.NewServer("127.0.0.1:1812", "gopher", radiusService{})
+	dict := radius.NewDictionary()
+	if *dictPath != "" {
+		err := dict.LoadFile(*dictPath)
+		if err != nil {
+			log.Fatalf("Failed to load dictionary from %s: %v", *dictPath, err)
+		}
+		log.Printf("Loaded dictionary from %s", *dictPath)
+	} else {
+		log.Println("No dictionary loaded. Some AVP decoding might be limited.")
+	}
 
-    signalChan := make(chan os.Signal, 1)
-    signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
-    errChan := make(chan error)
+	// Pre-resolve templates for efficient reuse in handlers
+	// These are now local variables, not part of a struct.
+	replyMsgTemplate, err := dict.GetTemplate("Reply-Message")
+	if err != nil {
+		log.Printf("Warning: Reply-Message template failed: %v", err)
+	}
 
-    go func() {
-        fmt.Println("waiting for packets on 127.0.0.1:1812 ...")
-        err := s.ListenAndServe()
-        if err != nil {
-            errChan <- err
-        }
-    }()
+	ciscoVsaTemplate, err := dict.GetVSATemplate("Cisco", "h323-remote-address")
+	if err != nil {
+		log.Printf("Warning: Cisco VSA template failed: %v", err)
+	}
 
-    select {
-        case <-signalChan:
-            log.Printf("stopping server...\n")
-            s.Stop()
-        case err := <-errChan:
-            log.Printf("[ERR] %v", err.Error())
-    }
+	var cnt int64
+
+	// Create the handler as a closure to keep it clean and avoid struct clutter
+	handler := radius.HandlerFunc(func(request *radius.Packet) *radius.Packet {
+		count := atomic.AddInt64(&cnt, 1)
+		log.Printf("[%d] [Authenticate] %s\n", count, request.String())
+
+		for _, avp := range request.AVPs {
+			attrName := dict.GetAttributeName(avp.Type)
+			attrType := dict.GetAttributeType(attrName)
+			log.Printf("  AVP: name=%s type=%s value=%v\n", attrName, attrType, dict.DecodeAVPValue(request, avp))
+		}
+
+		npac := request.Reply()
+		switch request.Code {
+		case radius.AccessRequest:
+			if request.GetUsername() == "a" && request.GetPassword() == "a" {
+				npac.Code = radius.AccessAccept
+				replyMsgTemplate.Add(npac, "Authentication successful")
+			} else {
+				npac.Code = radius.AccessReject
+				replyMsgTemplate.Add(npac, "Authentication failed")
+			}
+		case radius.AccountingRequest:
+			npac.Code = radius.AccountingResponse
+		case radius.DisconnectRequest:
+			npac.Code = radius.DisconnectAccept
+			replyMsgTemplate.Add(npac, "Session disconnected")
+			ciscoVsaTemplate.Add(npac, "10.20.30.41")
+		default:
+			log.Printf("[%d] [WRN] Received unknown packet code: %d\n", count, request.Code)
+			return nil
+		}
+
+		log.Printf("[%d] Reply: %s\n", count, npac.String())
+		return npac
+	})
+
+	s := radius.NewServer(*addr, *secret, handler)
+
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
+	errChan := make(chan error)
+
+	go func() {
+		log.Printf("Starting RADIUS server on %s ...", *addr)
+		err := s.ListenAndServe()
+		if err != nil {
+			errChan <- err
+		}
+	}()
+
+	select {
+	case sig := <-signalChan:
+		log.Printf("Received signal %v, stopping server...", sig)
+		s.Stop()
+	case err := <-errChan:
+		log.Fatalf("Server error: %v", err)
+	}
 }

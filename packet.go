@@ -40,7 +40,7 @@ func (p *Packet) Copy() *Packet {
 	return outP
 }
 
-//This method guarantees that the contents of the package are not modified
+// This method guarantees that the contents of the package are not modified
 func (p *Packet) Encode() (b []byte, err error) {
 	// do not copy
 	// p = p.Copy()
@@ -48,7 +48,7 @@ func (p *Packet) Encode() (b []byte, err error) {
 	if p.Code.IsAccess() {
 		// append Message-Authenticator AVP
 		p.SetAVP(AVP{
-			Type:  MessageAuthenticator,
+			Type:  AttrMessageAuthenticator,
 			Value: make([]byte, 16),
 		})
 
@@ -72,7 +72,7 @@ func (p *Packet) Encode() (b []byte, err error) {
 		hasher.Write(b)
 		copy(b[len(b)-16:len(b)], hasher.Sum(nil))
 		// update value in packet structure
-		avp := p.GetAVP(MessageAuthenticator)
+		avp := p.GetAVP(AttrMessageAuthenticator)
 		copy(avp.Value, b[len(b)-16:len(b)])
 	}
 
@@ -129,7 +129,7 @@ func (p *Packet) HasAVP(attrType AttributeType) bool {
 	return false
 }
 
-//get one avp
+// get one avp
 func (p *Packet) GetAVP(attrType AttributeType) *AVP {
 	for i := range p.AVPs {
 		if p.AVPs[i].Type == attrType {
@@ -139,7 +139,7 @@ func (p *Packet) GetAVP(attrType AttributeType) *AVP {
 	return nil
 }
 
-//set one avp,remove all other same type
+// set one avp,remove all other same type
 func (p *Packet) SetAVP(avp AVP) {
 	p.DeleteOneType(avp.Type)
 	p.AddAVP(avp)
@@ -153,7 +153,7 @@ func (p *Packet) AddVSA(vsa VSA) {
 	p.AddAVP(vsa.ToAVP())
 }
 
-//Delete one AVP
+// Delete one AVP
 func (p *Packet) DeleteAVP(avp *AVP) {
 	for i := range p.AVPs {
 		if &(p.AVPs[i]) == avp {
@@ -167,7 +167,7 @@ func (p *Packet) DeleteAVP(avp *AVP) {
 	return
 }
 
-//delete all avps with this type
+// delete all avps with this type
 func (p *Packet) DeleteOneType(attrType AttributeType) {
 	for i := 0; i < len(p.AVPs); i++ {
 		if p.AVPs[i].Type == attrType {
@@ -291,7 +291,7 @@ func (p *Packet) checkAuthenticator(buf []byte, request_auth []byte) (err error)
 
 // check value of Message-Authenticator AVP
 func (p *Packet) checkMessageAuthenticator(request_auth []byte) (err error) {
-	avp := p.GetAVP(MessageAuthenticator)
+	avp := p.GetAVP(AttrMessageAuthenticator)
 	if avp == nil {
 		return nil
 	}
@@ -335,22 +335,28 @@ func (p *Packet) String() string {
 }
 
 func (p *Packet) GetUsername() (username string) {
-	avp := p.GetAVP(UserName)
+	avp := p.GetAVP(AttrUserName)
 	if avp == nil {
 		return ""
 	}
 	return avp.Decode(p).(string)
 }
 func (p *Packet) GetPassword() (password string) {
-	avp := p.GetAVP(UserPassword)
+	avp := p.GetAVP(AttrUserPassword)
 	if avp == nil {
 		return ""
 	}
 	return avp.Decode(p).(string)
 }
+func (p *Packet) AddPassword(password string) {
+	p.SetAVP(AVP{
+		Type:  AttrUserPassword,
+		Value: avpPassword.Encode(password, p.Secret, p.Authenticator[:]),
+	})
+}
 
 func (p *Packet) GetNasIpAddress() (ip net.IP) {
-	avp := p.GetAVP(NASIPAddress)
+	avp := p.GetAVP(AttrNASIPAddress)
 	if avp == nil {
 		return nil
 	}
@@ -358,15 +364,19 @@ func (p *Packet) GetNasIpAddress() (ip net.IP) {
 }
 
 func (p *Packet) GetAcctStatusType() AcctStatusTypeEnum {
-	avp := p.GetAVP(AcctStatusType)
+	avp := p.GetAVP(AttrAcctStatusType)
 	if avp == nil {
 		return AcctStatusTypeEnum(0)
 	}
-	return avp.Decode(p).(AcctStatusTypeEnum)
+	val := avp.Decode(p)
+	if v, ok := val.(AcctStatusTypeEnum); ok {
+		return v
+	}
+	return AcctStatusTypeEnum(val.(uint32))
 }
 
 func (p *Packet) GetAcctSessionId() string {
-	avp := p.GetAVP(AcctSessionId)
+	avp := p.GetAVP(AttrAcctSessionId)
 	if avp == nil {
 		return ""
 	}
@@ -375,11 +385,11 @@ func (p *Packet) GetAcctSessionId() string {
 
 func (p *Packet) GetAcctTotalOutputOctets() uint64 {
 	out := uint64(0)
-	avp := p.GetAVP(AcctOutputOctets)
+	avp := p.GetAVP(AttrAcctOutputOctets)
 	if avp != nil {
 		out += uint64(avp.Decode(p).(uint32))
 	}
-	avp = p.GetAVP(AcctOutputGigawords)
+	avp = p.GetAVP(AttrAcctOutputGigawords)
 	if avp != nil {
 		out += uint64(avp.Decode(p).(uint32)) << 32
 	}
@@ -388,11 +398,11 @@ func (p *Packet) GetAcctTotalOutputOctets() uint64 {
 
 func (p *Packet) GetAcctTotalInputOctets() uint64 {
 	out := uint64(0)
-	avp := p.GetAVP(AcctInputOctets)
+	avp := p.GetAVP(AttrAcctInputOctets)
 	if avp != nil {
 		out += uint64(avp.Decode(p).(uint32))
 	}
-	avp = p.GetAVP(AcctInputGigawords)
+	avp = p.GetAVP(AttrAcctInputGigawords)
 	if avp != nil {
 		out += uint64(avp.Decode(p).(uint32)) << 32
 	}
@@ -401,7 +411,7 @@ func (p *Packet) GetAcctTotalInputOctets() uint64 {
 
 // it is ike_id in strongswan client
 func (p *Packet) GetNASPort() uint32 {
-	avp := p.GetAVP(NASPort)
+	avp := p.GetAVP(AttrNASPort)
 	if avp == nil {
 		return 0
 	}
@@ -409,7 +419,7 @@ func (p *Packet) GetNASPort() uint32 {
 }
 
 func (p *Packet) GetNASIdentifier() string {
-	avp := p.GetAVP(NASIdentifier)
+	avp := p.GetAVP(AttrNASIdentifier)
 	if avp == nil {
 		return ""
 	}
@@ -417,9 +427,33 @@ func (p *Packet) GetNASIdentifier() string {
 }
 
 func (p *Packet) GetEAPMessage() *EapPacket {
-	avp := p.GetAVP(EAPMessage)
+	avp := p.GetAVP(AttrEAPMessage)
 	if avp == nil {
 		return nil
 	}
 	return avp.Decode(p).(*EapPacket)
+}
+
+func (p *Packet) GetNASPortType() NASPortTypeEnum {
+	avp := p.GetAVP(AttrNASPortType)
+	if avp == nil {
+		return NASPortTypeEnum(0)
+	}
+	val := avp.Decode(p)
+	if v, ok := val.(NASPortTypeEnum); ok {
+		return v
+	}
+	return NASPortTypeEnum(val.(uint32))
+}
+
+func (p *Packet) GetServiceType() ServiceTypeEnum {
+	avp := p.GetAVP(AttrServiceType)
+	if avp == nil {
+		return ServiceTypeEnum(0)
+	}
+	val := avp.Decode(p)
+	if v, ok := val.(ServiceTypeEnum); ok {
+		return v
+	}
+	return ServiceTypeEnum(val.(uint32))
 }

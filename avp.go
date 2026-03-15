@@ -88,7 +88,10 @@ const (
 	NASPortTypeEnumPIAFS            NASPortTypeEnum = 6
 	NASPortTypeEnumHDLCClearChannel NASPortTypeEnum = 7
 	NASPortTypeEnumEthernet         NASPortTypeEnum = 15
+	NASPortTypeEnumxDSL             NASPortTypeEnum = 16
 	NASPortTypeEnumCable            NASPortTypeEnum = 17
+	NASPortTypeEnumWirelessOther    NASPortTypeEnum = 18
+	NASPortTypeEnumWireless80211    NASPortTypeEnum = 19
 )
 
 func (e NASPortTypeEnum) String() string {
@@ -126,6 +129,9 @@ const (
 	ServiceTypeEnumCallbackLogin  ServiceTypeEnum = 3
 	ServiceTypeEnumCallbackFramed ServiceTypeEnum = 4
 	ServiceTypeEnumOutbound       ServiceTypeEnum = 5
+	ServiceTypeEnumAdministrative ServiceTypeEnum = 6
+	ServiceTypeEnumNASPrompt      ServiceTypeEnum = 7
+	ServiceTypeEnumAuthenticateOnly ServiceTypeEnum = 8
 )
 
 func (e ServiceTypeEnum) String() string {

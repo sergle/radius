@@ -1,121 +1,90 @@
 package radius
 
 import (
-	"fmt"
+	"log"
 	"net"
-	"sync"
-	"time"
 )
-
-const AUTH_PORT = 1812
-const ACCOUNTING_PORT = 1813
-
-type Server struct {
-	addr      string
-	secret    string
-	service   Service
-	ch        chan struct{}
-	waitGroup *sync.WaitGroup
-	cl        *ClientList
-}
 
 type Service interface {
 	RadiusHandle(request *Packet) *Packet
 }
 
-type PasswordService struct{}
+type HandlerFunc func(request *Packet) *Packet
 
-func (p *PasswordService) Authenticate(request *Packet) (*Packet, error) {
-	npac := request.Reply()
-	npac.Code = AccessReject
-	npac.AVPs = append(npac.AVPs, AVP{Type: ReplyMessage, Value: []byte("you dick!")})
-	return npac, nil
+func (f HandlerFunc) RadiusHandle(request *Packet) *Packet {
+	return f(request)
 }
 
-// NewServer return a new Server given a addr, secret, and service
+type radiusService struct {
+}
+
+func (p *radiusService) RadiusHandle(request *Packet) *Packet {
+	npac := request.Reply()
+	npac.Code = AccessAccept
+	// 18 is Reply-Message
+	npac.AddAVP(AVP{Type: 18, Value: avpString.FromString("Welcome")})
+	return npac
+}
+
 func NewServer(addr string, secret string, service Service) *Server {
-	s := &Server{addr: addr,
-		secret:    secret,
-		service:   service,
-		ch:        make(chan struct{}),
-		waitGroup: &sync.WaitGroup{},
+	s := &Server{
+		addr:    addr,
+		secret:  secret,
+		service: service,
 	}
 	return s
 }
 
-// WithClientList set a list of clients that have it's own secret
-func (s *Server) WithClientList(cl *ClientList) {
-	s.cl = cl
+type Server struct {
+	addr    string
+	secret  string
+	service Service
+	conn    *net.UDPConn
 }
 
-/*
-func (s *Server) RegisterService(serviceAddr string, handler Service) {
-	s.services[serviceAddr] = handler
-}
-*/
-
-// ListenAndServe listen on the UDP network address
 func (s *Server) ListenAndServe() error {
 	addr, err := net.ResolveUDPAddr("udp", s.addr)
 	if err != nil {
 		return err
 	}
-	conn, err := net.ListenUDP("udp", addr)
+	s.conn, err = net.ListenUDP("udp", addr)
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer s.conn.Close()
 
 	for {
-		select {
-		case <-s.ch:
-			return nil
-		default:
-		}
-		conn.SetDeadline(time.Now().Add(2 * time.Second))
 		b := make([]byte, 4096)
-		n, addr, err := conn.ReadFrom(b)
+		n, raddr, err := s.conn.ReadFromUDP(b)
 		if err != nil {
-			if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
-				continue
-			}
 			return err
 		}
 
-		s.waitGroup.Add(1)
-		go func(p []byte, addr net.Addr) {
-			defer s.waitGroup.Done()
-			var secret = s.secret
-
-			if s.cl != nil {
-				host, _, err := net.SplitHostPort(addr.String())
-				if err != nil {
-					fmt.Println("[pac.Host]", err)
-					return
-				}
-				if cl := s.cl.Get(host); cl != nil {
-					secret = cl.GetSecret()
-				}
-			}
-
-			pac, err := DecodeRequest(secret, p)
+		go func(buf []byte, addr *net.UDPAddr) {
+			p, err := DecodeRequest(s.secret, buf)
 			if err != nil {
-				fmt.Println("[pac.Decode]", err)
+				log.Printf("decode packet error %v", err)
 				return
 			}
-			pac.ClientAddr = addr.String()
-
-			npac := s.service.RadiusHandle(pac)
-			err = npac.Send(conn, addr)
-			if err != nil {
-				fmt.Println("[npac.Send]", err)
+			p.ClientAddr = addr.String()
+			npac := s.service.RadiusHandle(p)
+			if npac == nil {
+				return
 			}
-		}(b[:n], addr)
+			npac.Identifier = p.Identifier
+			npac.Secret = s.secret
+			buf, err = npac.Encode()
+			if err != nil {
+				log.Printf("encode packet error %v", err)
+				return
+			}
+			s.conn.WriteToUDP(buf, addr)
+		}(b[:n], raddr)
 	}
 }
 
-// Stop will stop the server
 func (s *Server) Stop() {
-	close(s.ch)
-	s.waitGroup.Wait()
+	if s.conn != nil {
+		s.conn.Close()
+	}
 }

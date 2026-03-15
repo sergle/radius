@@ -4,11 +4,11 @@ import (
 	"fmt"
 )
 
-var avpEapMessage avpEapMessaget
+var avpEapMessage AvpEapMessage
 
-type avpEapMessaget struct{}
+type AvpEapMessage struct{}
 
-func (s avpEapMessaget) Value(p *Packet, a AVP) interface{} {
+func (s AvpEapMessage) Value(p *Packet, a AVP) interface{} {
 	eap, err := EapDecode(a.Value)
 	if err != nil {
 		//TODO error handle
@@ -19,7 +19,7 @@ func (s avpEapMessaget) Value(p *Packet, a AVP) interface{} {
 
 }
 
-func (s avpEapMessaget) String(p *Packet, a AVP) string {
+func (s AvpEapMessage) String(p *Packet, a AVP) string {
 	eap := s.Value(p, a)
 	if eap == nil {
 		return "nil"
@@ -28,6 +28,6 @@ func (s avpEapMessaget) String(p *Packet, a AVP) string {
 }
 
 // TODO
-func (s avpEapMessaget) FromString(v string) []byte {
+func (s AvpEapMessage) FromString(v string) []byte {
 	return []byte(v)
 }

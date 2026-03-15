@@ -1,2 +1,5 @@
 examples/client/client
 examples/server/server
+client_example.exe
+examples/client/client.exe
+examples/server/server.exe

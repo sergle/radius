@@ -112,7 +112,7 @@ func (a *EapPacket) Encode() (b []byte) {
 
 func (a *EapPacket) ToEAPMessage() *AVP {
 	return &AVP{
-		Type:  EAPMessage,
+		Type:  AttrEAPMessage,
 		Value: a.Encode(),
 	}
 }

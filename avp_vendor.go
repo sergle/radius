@@ -7,7 +7,7 @@ import (
 
 type VendorID uint32
 
-//TODO some VSA has uint16 type (Lucent)
+// TODO some VSA has uint16 type (Lucent)
 type VendorAttr uint8
 
 // Vendor
@@ -17,22 +17,22 @@ type VSA struct {
 	Value  []byte
 }
 
-var avpVendor avpVendort
+var avpVendor AvpVendor
 
-type avpVendort struct{}
+type AvpVendor struct{}
 
-func (s avpVendort) Value(p *Packet, a AVP) interface{} {
+func (s AvpVendor) Value(p *Packet, a AVP) interface{} {
 	// as-is
 	return a.Value
 }
 
-func (s avpVendort) String(p *Packet, a AVP) string {
+func (s AvpVendor) String(p *Packet, a AVP) string {
 	vsa := ToVSA(a)
 
 	return fmt.Sprintf("{Vendor: %d, Attr: %d, Value: %#v}", vsa.Vendor, vsa.Type, vsa.Value)
 }
 
-func (s avpVendort) FromString(v string) []byte {
+func (s AvpVendor) FromString(v string) []byte {
 	// not called directly
 	return nil
 }
@@ -49,7 +49,7 @@ func (vsa VSA) ToAVP() AVP {
 	vsa_value[5] = uint8(vsa_len + 2)
 	copy(vsa_value[6:], vsa.Value)
 
-	avp := AVP{Type: VendorSpecific, Value: vsa_value}
+	avp := AVP{Type: AttrVendorSpecific, Value: vsa_value}
 
 	return avp
 }

@@ -1,147 +1,94 @@
-a golang radius library
+a golang radius library (v2)
 =============================
-[![Build Status](https://travis-ci.org/sergle/radius.svg)](https://travis-ci.org/sergle/radius)
-[![PkgGoDev](https://pkg.go.dev/badge/sergle/radius)](https://pkg.go.dev/sergle/radius)
-[![GitHub issues](https://img.shields.io/github/issues/sergle/radius.svg)](https://github.com/sergle/radius/issues)
-[![GitHub stars](https://img.shields.io/github/stars/sergle/radius.svg)](https://github.com/sergle/radius/stargazers)
-[![GitHub forks](https://img.shields.io/github/forks/sergle/radius.svg)](https://github.com/sergle/radius/network)
+
+[![PkgGoDev](https://pkg.go.dev/badge/radius)](https://pkg.go.dev/radius)
 [![MIT License](http://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](https://github.com/sergle/radius/blob/master/LICENSE)
+
+A feature-rich RADIUS library for Go. This is a significantly refactored version (v2) of the original library, optimized for clarity and ease of use.
 
 This project forks from https://github.com/bronze1man/radius
 
-Additional features included:
-* Dictionary file support (FreeRADIUS-compatible)
-* VSA attributes
-* Simple RADIUS client
+## Key Features
+- **Simplified API**: Clean and intuitive Go-native interfaces.
+- **Dictionary Support**: Full support for FreeRADIUS-style dictionary files.
+- **Builtin Dictionary**: Minimal standard attributes included out-of-the-box.
+- **Template System**: Pre-resolve attributes and VSAs for packet construction.
+- **Enhanced Testing**: Comprehensive test suite including "golden data" verification.
 
-### document
-* http://godoc.org/github.com/sergle/radius
-* http://en.wikipedia.org/wiki/RADIUS
+## Installation
+```bash
+go get github.com/sergle/radius/v2
+```
 
-### server example (see client example below)
+## Quick Start (Server)
 ```go
 package main
 
 import (
-	"fmt"
-	"github.com/sergle/radius"
+	"log"
+	"github.com/sergle/radius/v2"
 )
 
-type radiusService struct{}
-
-func (p radiusService) RadiusHandle(request *radius.Packet) *radius.Packet {
-    // a pretty print of the request.
-	fmt.Printf("[Authenticate] %s\n", request.String())
-	npac := request.Reply()
-	switch request.Code {
-	case radius.AccessRequest:
-		// check username and password
-		if request.GetUsername() == "a" && request.GetPassword() == "a" {
-			npac.Code = radius.AccessAccept
-			// add Vendor-specific attribute - Vendor Cisco (code 9) Attribute h323-remote-address (code 23)
-			npac.AddVSA( radius.VSA{Vendor: 9, Type: 23, Value: []byte("10.20.30.40")} )
-			return npac
-		} else {
-			npac.Code = radius.AccessReject
-			npac.AddAVP( radius.AVP{Type: radius.ReplyMessage, Value: []byte("you dick!")} )
-			return npac
-		}
-	case radius.AccountingRequest:
-		// accounting start or end
-		npac.Code = radius.AccountingResponse
-		return npac
-	default:
-		npac.Code = radius.AccessAccept
-		return npac
-	}
-}
-
 func main() {
-	s := radius.NewServer(":1812", "secret", radiusService{})
-
-	// or you can convert it to a server that accept request
-	// from some host with different secret
-	// cls := radius.NewClientList([]radius.Client{
-	// 		radius.NewClient("127.0.0.1", "secret1"),
-	// 		radius.NewClient("10.10.10.10", "secret2"),
-	// })
-	// s.WithClientList(cls)
-
-	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
-	errChan := make(chan error)
-	go func() {
-		fmt.Println("waiting for packets...")
-		err := s.ListenAndServe()
-		if err != nil {
-			errChan <- err
+	handler := radius.HandlerFunc(func(request *radius.Packet) *radius.Packet {
+		log.Printf("Received %s from %s", request.Code, request.ClientAddr)
+		
+		reply := request.Reply()
+		if request.Code == radius.AccessRequest {
+			if request.GetUsername() == "admin" && request.GetPassword() == "secret" {
+				reply.Code = radius.AccessAccept
+			} else {
+				reply.Code = radius.AccessReject
+			}
 		}
-	}()
-	select {
-	case <-signalChan:
-		log.Println("stopping server...")
-		s.Stop()
-	case err := <-errChan:
-		log.Println("[ERR] %v", err.Error())
-	}
+		return reply
+	})
+
+	srv := radius.NewServer(":1812", "shared-secret", handler)
+	log.Fatal(srv.ListenAndServe())
 }
 ```
 
-### implemented
-* a radius server can handle AccessRequest request from strongswan with ikev1-xauth-psk
-* a radius server can handle AccountingRequest request from strongswan with ikev1-xauth-psk
-* **VSA attributes**
-* **Dictionary support (from FreeRADIUS)**
-* **simple RADIUS client**
-
-### notice
-* ~~A radius client has not been implement.~~
-* It works , but it is not stable.
-
-### reference
-* EAP MS-CHAPv2 packet format 				    http://tools.ietf.org/id/draft-kamath-pppext-eap-mschapv2-01.txt
-* EAP MS-CHAPv2 					    https://tools.ietf.org/html/rfc2759
-* RADIUS Access-Request part      			    https://tools.ietf.org/html/rfc2865
-* RADIUS Accounting-Request part  			    https://tools.ietf.org/html/rfc2866
-* RADIUS Support For Extensible Authentication Protocol     https://tools.ietf.org/html/rfc3579
-* RADIUS Implementation Issues and Suggested Fixes 	    https://tools.ietf.org/html/rfc5080
-
-### TODO
-* avpEapMessaget.Value error handle.
-* implement eap-MSCHAPV2 server side.
-* ~~implement radius client side.~~
-
-### client example
+## Quick Start (Client)
 ```go
-
 package main
 
 import (
-    "fmt"
-    "github.com/sergle/radius"
+	"log"
+	"github.com/sergle/radius/v2"
 )
 
 func main() {
-    dict := radius.NewDictionary()
-    err := dict.LoadFile("/usr/share/freeradius/dictionary")
-    if err != nil {
-        fmt.Printf("Failed to load dictionary: %s", err)
-        return
-    }
+	client := radius.NewRadClient("127.0.0.1:1812", "shared-secret")
+	
+	req := client.NewRequest(radius.AccessRequest)
+	req.AddAVP(radius.AVP{Type: radius.AttrUserName, Value: []byte("admin")})
+	req.AddPassword("secret")
 
-    client := radius.NewRadClient("127.0.0.1:1812", "secret")
-
-    request := client.NewRequest(radius.DisconnectRequest)
-    request.AddAVP( dict.NewAVP("Acct-Session-Id", "100500") )
-    request.AddAVP( dict.NewAVP("NAS-IP-Address", "10.8.10.3") )
-    fmt.Printf("sending request: %s\n", request.String())
-
-    reply, err := client.Send(request)
-    if err != nil {
-        fmt.Printf("Error: %s\n", err)
-        return
-    }
-    fmt.Printf("Reply: %s\n", reply.String())
-    return
+	reply, err := client.Send(req)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("Reply: %s", reply.Code)
 }
 ```
+
+## Migration Guide (v1 to v2)
+1. **Import Path**: Change `github.com/sergle/radius` to `github.com/sergle/radius/v2`.
+2. **Attribute Names**: Standard attributes are now prefixed with `Attr` (e.g., `UserName` -> `AttrUserName`).
+3. **Server API**: The `Service` interface now returns `*Packet` directly. Use `HandlerFunc` for simple closures.
+4. **Packet Creation**: Use `client.NewRequest(code)` or `radius.Request(code, secret)` for more control.
+
+## Documentation
+- [Go Package Documentation](https://pkg.go.dev/radius)
+
+## References
+* EAP MS-CHAPv2 packet format: http://tools.ietf.org/id/draft-kamath-pppext-eap-mschapv2-01.txt
+* EAP MS-CHAPv2: https://tools.ietf.org/html/rfc2759
+* RADIUS Access-Request: https://tools.ietf.org/html/rfc2865
+* RADIUS Accounting-Request: https://tools.ietf.org/html/rfc2866
+* RADIUS Support For EAP: https://tools.ietf.org/html/rfc3579
+* RADIUS Implementation Issues: https://tools.ietf.org/html/rfc5080
+
+## License
+MIT License. See [LICENSE](LICENSE) for details.

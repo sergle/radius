@@ -5,20 +5,22 @@ import (
 	"strconv"
 )
 
-var avpUint32 avpUint32t
+const uint32Size = 4
 
-type avpUint32t struct{}
+var avpUint32 AvpUint32
 
-func (s avpUint32t) Value(p *Packet, a AVP) interface{} {
+type AvpUint32 struct{}
+
+func (s AvpUint32) Value(p *Packet, a AVP) interface{} {
 	return uint32(binary.BigEndian.Uint32(a.Value))
 }
 
-func (s avpUint32t) String(p *Packet, a AVP) string {
+func (s AvpUint32) String(p *Packet, a AVP) string {
 	return strconv.Itoa(int(binary.BigEndian.Uint32(a.Value)))
 }
 
-func (s avpUint32t) FromString(value string) []byte {
-	buf := make([]byte, 4)
+func (s AvpUint32) FromString(value string) []byte {
+	buf := make([]byte, uint32Size)
 	i, _ := strconv.ParseUint(value, 0, 32)
 	binary.BigEndian.PutUint32(buf, uint32(i))
 	return buf
