@@ -2,19 +2,20 @@ package radius
 
 import "sync"
 
+// NewClientList returns a ClientList initialized with cs.
 func NewClientList(cs []Client) *ClientList {
 	cl := new(ClientList)
 	cl.SetHerd(cs)
 	return cl
 }
 
-// ClientList are list of client allowed to communicate with server
+// ClientList is a concurrency-safe set of RADIUS clients indexed by host.
 type ClientList struct {
 	herd map[string]Client
 	sync.RWMutex
 }
 
-// Get client from list of clients based on host
+// Get returns a client by host, or nil if not present.
 func (cls *ClientList) Get(host string) Client {
 	cls.RLock()
 	defer cls.RUnlock()
@@ -22,21 +23,21 @@ func (cls *ClientList) Get(host string) Client {
 	return cl
 }
 
-// Add new client or reset existing client based on host
+// AddOrUpdate adds a new client or replaces an existing client with the same host.
 func (cls *ClientList) AddOrUpdate(cl Client) {
 	cls.Lock()
 	defer cls.Unlock()
 	cls.herd[cl.GetHost()] = cl
 }
 
-// Remove client based on host
+// Remove deletes a client by host.
 func (cls *ClientList) Remove(host string) {
 	cls.Lock()
 	defer cls.Unlock()
 	delete(cls.herd, host)
 }
 
-// SetHerd reset/initialize the herd of clients
+// SetHerd replaces the current client set with herd.
 func (cls *ClientList) SetHerd(herd []Client) {
 	cls.Lock()
 	defer cls.Unlock()
@@ -48,6 +49,7 @@ func (cls *ClientList) SetHerd(herd []Client) {
 	}
 }
 
+// GetHerd returns a snapshot of the current clients.
 func (cls *ClientList) GetHerd() []Client {
 	cls.RLock()
 	defer cls.RUnlock()
@@ -60,7 +62,7 @@ func (cls *ClientList) GetHerd() []Client {
 	return herd
 }
 
-// Client represent a client to connect to radius server
+// Client represents a RADIUS peer with a host and a shared secret.
 type Client interface {
 	// GetHost get the client host
 	GetHost() string
@@ -68,23 +70,23 @@ type Client interface {
 	GetSecret() string
 }
 
-// NewClient return new client
+// NewClient returns a default Client implementation for the given host and secret.
 func NewClient(host, secret string) Client {
 	return &DefaultClient{host, secret}
 }
 
-// DefaultClient is default client implementation
+// DefaultClient is the default Client implementation.
 type DefaultClient struct {
 	Host   string
 	Secret string
 }
 
-// GetSecret get shared secret
+// GetSecret returns the client's shared secret.
 func (cl *DefaultClient) GetSecret() string {
 	return cl.Secret
 }
 
-// GetHost get the client host
+// GetHost returns the client's host.
 func (cl *DefaultClient) GetHost() string {
 	return cl.Host
 }

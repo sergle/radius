@@ -5,11 +5,15 @@ import (
 	"strconv"
 )
 
+// AVP represents a RADIUS Attribute-Value Pair.
+//
+// The on-the-wire attribute format is: Type (1 byte), Length (1 byte), Value (Length-2 bytes).
 type AVP struct {
 	Type  AttributeType
 	Value []byte
 }
 
+// Copy returns a deep copy of the AVP (including its Value bytes).
 func (a AVP) Copy() AVP {
 	value := make([]byte, len(a.Value))
 	copy(value, a.Value)
@@ -18,6 +22,10 @@ func (a AVP) Copy() AVP {
 		Value: value,
 	}
 }
+
+// Encode writes the AVP to b and returns the number of bytes written.
+//
+// The caller must ensure b is large enough to hold the encoded AVP.
 func (a AVP) Encode(b []byte) (n int, err error) {
 	fullLen := len(a.Value) + 2 //type and length
 	if fullLen > 255 || fullLen < 2 {
@@ -29,14 +37,18 @@ func (a AVP) Encode(b []byte) (n int, err error) {
 	return fullLen, err
 }
 
+// Decode decodes the AVP value using the current default dictionary.
 func (a AVP) Decode(p *Packet) interface{} {
 	return getAttributeTypeDesc(a.Type).dataType.Value(p, a)
 }
 
+// String returns a human-readable representation of the AVP.
 func (a AVP) String() string {
 	return "AVP type: " + a.Type.String() + " " + getAttributeTypeDesc(a.Type).dataType.String(nil, a)
 }
 
+// StringWithPacket returns a human-readable representation of the AVP that may
+// depend on packet context (for example User-Password decryption).
 func (a AVP) StringWithPacket(p *Packet) string {
 	return "AVP type: " + a.Type.String() + " " + getAttributeTypeDesc(a.Type).dataType.String(p, a)
 }
@@ -49,6 +61,7 @@ type avpDataType interface {
 
 // enums:
 
+// AcctStatusTypeEnum is the decoded form of Acct-Status-Type.
 type AcctStatusTypeEnum uint32
 
 const (
@@ -59,6 +72,7 @@ const (
 	AcctStatusTypeEnumAccountingOff AcctStatusTypeEnum = 8
 )
 
+// String returns the standard name for the accounting status value.
 func (e AcctStatusTypeEnum) String() string {
 	switch e {
 	case AcctStatusTypeEnumStart:
@@ -75,6 +89,7 @@ func (e AcctStatusTypeEnum) String() string {
 	return "unknow code " + strconv.Itoa(int(e))
 }
 
+// NASPortTypeEnum is the decoded form of NAS-Port-Type.
 type NASPortTypeEnum uint32
 
 // TODO finish it
@@ -94,6 +109,7 @@ const (
 	NASPortTypeEnumWireless80211    NASPortTypeEnum = 19
 )
 
+// String returns the standard name for the NAS port type value.
 func (e NASPortTypeEnum) String() string {
 	switch e {
 	case NASPortTypeEnumAsync:
@@ -120,6 +136,7 @@ func (e NASPortTypeEnum) String() string {
 	return "unknow code " + strconv.Itoa(int(e))
 }
 
+// ServiceTypeEnum is the decoded form of Service-Type.
 type ServiceTypeEnum uint32
 
 // TODO finish it
@@ -134,6 +151,7 @@ const (
 	ServiceTypeEnumAuthenticateOnly ServiceTypeEnum = 8
 )
 
+// String returns the standard name for the service type value.
 func (e ServiceTypeEnum) String() string {
 	switch e {
 	case ServiceTypeEnumLogin:
@@ -150,6 +168,7 @@ func (e ServiceTypeEnum) String() string {
 	return "unknow code " + strconv.Itoa(int(e))
 }
 
+// AcctTerminateCauseEnum is the decoded form of Acct-Terminate-Cause.
 type AcctTerminateCauseEnum uint32
 
 // TODO finish it
@@ -160,6 +179,7 @@ const (
 	AcctTerminateCauseEnumIdleTimeout AcctTerminateCauseEnum = 4
 )
 
+// String returns the standard name for the accounting terminate cause value.
 func (e AcctTerminateCauseEnum) String() string {
 	switch e {
 	case AcctTerminateCauseEnumUserRequest:

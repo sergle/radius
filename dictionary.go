@@ -63,6 +63,10 @@ func GetDefaultDictionary() *Dictionary {
 	return defaultDictionary
 }
 
+// Dictionary parses and stores FreeRADIUS-style dictionary files.
+//
+// A Dictionary provides name/type mappings for standard attributes and
+// Vendor-Specific Attributes (VSAs), and is used by AVP decoding/formatting.
 type Dictionary struct {
 	sync.RWMutex
 	// map attribute name to id
@@ -96,6 +100,7 @@ type Dictionary struct {
 	vsaConstName map[VendorID]map[string]map[uint32]string
 }
 
+// NewDictionary returns an empty dictionary ready to load dictionary files.
 func NewDictionary() *Dictionary {
 	dict := &Dictionary{}
 
@@ -116,6 +121,10 @@ func NewDictionary() *Dictionary {
 	return dict
 }
 
+// LoadFile loads and parses a dictionary file.
+//
+// The file format is compatible with FreeRADIUS dictionary files and supports
+// $INCLUDE recursion (with internal/unsupported files skipped).
 func (d *Dictionary) LoadFile(fname string) error {
 	d.Lock()
 	defer d.Unlock()
@@ -429,6 +438,10 @@ var attrTypeHandlers = map[string]avpDataType{
 	// "ipv6prefix"
 }
 
+// DecodeAVPValue returns a human-readable string for the given AVP.
+//
+// When possible, DecodeAVPValue uses dictionary type information and enum
+// mappings (including VSA enums) to format values.
 func (d *Dictionary) DecodeAVPValue(p *Packet, a AVP) string {
 	if a.Type == AttrUserPassword {
 		return avpPassword.String(p, a)
@@ -486,12 +499,14 @@ func (d *Dictionary) DecodeAVPValue(p *Packet, a AVP) string {
 
 // public
 
+// GetAttributeID returns the AttributeType for an attribute name.
 func (d *Dictionary) GetAttributeID(attrName string) AttributeType {
 	d.RLock()
 	defer d.RUnlock()
 	return d.attrID[attrName]
 }
 
+// HasAttribute reports whether the dictionary defines the given attribute name.
 func (d *Dictionary) HasAttribute(attrName string) bool {
 	d.RLock()
 	defer d.RUnlock()
@@ -499,24 +514,29 @@ func (d *Dictionary) HasAttribute(attrName string) bool {
 	return present
 }
 
+// GetAttributeName returns the attribute name for an AttributeType.
 func (d *Dictionary) GetAttributeName(attrID AttributeType) string {
 	d.RLock()
 	defer d.RUnlock()
 	return d.attrName[attrID]
 }
 
+// GetAttributeType returns the type name (for example "string" or "integer")
+// for an attribute name.
 func (d *Dictionary) GetAttributeType(attrName string) string {
 	d.RLock()
 	defer d.RUnlock()
 	return d.attrType[attrName]
 }
 
+// GetVSAAttributeID returns the vendor-specific attribute ID for a vendor and attribute name.
 func (d *Dictionary) GetVSAAttributeID(vendorID VendorID, attrName string) VendorAttr {
 	d.RLock()
 	defer d.RUnlock()
 	return d.vsaAttrID[vendorID][attrName]
 }
 
+// HasVSAAttribute reports whether the dictionary defines the given vendor-specific attribute.
 func (d *Dictionary) HasVSAAttribute(vendorID VendorID, attrName string) bool {
 	d.RLock()
 	defer d.RUnlock()
@@ -524,30 +544,37 @@ func (d *Dictionary) HasVSAAttribute(vendorID VendorID, attrName string) bool {
 	return present
 }
 
+// GetVSAAttributeName returns the attribute name for a vendor-specific attribute ID.
 func (d *Dictionary) GetVSAAttributeName(vendorID VendorID, attrID VendorAttr) string {
 	d.RLock()
 	defer d.RUnlock()
 	return d.vsaAttrName[vendorID][attrID]
 }
 
+// GetVSAAttributeType returns the type name (for example "string" or "integer")
+// for a vendor-specific attribute.
 func (d *Dictionary) GetVSAAttributeType(vendorID VendorID, attrName string) string {
 	d.RLock()
 	defer d.RUnlock()
 	return d.vsaAttrType[vendorID][attrName]
 }
 
+// GetVendorName returns the vendor name for a VendorID.
 func (d *Dictionary) GetVendorName(vendorID VendorID) string {
 	d.RLock()
 	defer d.RUnlock()
 	return d.vendorName[vendorID]
 }
 
+// GetVendorID returns the VendorID for a vendor name.
 func (d *Dictionary) GetVendorID(vendorName string) VendorID {
 	d.RLock()
 	defer d.RUnlock()
 	return d.vendorID[vendorName]
 }
 
+// NewAVP constructs an AVP from the attribute name and a string value using
+// the attribute type defined in the dictionary.
 func (d *Dictionary) NewAVP(attrName string, attrValue string) AVP {
 	attrID := d.GetAttributeID(attrName)
 	attrType := d.GetAttributeType(attrName)
@@ -563,6 +590,8 @@ func (d *Dictionary) NewAVP(attrName string, attrValue string) AVP {
 	return avp
 }
 
+// NewVSA constructs a Vendor-Specific Attribute from the vendor name, attribute
+// name, and a string value using the VSA type defined in the dictionary.
 func (d *Dictionary) NewVSA(vendorName string, attrName string, attrValue string) VSA {
 	vendorID := d.GetVendorID(vendorName)
 	attrID := d.GetVSAAttributeID(vendorID, attrName)

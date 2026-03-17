@@ -4,6 +4,7 @@ import (
 	"strconv"
 )
 
+// PacketCode is the RADIUS packet Code field.
 type PacketCode uint8
 
 const (
@@ -42,6 +43,7 @@ var packetCodeName = map[PacketCode]string{
 	Reserved:           "Reserved",
 }
 
+// String returns the canonical name of the packet code.
 func (p PacketCode) String() string {
 	name, ok := packetCodeName[p]
 	if ok {
@@ -51,6 +53,7 @@ func (p PacketCode) String() string {
 	return "unknown packet code " + strconv.Itoa(int(p))
 }
 
+// IsRequest reports whether the code is a request (as opposed to a reply).
 func (p PacketCode) IsRequest() bool {
 	if p == AccessRequest || p == AccountingRequest || p == DisconnectRequest || p == CoARequest {
 		return true
@@ -58,6 +61,7 @@ func (p PacketCode) IsRequest() bool {
 	return false
 }
 
+// IsAccess reports whether the code is in the Access-* family.
 func (p PacketCode) IsAccess() bool {
 	if p == AccessRequest || p == AccessAccept || p == AccessReject || p == AccessChallenge {
 		return true

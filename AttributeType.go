@@ -4,6 +4,7 @@ import (
 	"strconv"
 )
 
+// AttributeType is the RADIUS attribute Type field.
 type AttributeType uint8
 
 const (
@@ -58,6 +59,8 @@ type attributeTypeDesc struct {
 	dataType avpDataType
 }
 
+// String returns the attribute name from the current default dictionary when available.
+// If no dictionary is loaded or the attribute is unknown, it returns a fallback name.
 func (a AttributeType) String() string {
 	return getAttributeTypeDesc(a).name
 }

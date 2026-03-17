@@ -7,12 +7,15 @@ import (
 	"sync"
 )
 
+// Service handles inbound RADIUS requests and returns a reply packet.
 type Service interface {
 	RadiusHandle(ctx context.Context, request *Packet) *Packet
 }
 
+// HandlerFunc adapts a function to the Service interface.
 type HandlerFunc func(ctx context.Context, request *Packet) *Packet
 
+// RadiusHandle calls f(ctx, request).
 func (f HandlerFunc) RadiusHandle(ctx context.Context, request *Packet) *Packet {
 	return f(ctx, request)
 }
@@ -28,6 +31,7 @@ func (p *radiusService) RadiusHandle(ctx context.Context, request *Packet) *Pack
 	return npac
 }
 
+// NewServer constructs a UDP RADIUS server bound to addr with the given shared secret.
 func NewServer(addr string, secret string, service Service) *Server {
 	s := &Server{
 		addr:    addr,
@@ -37,6 +41,7 @@ func NewServer(addr string, secret string, service Service) *Server {
 	return s
 }
 
+// Server is a simple UDP RADIUS server.
 type Server struct {
 	addr    string
 	secret  string
@@ -52,6 +57,10 @@ var serverBufferPool = sync.Pool{
 	},
 }
 
+// ListenAndServe listens on UDP and processes RADIUS requests until stopped.
+//
+// Each request is handled in its own goroutine; the server reuses internal
+// buffers to reduce allocations.
 func (s *Server) ListenAndServe() error {
 	if s.ctx == nil {
 		s.ctx, s.cancel = context.WithCancel(context.Background())
@@ -114,6 +123,7 @@ func (s *Server) ListenAndServe() error {
 	}
 }
 
+// Stop cancels the server context and closes the UDP listener.
 func (s *Server) Stop() {
 	if s.cancel != nil {
 		s.cancel()

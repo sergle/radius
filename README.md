@@ -22,6 +22,39 @@ This project forks from https://github.com/bronze1man/radius
 go get github.com/sergle/radius/v2
 ```
 
+## Dictionaries: Loading External Vendor Dictionaries (Cisco, Microsoft, ...)
+This library supports **FreeRADIUS-style** dictionary files, including `$INCLUDE`, `VENDOR`, `BEGIN-VENDOR`, and vendor-specific attributes (VSAs).
+
+### Recommended: Use a “root” dictionary with `$INCLUDE`
+Create a small top-level dictionary file that includes the base dictionary plus any vendor dictionaries you need.
+
+Example `dictionary` file:
+
+```text
+$INCLUDE /path/to/freeradius/dictionary
+$INCLUDE /path/to/freeradius/dictionary.cisco
+$INCLUDE /path/to/freeradius/dictionary.microsoft
+```
+
+Then load it in Go:
+
+```go
+dict := radius.NewDictionary()
+if err := dict.LoadFile("/path/to/your/dictionary"); err != nil {
+    log.Fatal(err)
+}
+
+// Optional: make this dictionary the default for package-level lookups.
+radius.SetDefaultDictionary(dict)
+
+// Example: pre-resolve a Cisco VSA template for reuse.
+ciscoH323RemoteAddr, _ := dict.GetVSATemplate("Cisco", "h323-remote-address")
+_ = ciscoH323RemoteAddr
+```
+
+### Alternative: Load multiple files directly
+You can also call `dict.LoadFile(...)` multiple times (for example, once per vendor file). Using a root dictionary with `$INCLUDE` is usually easier to manage and matches how FreeRADIUS dictionaries are commonly organized.
+
 ## Quick Start (Server)
 ```go
 package main

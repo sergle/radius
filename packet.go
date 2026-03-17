@@ -17,6 +17,11 @@ import (
 var ErrMessageAuthenticatorCheckFail = fmt.Errorf("RADIUS Message-Authenticator verification failed")
 var ErrAuthenticatorCheckFail = fmt.Errorf("RADIUS Authenticator verification failed")
 
+// Packet represents a RADIUS packet as defined by RFC 2865/RFC 2866.
+//
+// A Packet can be encoded for sending over the network and decoded from bytes.
+// When decoding lazily, AVPs may be available via RawAVPs instead of AVPs; helper
+// methods (for example GetAVP/EachAVP/HasAVP) work with either representation.
 type Packet struct {
 	Secret        string
 	Code          PacketCode
@@ -56,6 +61,10 @@ func (p *Packet) Reset() {
 	p.ClientAddr = ""
 }
 
+// Copy returns a deep copy of the packet and all currently decoded AVPs.
+//
+// Note: when the packet was decoded lazily (RawAVPs is set and AVPs is empty),
+// Copy copies only the header fields; RawAVPs is not currently copied.
 func (p *Packet) Copy() *Packet {
 	outP := &Packet{
 		Secret:        p.Secret,
@@ -70,7 +79,10 @@ func (p *Packet) Copy() *Packet {
 	return outP
 }
 
-// This method guarantees that the contents of the package are not modified
+// Encode serializes the packet into a new byte slice.
+//
+// If the packet Code requires it, Encode will compute and include
+// Message-Authenticator and/or update the packet Authenticator.
 func (p *Packet) Encode() (b []byte, err error) {
 	b = make([]byte, 4096)
 	n, err := p.EncodeTo(b)
@@ -80,7 +92,10 @@ func (p *Packet) Encode() (b []byte, err error) {
 	return b[:n], nil
 }
 
-// EncodeTo encodes the packet into the provided buffer.
+// EncodeTo serializes the packet into b and returns the number of bytes written.
+//
+// The provided buffer must be large enough for the full packet; this package
+// commonly uses 4096 bytes (the RADIUS maximum packet size).
 func (p *Packet) EncodeTo(b []byte) (n int, err error) {
 	if p.Code.IsAccess() {
 		// append Message-Authenticator AVP
@@ -175,6 +190,7 @@ func (p *Packet) encodeNoHashTo(b []byte) (n int, err error) {
 	return written, nil
 }
 
+// HasAVP reports whether the packet contains at least one attribute of the given type.
 func (p *Packet) HasAVP(attrType AttributeType) bool {
 	if len(p.AVPs) > 0 {
 		for i := range p.AVPs {
@@ -198,7 +214,9 @@ func (p *Packet) HasAVP(attrType AttributeType) bool {
 	return false
 }
 
-// get one avp
+// GetAVP returns the first attribute of the given type, or nil if not present.
+//
+// For lazily decoded packets, GetAVP returns a pointer to a newly allocated AVP.
 func (p *Packet) GetAVP(attrType AttributeType) *AVP {
 	if len(p.AVPs) > 0 {
 		for i := range p.AVPs {
@@ -222,6 +240,9 @@ func (p *Packet) GetAVP(attrType AttributeType) *AVP {
 	return nil
 }
 
+// EachAVP iterates over attributes in the packet, calling fn for each.
+//
+// If fn returns false, iteration stops early.
 func (p *Packet) EachAVP(fn func(a AVP) bool) {
 	if len(p.AVPs) > 0 {
 		for i := range p.AVPs {
@@ -245,21 +266,23 @@ func (p *Packet) EachAVP(fn func(a AVP) bool) {
 	}
 }
 
-// set one avp,remove all other same type
+// SetAVP removes all attributes of the same type and then adds avp.
 func (p *Packet) SetAVP(avp AVP) {
 	p.DeleteOneType(avp.Type)
 	p.AddAVP(avp)
 }
 
+// AddAVP appends avp to the packet's attribute list.
 func (p *Packet) AddAVP(avp AVP) {
 	p.AVPs = append(p.AVPs, avp)
 }
 
+// AddVSA adds a Vendor-Specific Attribute (VSA) to the packet.
 func (p *Packet) AddVSA(vsa VSA) {
 	p.AddAVP(vsa.ToAVP())
 }
 
-// Delete one AVP
+// DeleteAVP removes the specific AVP instance from the packet, if present.
 func (p *Packet) DeleteAVP(avp *AVP) {
 	for i := range p.AVPs {
 		if &(p.AVPs[i]) == avp {
@@ -272,7 +295,7 @@ func (p *Packet) DeleteAVP(avp *AVP) {
 	}
 }
 
-// delete all avps with this type
+// DeleteOneType removes the first attribute with the given type from the packet.
 func (p *Packet) DeleteOneType(attrType AttributeType) {
 	for i := 0; i < len(p.AVPs); i++ {
 		if p.AVPs[i].Type == attrType {
@@ -286,6 +309,10 @@ func (p *Packet) DeleteOneType(attrType AttributeType) {
 	}
 }
 
+// Request constructs a new request packet with a random Identifier.
+//
+// For Access-Request packets, a new request Authenticator is also generated and
+// is later used for User-Password encryption and reply validation.
 func Request(code PacketCode, secret string) *Packet {
 	packet := new(Packet)
 	packet.Secret = secret
@@ -304,6 +331,8 @@ func Request(code PacketCode, secret string) *Packet {
 	return packet
 }
 
+// Reply constructs a response packet initialized with the request's
+// Authenticator and Identifier.
 func (p *Packet) Reply() *Packet {
 	pac := new(Packet)
 	pac.Authenticator = p.Authenticator
@@ -312,6 +341,7 @@ func (p *Packet) Reply() *Packet {
 	return pac
 }
 
+// Send encodes the packet and writes it to addr using the provided PacketConn.
 func (p *Packet) Send(c net.PacketConn, addr net.Addr) error {
 	buf, err := p.Encode()
 	if err != nil {
@@ -322,19 +352,26 @@ func (p *Packet) Send(c net.PacketConn, addr net.Addr) error {
 	return err
 }
 
-// kept for backward compatibility, use DecodeRequest(...)
+// DecodePacket decodes a request packet from buf using the shared secret.
+//
+// Deprecated: kept for backward compatibility; use DecodeRequest.
 func DecodePacket(secret string, buf []byte) (p *Packet, err error) {
 	return decodePacket(secret, buf, nil)
 }
 
+// DecodeRequest decodes a request packet from buf using the shared secret.
 func DecodeRequest(secret string, buf []byte) (p *Packet, err error) {
 	return decodePacket(secret, buf, nil)
 }
 
+// DecodeReply decodes a reply packet from buf using the shared secret and
+// requestAuth (the 16-byte Authenticator from the corresponding request).
 func DecodeReply(secret string, buf []byte, requestAuth []byte) (p *Packet, err error) {
 	return decodePacket(secret, buf, requestAuth)
 }
 
+// DecodeRequestPooled decodes a request packet and returns a packet from an
+// internal pool. The returned packet must be released with (*Packet).Release.
 func DecodeRequestPooled(secret string, buf []byte) (p *Packet, err error) {
 	p = packetPool.Get().(*Packet)
 	err = decodePacketTo(p, secret, buf, nil)
@@ -345,6 +382,8 @@ func DecodeRequestPooled(secret string, buf []byte) (p *Packet, err error) {
 	return p, nil
 }
 
+// DecodeReplyPooled decodes a reply packet and returns a packet from an
+// internal pool. The returned packet must be released with (*Packet).Release.
 func DecodeReplyPooled(secret string, buf []byte, requestAuth []byte) (p *Packet, err error) {
 	p = packetPool.Get().(*Packet)
 	err = decodePacketTo(p, secret, buf, requestAuth)
@@ -355,10 +394,14 @@ func DecodeReplyPooled(secret string, buf []byte, requestAuth []byte) (p *Packet
 	return p, nil
 }
 
+// DecodeRequestLazy decodes only the packet header and keeps attributes in
+// raw form for lazy access via RawAVPs.
 func DecodeRequestLazy(secret string, buf []byte) (p *Packet, err error) {
 	return decodePacketLazy(secret, buf, nil)
 }
 
+// DecodeReplyLazy decodes only the packet header and keeps attributes in raw
+// form for lazy access via RawAVPs.
 func DecodeReplyLazy(secret string, buf []byte, requestAuth []byte) (p *Packet, err error) {
 	return decodePacketLazy(secret, buf, requestAuth)
 }
@@ -510,6 +553,7 @@ func (p *Packet) String() string {
 	return s
 }
 
+// GetUsername returns the value of User-Name as a string, if present.
 func (p *Packet) GetUsername() (username string) {
 	avp := p.GetAVP(AttrUserName)
 	if avp == nil {
@@ -524,6 +568,8 @@ func (p *Packet) GetUsername() (username string) {
 	}
 	return ""
 }
+
+// GetPassword returns the decrypted User-Password, if present.
 func (p *Packet) GetPassword() (password string) {
 	avp := p.GetAVP(AttrUserPassword)
 	if avp == nil {
@@ -540,6 +586,9 @@ func (p *Packet) GetPassword() (password string) {
 	}
 	return ""
 }
+
+// AddPassword adds (or replaces) the User-Password attribute, encrypting it as
+// required by the RADIUS protocol using the packet Secret and Authenticator.
 func (p *Packet) AddPassword(password string) {
 	p.SetAVP(AVP{
 		Type:  AttrUserPassword,
@@ -547,6 +596,7 @@ func (p *Packet) AddPassword(password string) {
 	})
 }
 
+// GetNasIpAddress returns NAS-IP-Address as a net.IP, if present.
 func (p *Packet) GetNasIpAddress() (ip net.IP) {
 	avp := p.GetAVP(AttrNASIPAddress)
 	if avp == nil {
@@ -562,6 +612,7 @@ func (p *Packet) GetNasIpAddress() (ip net.IP) {
 	return nil
 }
 
+// GetAcctStatusType returns Acct-Status-Type if present, or 0 otherwise.
 func (p *Packet) GetAcctStatusType() AcctStatusTypeEnum {
 	avp := p.GetAVP(AttrAcctStatusType)
 	if avp == nil {
@@ -580,6 +631,7 @@ func (p *Packet) GetAcctStatusType() AcctStatusTypeEnum {
 	return AcctStatusTypeEnum(0)
 }
 
+// GetAcctSessionId returns Acct-Session-Id as a string, if present.
 func (p *Packet) GetAcctSessionId() string {
 	avp := p.GetAVP(AttrAcctSessionId)
 	if avp == nil {
@@ -595,6 +647,8 @@ func (p *Packet) GetAcctSessionId() string {
 	return ""
 }
 
+// GetAcctTotalOutputOctets returns the total output octets by combining
+// Acct-Output-Octets and Acct-Output-Gigawords when present.
 func (p *Packet) GetAcctTotalOutputOctets() uint64 {
 	out := uint64(0)
 	avp := p.GetAVP(AttrAcctOutputOctets)
@@ -618,6 +672,8 @@ func (p *Packet) GetAcctTotalOutputOctets() uint64 {
 	return out
 }
 
+// GetAcctTotalInputOctets returns the total input octets by combining
+// Acct-Input-Octets and Acct-Input-Gigawords when present.
 func (p *Packet) GetAcctTotalInputOctets() uint64 {
 	out := uint64(0)
 	avp := p.GetAVP(AttrAcctInputOctets)
@@ -641,7 +697,9 @@ func (p *Packet) GetAcctTotalInputOctets() uint64 {
 	return out
 }
 
-// it is ike_id in strongswan client
+// GetNASPort returns NAS-Port, if present.
+//
+// Note: some clients (for example strongSwan) use this to carry an IKE identity.
 func (p *Packet) GetNASPort() uint32 {
 	avp := p.GetAVP(AttrNASPort)
 	if avp == nil {
@@ -657,6 +715,7 @@ func (p *Packet) GetNASPort() uint32 {
 	return 0
 }
 
+// GetNASIdentifier returns NAS-Identifier, if present.
 func (p *Packet) GetNASIdentifier() string {
 	avp := p.GetAVP(AttrNASIdentifier)
 	if avp == nil {
@@ -672,6 +731,7 @@ func (p *Packet) GetNASIdentifier() string {
 	return ""
 }
 
+// GetEAPMessage returns the decoded EAP-Message as an *EapPacket, if present.
 func (p *Packet) GetEAPMessage() *EapPacket {
 	avp := p.GetAVP(AttrEAPMessage)
 	if avp == nil {
@@ -684,6 +744,7 @@ func (p *Packet) GetEAPMessage() *EapPacket {
 	return nil
 }
 
+// GetNASPortType returns NAS-Port-Type if present, or 0 otherwise.
 func (p *Packet) GetNASPortType() NASPortTypeEnum {
 	avp := p.GetAVP(AttrNASPortType)
 	if avp == nil {
@@ -702,6 +763,7 @@ func (p *Packet) GetNASPortType() NASPortTypeEnum {
 	return NASPortTypeEnum(0)
 }
 
+// GetServiceType returns Service-Type if present, or 0 otherwise.
 func (p *Packet) GetServiceType() ServiceTypeEnum {
 	avp := p.GetAVP(AttrServiceType)
 	if avp == nil {
