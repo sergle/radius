@@ -1,6 +1,7 @@
 package radius
 
 import (
+	"context"
 	"net"
 	"time"
 )
@@ -22,7 +23,10 @@ func (c *RadClient) SetTimeout(t time.Duration) {
 	c.timeout = t
 }
 
-func (c *RadClient) Send(request *Packet) (*Packet, error) {
+// SendContext sends a RADIUS packet using the provided context, allowing callers
+// to control cancellation and deadlines. For most callers, use Send, which
+// wraps this with context.Background().
+func (c *RadClient) SendContext(ctx context.Context, request *Packet) (*Packet, error) {
 	buf, err := request.Encode()
 	if err != nil {
 		return nil, err
@@ -31,9 +35,8 @@ func (c *RadClient) Send(request *Packet) (*Packet, error) {
 	request_auth := make([]byte, 16)
 	copy(request_auth, request.Authenticator[:])
 
-	// In v2, we dial once per Send for simplicity, but we've removed the redundant ResolveUDPAddr
-	// and narrowed the Dial to net.Dial for better versatility.
-	conn, err := net.Dial("udp", c.server)
+	dialer := &net.Dialer{}
+	conn, err := dialer.DialContext(ctx, "udp", c.server)
 	if err != nil {
 		return nil, err
 	}
@@ -49,7 +52,12 @@ func (c *RadClient) Send(request *Packet) (*Packet, error) {
 		timeout = sendTimeout
 	}
 
-	conn.SetDeadline(time.Now().Add(timeout))
+	// Prefer context deadline if present; otherwise fall back to client timeout.
+	if deadline, ok := ctx.Deadline(); ok {
+		conn.SetDeadline(deadline)
+	} else {
+		conn.SetDeadline(time.Now().Add(timeout))
+	}
 
 	_, err = conn.Write(buf)
 	if err != nil {
@@ -69,6 +77,11 @@ func (c *RadClient) Send(request *Packet) (*Packet, error) {
 	}
 
 	return reply, nil
+}
+
+// Send is a convenience wrapper around SendContext that uses context.Background().
+func (c *RadClient) Send(request *Packet) (*Packet, error) {
+	return c.SendContext(context.Background(), request)
 }
 
 // create empty packet

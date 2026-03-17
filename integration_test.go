@@ -92,6 +92,25 @@ func TestEndToEndRADIUS(t *testing.T) {
 		}
 	})
 
+	t.Run("SendContext with Timeout", func(t *testing.T) {
+		// Use a context with timeout shorter than client timeout to ensure context controls deadline.
+		ctx, cancelReq := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancelReq()
+
+		req := client.NewRequest(AccessRequest)
+		req.AddAVP(AVP{Type: AttrUserName, Value: []byte("testuser")})
+		req.AddPassword("testpass")
+
+		reply, err := client.SendContext(ctx, req)
+		if err != nil {
+			t.Fatalf("Failed to send request with context: %v", err)
+		}
+
+		if reply.Code != AccessAccept {
+			t.Errorf("Expected Access-Accept, got %v", reply.Code)
+		}
+	})
+
 	// 4. Test Server Stop (Context Cancellation)
 	t.Run("Server Shutdown", func(t *testing.T) {
 		cancel()

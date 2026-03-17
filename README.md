@@ -56,18 +56,23 @@ func main() {
 package main
 
 import (
+	"context"
 	"log"
 	"github.com/sergle/radius/v2"
 )
 
 func main() {
 	client := radius.NewRadClient("127.0.0.1:1812", "shared-secret")
-	
+
 	req := client.NewRequest(radius.AccessRequest)
 	req.AddAVP(radius.AVP{Type: radius.AttrUserName, Value: []byte("admin")})
 	req.AddPassword("secret")
 
-	reply, err := client.Send(req)
+	// Context-aware request with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	reply, err := client.SendContext(ctx, req)
 	if err != nil {
 		log.Fatal(err)
 	}
