@@ -15,7 +15,7 @@ func (a AVP) Copy() AVP {
 	copy(value, a.Value)
 	return AVP{
 		Type:  a.Type,
-		Value: a.Value,
+		Value: value,
 	}
 }
 func (a AVP) Encode(b []byte) (n int, err error) {
@@ -124,13 +124,13 @@ type ServiceTypeEnum uint32
 
 // TODO finish it
 const (
-	ServiceTypeEnumLogin          ServiceTypeEnum = 1
-	ServiceTypeEnumFramed         ServiceTypeEnum = 2
-	ServiceTypeEnumCallbackLogin  ServiceTypeEnum = 3
-	ServiceTypeEnumCallbackFramed ServiceTypeEnum = 4
-	ServiceTypeEnumOutbound       ServiceTypeEnum = 5
-	ServiceTypeEnumAdministrative ServiceTypeEnum = 6
-	ServiceTypeEnumNASPrompt      ServiceTypeEnum = 7
+	ServiceTypeEnumLogin            ServiceTypeEnum = 1
+	ServiceTypeEnumFramed           ServiceTypeEnum = 2
+	ServiceTypeEnumCallbackLogin    ServiceTypeEnum = 3
+	ServiceTypeEnumCallbackFramed   ServiceTypeEnum = 4
+	ServiceTypeEnumOutbound         ServiceTypeEnum = 5
+	ServiceTypeEnumAdministrative   ServiceTypeEnum = 6
+	ServiceTypeEnumNASPrompt        ServiceTypeEnum = 7
 	ServiceTypeEnumAuthenticateOnly ServiceTypeEnum = 8
 )
 
