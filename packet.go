@@ -9,7 +9,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	mrand "math/rand"
 	"net"
 	"strconv"
 	"sync"
@@ -293,7 +292,11 @@ func Request(code PacketCode, secret string) *Packet {
 	packet := new(Packet)
 	packet.Secret = secret
 	packet.Code = code
-	packet.Identifier = uint8(mrand.Int31n(255))
+	// Generate a cryptographically secure random identifier.
+	var id [1]byte
+	if _, err := rand.Read(id[:]); err == nil {
+		packet.Identifier = id[0]
+	}
 
 	if code == AccessRequest {
 		// generate new - will be used to encode password
