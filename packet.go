@@ -112,6 +112,14 @@ func (p *Packet) EncodeTo(b []byte) (n int, err error) {
 		}
 	}
 
+	// For non-Access requests (for example Accounting/CoA/Disconnect), the
+	// Request Authenticator is computed using a 16-byte zero vector in the
+	// hash input per RFC 2866/5176. Ensure we don't accidentally hash any
+	// caller-provided authenticator value.
+	if p.Code.IsRequest() && p.Code != AccessRequest {
+		p.Authenticator = [16]byte{}
+	}
+
 	// When the password request recalculation
 	n, err = p.encodeNoHashTo(b)
 	if err != nil {
