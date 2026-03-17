@@ -9,9 +9,9 @@ func TestDictionaryIntegration(t *testing.T) {
 	// Mock a custom attribute
 	// Custom attributes are typically > 100 or specific to an implementation
 	customAttrID := AttributeType(199)
-	dict.attr_id["Custom-Attribute"] = customAttrID
-	dict.attr_name[customAttrID] = "Custom-Attribute"
-	dict.attr_type["Custom-Attribute"] = "string"
+	dict.attrID["Custom-Attribute"] = customAttrID
+	dict.attrName[customAttrID] = "Custom-Attribute"
+	dict.attrType["Custom-Attribute"] = "string"
 
 	old := GetDefaultDictionary()
 	SetDefaultDictionary(dict)

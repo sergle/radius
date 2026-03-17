@@ -8,14 +8,14 @@ import (
 func TestTemplate(t *testing.T) {
 	dict := NewDictionary()
 	// Mock some attributes so we don't depend on external file for unit test
-	dict.attr_id["User-Name"] = AttrUserName
-	dict.attr_type["User-Name"] = "string"
-	dict.attr_id["User-Password"] = AttrUserPassword
-	dict.attr_type["User-Password"] = "string"
-	dict.attr_id["NAS-IP-Address"] = AttrNASIPAddress
-	dict.attr_type["NAS-IP-Address"] = "ipaddr"
-	dict.attr_id["Reply-Message"] = AttrReplyMessage
-	dict.attr_type["Reply-Message"] = "string"
+	dict.attrID["User-Name"] = AttrUserName
+	dict.attrType["User-Name"] = "string"
+	dict.attrID["User-Password"] = AttrUserPassword
+	dict.attrType["User-Password"] = "string"
+	dict.attrID["NAS-IP-Address"] = AttrNASIPAddress
+	dict.attrType["NAS-IP-Address"] = "ipaddr"
+	dict.attrID["Reply-Message"] = AttrReplyMessage
+	dict.attrType["Reply-Message"] = "string"
 
 	t.Run("GetTemplate", func(t *testing.T) {
 		tmpl, err := dict.GetTemplate("User-Name")

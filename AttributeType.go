@@ -39,7 +39,7 @@ func getAttributeTypeDesc(t AttributeType) attributeTypeDesc {
 		name := d.GetAttributeName(t)
 		if name != "" {
 			typeName := d.GetAttributeType(name)
-			handler := attr_type_handlers[typeName]
+			handler := attrTypeHandlers[typeName]
 			if handler == nil {
 				handler = avpBinary
 			}

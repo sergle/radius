@@ -71,17 +71,17 @@ func (d *Dictionary) GetTemplate(name string) (*AttributeTemplate, error) {
 	d.RLock()
 	defer d.RUnlock()
 
-	id, ok := d.attr_id[name]
+	id, ok := d.attrID[name]
 	if !ok {
 		return nil, fmt.Errorf("attribute %s not found in dictionary", name)
 	}
 
-	typeName, ok := d.attr_type[name]
+	typeName, ok := d.attrType[name]
 	if !ok {
 		return nil, fmt.Errorf("attribute %s has no type defined", name)
 	}
 
-	handler, ok := attr_type_handlers[typeName]
+	handler, ok := attrTypeHandlers[typeName]
 	if !ok {
 		return nil, fmt.Errorf("no handler found for type %s", typeName)
 	}
@@ -97,22 +97,22 @@ func (d *Dictionary) GetVSATemplate(vendorName, attrName string) (*VSATemplate, 
 	d.RLock()
 	defer d.RUnlock()
 
-	vID, ok := d.vendor_id[vendorName]
+	vID, ok := d.vendorID[vendorName]
 	if !ok {
 		return nil, fmt.Errorf("vendor %s not found in dictionary", vendorName)
 	}
 
-	aID, ok := d.vsa_attr_id[vID][attrName]
+	aID, ok := d.vsaAttrID[vID][attrName]
 	if !ok {
 		return nil, fmt.Errorf("VSA attribute %s not found for vendor %s", attrName, vendorName)
 	}
 
-	typeName, ok := d.vsa_attr_type[vID][attrName]
+	typeName, ok := d.vsaAttrType[vID][attrName]
 	if !ok {
 		return nil, fmt.Errorf("VSA attribute %s has no type defined", attrName)
 	}
 
-	handler, ok := attr_type_handlers[typeName]
+	handler, ok := attrTypeHandlers[typeName]
 	if !ok {
 		return nil, fmt.Errorf("no handler found for type %s", typeName)
 	}

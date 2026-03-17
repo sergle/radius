@@ -270,7 +270,6 @@ func (p *Packet) DeleteAVP(avp *AVP) {
 			break
 		}
 	}
-	return
 }
 
 // delete all avps with this type
@@ -285,7 +284,6 @@ func (p *Packet) DeleteOneType(attrType AttributeType) {
 			break
 		}
 	}
-	return
 }
 
 func Request(code PacketCode, secret string) *Packet {
@@ -333,8 +331,8 @@ func DecodeRequest(secret string, buf []byte) (p *Packet, err error) {
 	return decodePacket(secret, buf, nil)
 }
 
-func DecodeReply(secret string, buf []byte, request_auth []byte) (p *Packet, err error) {
-	return decodePacket(secret, buf, request_auth)
+func DecodeReply(secret string, buf []byte, requestAuth []byte) (p *Packet, err error) {
+	return decodePacket(secret, buf, requestAuth)
 }
 
 func DecodeRequestPooled(secret string, buf []byte) (p *Packet, err error) {
@@ -347,9 +345,9 @@ func DecodeRequestPooled(secret string, buf []byte) (p *Packet, err error) {
 	return p, nil
 }
 
-func DecodeReplyPooled(secret string, buf []byte, request_auth []byte) (p *Packet, err error) {
+func DecodeReplyPooled(secret string, buf []byte, requestAuth []byte) (p *Packet, err error) {
 	p = packetPool.Get().(*Packet)
-	err = decodePacketTo(p, secret, buf, request_auth)
+	err = decodePacketTo(p, secret, buf, requestAuth)
 	if err != nil {
 		p.Release()
 		return nil, err
@@ -361,19 +359,19 @@ func DecodeRequestLazy(secret string, buf []byte) (p *Packet, err error) {
 	return decodePacketLazy(secret, buf, nil)
 }
 
-func DecodeReplyLazy(secret string, buf []byte, request_auth []byte) (p *Packet, err error) {
-	return decodePacketLazy(secret, buf, request_auth)
+func DecodeReplyLazy(secret string, buf []byte, requestAuth []byte) (p *Packet, err error) {
+	return decodePacketLazy(secret, buf, requestAuth)
 }
 
 // decode request/reply
-func decodePacket(Secret string, buf []byte, request_auth []byte) (p *Packet, err error) {
+func decodePacket(Secret string, buf []byte, requestAuth []byte) (p *Packet, err error) {
 	p = &Packet{Secret: Secret}
-	err = decodePacketTo(p, Secret, buf, request_auth)
+	err = decodePacketTo(p, Secret, buf, requestAuth)
 	return p, err
 }
 
-func decodePacketTo(p *Packet, Secret string, buf []byte, request_auth []byte) error {
-	err := decodePacketHeaderTo(p, Secret, buf, request_auth)
+func decodePacketTo(p *Packet, Secret string, buf []byte, requestAuth []byte) error {
+	err := decodePacketHeaderTo(p, Secret, buf, requestAuth)
 	if err != nil {
 		return err
 	}
@@ -393,15 +391,15 @@ func decodePacketTo(p *Packet, Secret string, buf []byte, request_auth []byte) e
 	}
 
 	//Verify the Message-Authenticator and verify that the algorithm here is correct through testing
-	err = p.checkMessageAuthenticator(request_auth)
+	err = p.checkMessageAuthenticator(requestAuth)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func decodePacketLazy(Secret string, buf []byte, request_auth []byte) (p *Packet, err error) {
-	p, err = decodePacketHeader(Secret, buf, request_auth)
+func decodePacketLazy(Secret string, buf []byte, requestAuth []byte) (p *Packet, err error) {
+	p, err = decodePacketHeader(Secret, buf, requestAuth)
 	if err != nil {
 		return p, err
 	}
@@ -410,20 +408,20 @@ func decodePacketLazy(Secret string, buf []byte, request_auth []byte) (p *Packet
 	// Verify the Message-Authenticator
 	// Note: Message-Authenticator verification requires walking the attributes
 	// if we want to be fully lazy, we could defer this, but it's safer to check now.
-	err = p.checkMessageAuthenticator(request_auth)
+	err = p.checkMessageAuthenticator(requestAuth)
 	if err != nil {
 		return p, err
 	}
 	return p, nil
 }
 
-func decodePacketHeader(Secret string, buf []byte, request_auth []byte) (p *Packet, err error) {
+func decodePacketHeader(Secret string, buf []byte, requestAuth []byte) (p *Packet, err error) {
 	p = &Packet{Secret: Secret}
-	err = decodePacketHeaderTo(p, Secret, buf, request_auth)
+	err = decodePacketHeaderTo(p, Secret, buf, requestAuth)
 	return p, err
 }
 
-func decodePacketHeaderTo(p *Packet, Secret string, buf []byte, request_auth []byte) error {
+func decodePacketHeaderTo(p *Packet, Secret string, buf []byte, requestAuth []byte) error {
 	if len(buf) < 20 {
 		return errors.New("invalid length")
 	}
@@ -433,13 +431,13 @@ func decodePacketHeaderTo(p *Packet, Secret string, buf []byte, request_auth []b
 	p.Identifier = buf[1]
 	copy(p.Authenticator[:], buf[4:20])
 
-	if err := p.checkAuthenticator(buf, request_auth); err != nil {
+	if err := p.checkAuthenticator(buf, requestAuth); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (p *Packet) checkAuthenticator(buf []byte, request_auth []byte) (err error) {
+func (p *Packet) checkAuthenticator(buf []byte, requestAuth []byte) (err error) {
 	if p.Code == AccessRequest {
 		// it has random authenticator, do not verify
 		return nil
@@ -452,12 +450,12 @@ func (p *Packet) checkAuthenticator(buf []byte, request_auth []byte) (err error)
 		hasher.Write(make([]byte, 16))
 	} else {
 		// value from request packet
-		hasher.Write(request_auth)
+		hasher.Write(requestAuth)
 	}
 	hasher.Write(buf[20:])
 	hasher.Write([]byte(p.Secret))
 	expected := hasher.Sum(nil)
-	if bytes.Compare(expected, p.Authenticator[:]) != 0 {
+	if !bytes.Equal(expected, p.Authenticator[:]) {
 		return ErrAuthenticatorCheckFail
 	}
 	// ok
@@ -465,7 +463,7 @@ func (p *Packet) checkAuthenticator(buf []byte, request_auth []byte) (err error)
 }
 
 // check value of Message-Authenticator AVP
-func (p *Packet) checkMessageAuthenticator(request_auth []byte) (err error) {
+func (p *Packet) checkMessageAuthenticator(requestAuth []byte) (err error) {
 	avp := p.GetAVP(AttrMessageAuthenticator)
 	if avp == nil {
 		return nil
@@ -477,10 +475,10 @@ func (p *Packet) checkMessageAuthenticator(request_auth []byte) (err error) {
 
 	if !p.Code.IsRequest() {
 		// orig authenticator from request to verify reply
-		p_auth := make([]byte, 16)
-		copy(p_auth, p.Authenticator[:])
-		defer func() { copy(p.Authenticator[:], p_auth) }()
-		copy(p.Authenticator[:], request_auth)
+		pAuth := make([]byte, 16)
+		copy(pAuth, p.Authenticator[:])
+		defer func() { copy(p.Authenticator[:], pAuth) }()
+		copy(p.Authenticator[:], requestAuth)
 	}
 
 	avp.Value = make([]byte, 16)

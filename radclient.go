@@ -32,8 +32,8 @@ func (c *RadClient) SendContext(ctx context.Context, request *Packet) (*Packet, 
 		return nil, err
 	}
 
-	request_auth := make([]byte, 16)
-	copy(request_auth, request.Authenticator[:])
+	requestAuth := make([]byte, 16)
+	copy(requestAuth, request.Authenticator[:])
 
 	dialer := &net.Dialer{}
 	conn, err := dialer.DialContext(ctx, "udp", c.server)
@@ -71,7 +71,7 @@ func (c *RadClient) SendContext(ctx context.Context, request *Packet) (*Packet, 
 		return nil, err
 	}
 
-	reply, err := DecodeReply(c.secret, b[:n], request_auth)
+	reply, err := DecodeReply(c.secret, b[:n], requestAuth)
 	if err != nil {
 		return nil, err
 	}

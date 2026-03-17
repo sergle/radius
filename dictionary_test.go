@@ -52,7 +52,7 @@ $INCLUDE	dictionary.testvendor
 	// Verify Values
 	// Note: dictionary.go stores values but doesn't have a public GetValueID method easily accessible for simple check
 	// without VSA context or internal map access, but we can check if parsing succeeded without error.
-	// Actually, there are no public getters for const_id in the provided file.
+	// Actually, there are no public getters for constID in the provided file.
 	// We can mostly verify that LoadFile didn't return error and internal state handles it if we were to parse a packet.
 
 	// Verify Vendor

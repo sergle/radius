@@ -66,52 +66,52 @@ func GetDefaultDictionary() *Dictionary {
 type Dictionary struct {
 	sync.RWMutex
 	// map attribute name to id
-	attr_id map[string]AttributeType
+	attrID map[string]AttributeType
 	// map attribute it to name
-	attr_name map[AttributeType]string
+	attrName map[AttributeType]string
 	// map attribute name to type name
-	attr_type map[string]string
+	attrType map[string]string
 	// map attribute name + enum name to id
-	const_id map[string]map[string]uint32
+	constID map[string]map[string]uint32
 	// map attribute name + enum id to enum name
-	const_name map[string]map[uint32]string
+	constName map[string]map[uint32]string
 	// list of scanned files - to avoid recursion
-	flist map[string]bool
+	fileList map[string]bool
 	// map vendor name to id
-	vendor_id map[string]VendorID
+	vendorID map[string]VendorID
 	// map vendor id to name
-	vendor_name map[VendorID]string
+	vendorName map[VendorID]string
 	// current vendor (parser state)
-	current_vendor VendorID
+	currentVendor VendorID
 	// current TLV attribute (WiMAX Vendor), ignored
-	current_tlv VendorAttr
+	currentTLV VendorAttr
 
 	// vsa
 	// vendor -> attribute name -> attribute id
-	vsa_attr_id   map[VendorID]map[string]VendorAttr
-	vsa_attr_name map[VendorID]map[VendorAttr]string
-	vsa_attr_type map[VendorID]map[string]string
+	vsaAttrID   map[VendorID]map[string]VendorAttr
+	vsaAttrName map[VendorID]map[VendorAttr]string
+	vsaAttrType map[VendorID]map[string]string
 	// vendor -> attribute name -> constant name -> constant id
-	vsa_const_id   map[VendorID]map[string]map[string]uint32
-	vsa_const_name map[VendorID]map[string]map[uint32]string
+	vsaConstID   map[VendorID]map[string]map[string]uint32
+	vsaConstName map[VendorID]map[string]map[uint32]string
 }
 
 func NewDictionary() *Dictionary {
 	dict := &Dictionary{}
 
-	dict.attr_id = make(map[string]AttributeType)
-	dict.attr_name = make(map[AttributeType]string)
-	dict.attr_type = make(map[string]string)
-	dict.const_id = make(map[string]map[string]uint32)
-	dict.const_name = make(map[string]map[uint32]string)
-	dict.flist = make(map[string]bool)
-	dict.vendor_id = make(map[string]VendorID)
-	dict.vendor_name = make(map[VendorID]string)
-	dict.vsa_attr_id = make(map[VendorID]map[string]VendorAttr)
-	dict.vsa_attr_name = make(map[VendorID]map[VendorAttr]string)
-	dict.vsa_attr_type = make(map[VendorID]map[string]string)
-	dict.vsa_const_id = make(map[VendorID]map[string]map[string]uint32)
-	dict.vsa_const_name = make(map[VendorID]map[string]map[uint32]string)
+	dict.attrID = make(map[string]AttributeType)
+	dict.attrName = make(map[AttributeType]string)
+	dict.attrType = make(map[string]string)
+	dict.constID = make(map[string]map[string]uint32)
+	dict.constName = make(map[string]map[uint32]string)
+	dict.fileList = make(map[string]bool)
+	dict.vendorID = make(map[string]VendorID)
+	dict.vendorName = make(map[VendorID]string)
+	dict.vsaAttrID = make(map[VendorID]map[string]VendorAttr)
+	dict.vsaAttrName = make(map[VendorID]map[VendorAttr]string)
+	dict.vsaAttrType = make(map[VendorID]map[string]string)
+	dict.vsaConstID = make(map[VendorID]map[string]map[string]uint32)
+	dict.vsaConstName = make(map[VendorID]map[string]map[uint32]string)
 
 	return dict
 }
@@ -125,12 +125,12 @@ func (d *Dictionary) LoadFile(fname string) error {
 func (d *Dictionary) loadFileInternal(fname string) error {
 	log.Printf("Reading file %s\n", fname)
 
-	if _, ok := d.flist[fname]; ok {
+	if _, ok := d.fileList[fname]; ok {
 		log.Printf("File %s already read\n", fname)
 		return nil
 	}
 
-	d.flist[fname] = true
+	d.fileList[fname] = true
 
 	file, err := os.Open(fname)
 	if err != nil {
@@ -217,7 +217,7 @@ func (d *Dictionary) parseLine(fname string, line string) error {
 
 }
 
-func (d *Dictionary) parseAttribute(attr_name string, attr_id string, attr_type string) error {
+func (d *Dictionary) parseAttribute(attrName string, attrID string, attrType string) error {
 	// id_size := 8
 	// if d.current_vendor > 0 {
 	//     // some vendors has 16-bit attr id (Lucent)
@@ -225,98 +225,98 @@ func (d *Dictionary) parseAttribute(attr_name string, attr_id string, attr_type 
 	// }
 
 	// 0 - guess base (0x for hex)
-	a_id, err := strconv.ParseUint(attr_id, 0, 8)
+	aID, err := strconv.ParseUint(attrID, 0, 8)
 	if err != nil {
-		log.Printf("Failed to convert attr %s id %s to uint: %s. Ignoring\n", attr_name, attr_id, err)
+		log.Printf("Failed to convert attr %s id %s to uint: %s. Ignoring\n", attrName, attrID, err)
 		// ignore errors
 		return nil
 	}
 
 	//TODO WiMAX
-	if d.current_tlv > 0 {
+	if d.currentTLV > 0 {
 		// ignore tlv sub-attributes
-		log.Printf("Ignore TVL attribute %s\n", attr_name)
+		log.Printf("Ignore TVL attribute %s\n", attrName)
 		return nil
 	}
 
-	if d.current_vendor > 0 {
-		if _, ok := d.vsa_attr_id[d.current_vendor]; !ok {
-			d.vsa_attr_id[d.current_vendor] = make(map[string]VendorAttr)
-			d.vsa_attr_name[d.current_vendor] = make(map[VendorAttr]string)
-			d.vsa_attr_type[d.current_vendor] = make(map[string]string)
+	if d.currentVendor > 0 {
+		if _, ok := d.vsaAttrID[d.currentVendor]; !ok {
+			d.vsaAttrID[d.currentVendor] = make(map[string]VendorAttr)
+			d.vsaAttrName[d.currentVendor] = make(map[VendorAttr]string)
+			d.vsaAttrType[d.currentVendor] = make(map[string]string)
 		}
 
-		d.vsa_attr_id[d.current_vendor][attr_name] = VendorAttr(a_id)
-		d.vsa_attr_name[d.current_vendor][VendorAttr(a_id)] = attr_name
-		d.vsa_attr_type[d.current_vendor][attr_name] = attr_type
-		//fmt.Printf("Attr %s / %s has id %d and type %s\n", d.vendor_name[ d.current_vendor ], attr_name, a_id, attr_type)
+		d.vsaAttrID[d.currentVendor][attrName] = VendorAttr(aID)
+		d.vsaAttrName[d.currentVendor][VendorAttr(aID)] = attrName
+		d.vsaAttrType[d.currentVendor][attrName] = attrType
+		//fmt.Printf("Attr %s / %s has id %d and type %s\n", d.vendorName[ d.currentVendor ], attrName, aID, attrType)
 	} else {
-		d.attr_id[attr_name] = AttributeType(a_id)
-		d.attr_name[AttributeType(a_id)] = attr_name
-		d.attr_type[attr_name] = attr_type
-		//log.Printf("Attr %s has id %d and type %s\n", attr_name, a_id, attr_type)
+		d.attrID[attrName] = AttributeType(aID)
+		d.attrName[AttributeType(aID)] = attrName
+		d.attrType[attrName] = attrType
+		//log.Printf("Attr %s has id %d and type %s\n", attrName, aID, attrType)
 	}
 
 	return nil
 }
 
-func (d *Dictionary) parseValue(attr_name string, const_name string, const_value string) error {
+func (d *Dictionary) parseValue(attrName string, constName string, constValue string) error {
 	//TODO WiMAX
-	if d.current_tlv > 0 {
+	if d.currentTLV > 0 {
 		// ignore tlv sub-attributes
-		log.Printf("Ignore TVL attribute %s\n", attr_name)
+		log.Printf("Ignore TVL attribute %s\n", attrName)
 		return nil
 	}
 
 	var present bool
-	if d.current_vendor > 0 {
-		_, present = d.vsa_attr_id[d.current_vendor][attr_name]
+	if d.currentVendor > 0 {
+		_, present = d.vsaAttrID[d.currentVendor][attrName]
 	} else {
-		_, present = d.attr_id[attr_name]
+		_, present = d.attrID[attrName]
 	}
 
 	if !present {
-		log.Printf("Value %s for non-existing attribute %s\n", const_name, attr_name)
+		log.Printf("Value %s for non-existing attribute %s\n", constName, attrName)
 		// ignore 'compat' errors
 		return nil
 	}
 
 	// some values defined as 0x.. - using '0' to auto-detect
-	c_id, err := strconv.ParseUint(const_value, 0, 32)
+	cID, err := strconv.ParseUint(constValue, 0, 32)
 	if err != nil {
 		log.Printf("Failed to convert constant value to int: %s\n", err)
 		return err
 	}
 
-	if d.current_vendor > 0 {
-		if _, ok := d.vsa_const_id[d.current_vendor]; !ok {
-			d.vsa_const_id[d.current_vendor] = make(map[string]map[string]uint32)
-			d.vsa_const_name[d.current_vendor] = make(map[string]map[uint32]string)
+	if d.currentVendor > 0 {
+		if _, ok := d.vsaConstID[d.currentVendor]; !ok {
+			d.vsaConstID[d.currentVendor] = make(map[string]map[string]uint32)
+			d.vsaConstName[d.currentVendor] = make(map[string]map[uint32]string)
 		}
 
-		if _, ok := d.vsa_const_id[d.current_vendor][attr_name]; !ok {
-			d.vsa_const_id[d.current_vendor][attr_name] = make(map[string]uint32)
-			d.vsa_const_name[d.current_vendor][attr_name] = make(map[uint32]string)
+		if _, ok := d.vsaConstID[d.currentVendor][attrName]; !ok {
+			d.vsaConstID[d.currentVendor][attrName] = make(map[string]uint32)
+			d.vsaConstName[d.currentVendor][attrName] = make(map[uint32]string)
 		}
 
-		d.vsa_const_id[d.current_vendor][attr_name][const_name] = uint32(c_id)
-		d.vsa_const_name[d.current_vendor][attr_name][uint32(c_id)] = const_name
-		//fmt.Printf("Attr %s / %s has value %s = %s\n", d.vendor_name[ d.current_vendor ], attr_name, const_name, const_value)
+		d.vsaConstID[d.currentVendor][attrName][constName] = uint32(cID)
+		d.vsaConstName[d.currentVendor][attrName][uint32(cID)] = constName
+		//fmt.Printf("Attr %s / %s has value %s = %s\n", d.vendorName[ d.currentVendor ], attrName, constName, constValue)
 	} else {
-		if _, exist := d.const_id[attr_name]; !exist {
-			d.const_id[attr_name] = make(map[string]uint32)
-			d.const_name[attr_name] = make(map[uint32]string)
+		if _, exist := d.constID[attrName]; !exist {
+			d.constID[attrName] = make(map[string]uint32)
+			d.constName[attrName] = make(map[uint32]string)
 		}
 
-		d.const_id[attr_name][const_name] = uint32(c_id)
-		d.const_name[attr_name][uint32(c_id)] = const_name
-		//log.Printf("Attr %s has value %s = %s\n", attr_name, const_name, const_value)
+		d.constID[attrName][constName] = uint32(cID)
+		d.constName[attrName][uint32(cID)] = constName
+		//log.Printf("Attr %s has value %s = %s\n", attrName, constName, constValue)
 	}
 
 	return nil
 }
 
-var blacklist_dictionary = map[string]int{
+var blacklistDictionary = map[string]int{
 	"dictionary.freeradius.internal": 1,
 	"dictionary.compat":              1,
 	"dictionary.usr.illegal":         1,
@@ -327,88 +327,88 @@ var blacklist_dictionary = map[string]int{
 	"dictionary.usr":     1,
 }
 
-func (d *Dictionary) parseInclude(fname string, inc_name string) error {
+func (d *Dictionary) parseInclude(fname string, incName string) error {
 	// ignore files in unsupported format
-	if _, ok := blacklist_dictionary[inc_name]; ok {
-		log.Printf("Skip internal/unsupported FreeRADIUS dictionary: %s\n", inc_name)
+	if _, ok := blacklistDictionary[incName]; ok {
+		log.Printf("Skip internal/unsupported FreeRADIUS dictionary: %s\n", incName)
 		return nil
 	}
 
-	log.Printf("-- include file %s --\n", inc_name)
+	log.Printf("-- include file %s --\n", incName)
 	// included file locate in the same directory
-	full_name := filepath.Join(filepath.Dir(fname), inc_name)
+	fullName := filepath.Join(filepath.Dir(fname), incName)
 	// clear vendor
-	d.current_vendor = 0
-	return d.loadFileInternal(full_name)
+	d.currentVendor = 0
+	return d.loadFileInternal(fullName)
 }
 
-func (d *Dictionary) parseVendor(vendor_name string, vendor_id string) error {
-	v_id, err := strconv.ParseUint(vendor_id, 0, 32)
+func (d *Dictionary) parseVendor(vendorName string, vendorID string) error {
+	vID, err := strconv.ParseUint(vendorID, 0, 32)
 	if err != nil {
 		log.Printf("Failed to convert vendor id: %s\n", err)
 		return err
 	}
 
-	d.vendor_id[vendor_name] = VendorID(v_id)
-	d.vendor_name[VendorID(v_id)] = vendor_name
+	d.vendorID[vendorName] = VendorID(vID)
+	d.vendorName[VendorID(vID)] = vendorName
 
 	return nil
 }
 
-func (d *Dictionary) parseBeginVendor(vendor_name string) error {
-	v_id, ok := d.vendor_id[vendor_name]
+func (d *Dictionary) parseBeginVendor(vendorName string) error {
+	vID, ok := d.vendorID[vendorName]
 	if !ok {
-		log.Printf("vendor %s not found", vendor_name)
-		return errors.New("unknown vendor " + vendor_name)
+		log.Printf("vendor %s not found", vendorName)
+		return errors.New("unknown vendor " + vendorName)
 	}
-	d.current_vendor = v_id
+	d.currentVendor = vID
 	return nil
 }
 
-func (d *Dictionary) parseEndVendor(vendor_name string) error {
-	v_id, ok := d.vendor_id[vendor_name]
+func (d *Dictionary) parseEndVendor(vendorName string) error {
+	vID, ok := d.vendorID[vendorName]
 	if !ok {
-		log.Printf("vendor %s not found", vendor_name)
-		return errors.New("unknown vendor " + vendor_name)
+		log.Printf("vendor %s not found", vendorName)
+		return errors.New("unknown vendor " + vendorName)
 	}
 
-	if d.current_vendor == 0 || d.current_vendor != v_id {
+	if d.currentVendor == 0 || d.currentVendor != vID {
 		return errors.New("unexpected END-VENDOR found")
 	}
 
-	d.current_vendor = 0
+	d.currentVendor = 0
 
 	return nil
 }
 
-func (d *Dictionary) parseBeginTLV(attr_name string) error {
-	a_id, ok := d.vsa_attr_id[d.current_vendor][attr_name]
+func (d *Dictionary) parseBeginTLV(attrName string) error {
+	aID, ok := d.vsaAttrID[d.currentVendor][attrName]
 	if !ok {
-		log.Printf("TLV attribute %s not found\n", attr_name)
-		return errors.New("Unknown TLV attribute " + attr_name)
+		log.Printf("TLV attribute %s not found\n", attrName)
+		return errors.New("Unknown TLV attribute " + attrName)
 	}
-	d.current_tlv = a_id
+	d.currentTLV = aID
 	return nil
 }
 
-func (d *Dictionary) parseEndTLV(attr_name string) error {
-	a_id, ok := d.vsa_attr_id[d.current_vendor][attr_name]
+func (d *Dictionary) parseEndTLV(attrName string) error {
+	aID, ok := d.vsaAttrID[d.currentVendor][attrName]
 	if !ok {
-		log.Printf("TLV attribute %s not found\n", attr_name)
-		return errors.New("Unknown TLV attribute " + attr_name)
+		log.Printf("TLV attribute %s not found\n", attrName)
+		return errors.New("Unknown TLV attribute " + attrName)
 	}
 
-	if d.current_tlv == 0 || d.current_tlv != a_id {
-		log.Printf("Current TLV %d expected %d", d.current_tlv, a_id)
+	if d.currentTLV == 0 || d.currentTLV != aID {
+		log.Printf("Current TLV %d expected %d", d.currentTLV, aID)
 		return errors.New("unexpected END-TLV")
 	}
 
-	d.current_tlv = 0
+	d.currentTLV = 0
 	return nil
 }
 
 // attribute type to handler mapping
-var attr_type_handlers = map[string]avpDataType{
+var attrTypeHandlers = map[string]avpDataType{
 	"integer":    avpUint32,
 	"ipaddr":     avpIP,
 	"string":     avpString,
@@ -435,21 +435,21 @@ func (d *Dictionary) DecodeAVPValue(p *Packet, a AVP) string {
 	} else if a.Type == AttrVendorSpecific {
 		vsa := ToVSA(a)
 
-		vendor_name := d.GetVendorName(vsa.Vendor)
-		attr_name := d.GetVSAAttributeName(vsa.Vendor, vsa.Type)
-		attr_type := d.GetVSAAttributeType(vsa.Vendor, attr_name)
-		handler := attr_type_handlers[attr_type]
+		vendorName := d.GetVendorName(vsa.Vendor)
+		attrName := d.GetVSAAttributeName(vsa.Vendor, vsa.Type)
+		attrType := d.GetVSAAttributeType(vsa.Vendor, attrName)
+		handler := attrTypeHandlers[attrType]
 		if handler == nil {
 			handler = avpBinary
 		}
 
 		valStr := handler.String(p, AVP{Value: vsa.Value})
 		// Try to lookup enum name for VSAs too
-		if attr_type == "integer" {
+		if attrType == "integer" {
 			vID := binary.BigEndian.Uint32(vsa.Value)
 			d.RLock()
-			if d.vsa_const_name[vsa.Vendor] != nil && d.vsa_const_name[vsa.Vendor][attr_name] != nil {
-				if enumName, ok := d.vsa_const_name[vsa.Vendor][attr_name][vID]; ok {
+			if d.vsaConstName[vsa.Vendor] != nil && d.vsaConstName[vsa.Vendor][attrName] != nil {
+				if enumName, ok := d.vsaConstName[vsa.Vendor][attrName][vID]; ok {
 					valStr = enumName
 				}
 			}
@@ -457,23 +457,23 @@ func (d *Dictionary) DecodeAVPValue(p *Packet, a AVP) string {
 		}
 
 		return fmt.Sprintf("{Vendor:%s #%d, Attr: %s #%d, Value: %s}",
-			vendor_name, vsa.Vendor, attr_name, vsa.Type, valStr)
+			vendorName, vsa.Vendor, attrName, vsa.Type, valStr)
 
 	}
 
-	attr_name := d.GetAttributeName(a.Type)
-	attr_type := d.GetAttributeType(attr_name)
-	handler := attr_type_handlers[attr_type]
+	attrName := d.GetAttributeName(a.Type)
+	attrType := d.GetAttributeType(attrName)
+	handler := attrTypeHandlers[attrType]
 	if handler == nil {
 		handler = avpBinary
 	}
 
 	// Try to lookup enum name for standard attributes
-	if attr_type == "integer" {
+	if attrType == "integer" {
 		vID := binary.BigEndian.Uint32(a.Value)
 		d.RLock()
-		if d.const_name[attr_name] != nil {
-			if enumName, ok := d.const_name[attr_name][vID]; ok {
+		if d.constName[attrName] != nil {
+			if enumName, ok := d.constName[attrName][vID]; ok {
 				d.RUnlock()
 				return enumName
 			}
@@ -486,91 +486,91 @@ func (d *Dictionary) DecodeAVPValue(p *Packet, a AVP) string {
 
 // public
 
-func (d *Dictionary) GetAttributeID(attr_name string) AttributeType {
+func (d *Dictionary) GetAttributeID(attrName string) AttributeType {
 	d.RLock()
 	defer d.RUnlock()
-	return d.attr_id[attr_name]
+	return d.attrID[attrName]
 }
 
-func (d *Dictionary) HasAttribute(attr_name string) bool {
+func (d *Dictionary) HasAttribute(attrName string) bool {
 	d.RLock()
 	defer d.RUnlock()
-	_, present := d.attr_id[attr_name]
+	_, present := d.attrID[attrName]
 	return present
 }
 
-func (d *Dictionary) GetAttributeName(attr_id AttributeType) string {
+func (d *Dictionary) GetAttributeName(attrID AttributeType) string {
 	d.RLock()
 	defer d.RUnlock()
-	return d.attr_name[attr_id]
+	return d.attrName[attrID]
 }
 
-func (d *Dictionary) GetAttributeType(attr_name string) string {
+func (d *Dictionary) GetAttributeType(attrName string) string {
 	d.RLock()
 	defer d.RUnlock()
-	return d.attr_type[attr_name]
+	return d.attrType[attrName]
 }
 
-func (d *Dictionary) GetVSAAttributeID(vendor_id VendorID, attr_name string) VendorAttr {
+func (d *Dictionary) GetVSAAttributeID(vendorID VendorID, attrName string) VendorAttr {
 	d.RLock()
 	defer d.RUnlock()
-	return d.vsa_attr_id[vendor_id][attr_name]
+	return d.vsaAttrID[vendorID][attrName]
 }
 
-func (d *Dictionary) HasVSAAttribute(vendor_id VendorID, attr_name string) bool {
+func (d *Dictionary) HasVSAAttribute(vendorID VendorID, attrName string) bool {
 	d.RLock()
 	defer d.RUnlock()
-	_, present := d.vsa_attr_id[vendor_id][attr_name]
+	_, present := d.vsaAttrID[vendorID][attrName]
 	return present
 }
 
-func (d *Dictionary) GetVSAAttributeName(vendor_id VendorID, attr_id VendorAttr) string {
+func (d *Dictionary) GetVSAAttributeName(vendorID VendorID, attrID VendorAttr) string {
 	d.RLock()
 	defer d.RUnlock()
-	return d.vsa_attr_name[vendor_id][attr_id]
+	return d.vsaAttrName[vendorID][attrID]
 }
 
-func (d *Dictionary) GetVSAAttributeType(vendor_id VendorID, attr_name string) string {
+func (d *Dictionary) GetVSAAttributeType(vendorID VendorID, attrName string) string {
 	d.RLock()
 	defer d.RUnlock()
-	return d.vsa_attr_type[vendor_id][attr_name]
+	return d.vsaAttrType[vendorID][attrName]
 }
 
-func (d *Dictionary) GetVendorName(vendor_id VendorID) string {
+func (d *Dictionary) GetVendorName(vendorID VendorID) string {
 	d.RLock()
 	defer d.RUnlock()
-	return d.vendor_name[vendor_id]
+	return d.vendorName[vendorID]
 }
 
-func (d *Dictionary) GetVendorID(vendor_name string) VendorID {
+func (d *Dictionary) GetVendorID(vendorName string) VendorID {
 	d.RLock()
 	defer d.RUnlock()
-	return d.vendor_id[vendor_name]
+	return d.vendorID[vendorName]
 }
 
-func (d *Dictionary) NewAVP(attr_name string, attr_value string) AVP {
-	attr_id := d.GetAttributeID(attr_name)
-	attr_type := d.GetAttributeType(attr_name)
-	handler := attr_type_handlers[attr_type]
+func (d *Dictionary) NewAVP(attrName string, attrValue string) AVP {
+	attrID := d.GetAttributeID(attrName)
+	attrType := d.GetAttributeType(attrName)
+	handler := attrTypeHandlers[attrType]
 	if handler == nil {
-		log.Printf("Unknown type %s\n", attr_type)
+		log.Printf("Unknown type %s\n", attrType)
 		return AVP{}
 	}
 
-	value := handler.FromString(attr_value)
+	value := handler.FromString(attrValue)
 
-	avp := AVP{Type: attr_id, Value: value}
+	avp := AVP{Type: attrID, Value: value}
 	return avp
 }
 
-func (d *Dictionary) NewVSA(vendor_name string, attr_name string, attr_value string) VSA {
-	vendor_id := d.GetVendorID(vendor_name)
-	attr_id := d.GetVSAAttributeID(vendor_id, attr_name)
-	attr_type := d.GetVSAAttributeType(vendor_id, attr_name)
-	handler := attr_type_handlers[attr_type]
+func (d *Dictionary) NewVSA(vendorName string, attrName string, attrValue string) VSA {
+	vendorID := d.GetVendorID(vendorName)
+	attrID := d.GetVSAAttributeID(vendorID, attrName)
+	attrType := d.GetVSAAttributeType(vendorID, attrName)
+	handler := attrTypeHandlers[attrType]
 
-	value := handler.FromString(attr_value)
+	value := handler.FromString(attrValue)
 
-	vsa := VSA{Vendor: vendor_id, Type: attr_id, Value: value}
+	vsa := VSA{Vendor: vendorID, Type: attrID, Value: value}
 	return vsa
 }

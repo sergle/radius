@@ -102,18 +102,18 @@ func TestResponseAuthenticator(t *testing.T) {
 	copy(pac.Authenticator[:], []byte{0x13, 0x18, 0x57, 0x18, 0x29, 0xc1, 0x7b, 0x2f,
 		0x9e, 0x28, 0x1d, 0x48, 0x67, 0x21, 0x0a, 0x71})
 
-	req_buf, _ := pac.Encode()
+	reqBuf, _ := pac.Encode()
 
 	reply := pac.Reply()
 	reply.Code = AccessAccept
 	reply.AVPs = append(reply.AVPs, AVP{Type: AttrReplyMessage, Value: []byte("hello")})
 
-	reply_buf, err := reply.Encode()
+	replyBuf, err := reply.Encode()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	reply2, err := DecodeReply(secret, reply_buf, pac.Authenticator[:])
+	reply2, err := DecodeReply(secret, replyBuf, pac.Authenticator[:])
 	if err != nil {
 		t.Fatalf("reply decode: %v", err)
 	}
@@ -122,20 +122,20 @@ func TestResponseAuthenticator(t *testing.T) {
 	}
 
 	// test bad secret
-	_, err = DecodeReply("bad-secret", reply_buf, pac.Authenticator[:])
+	_, err = DecodeReply("bad-secret", replyBuf, pac.Authenticator[:])
 	if err != ErrAuthenticatorCheckFail {
 		t.Error("Bad secret check failed")
 	}
 
 	// test bad request authenticator
-	bad_req_auth := make([]byte, 16)
-	_, err = DecodeReply(secret, reply_buf, bad_req_auth)
+	badReqAuth := make([]byte, 16)
+	_, err = DecodeReply(secret, replyBuf, badReqAuth)
 	if err != ErrAuthenticatorCheckFail {
 		t.Error("Bad request auth check failed")
 	}
 
-	// test if it can decode with original req_buf
-	reply3, err := DecodeReply(secret, reply_buf, req_buf[4:20])
+	// test if it can decode with original reqBuf
+	reply3, err := DecodeReply(secret, replyBuf, reqBuf[4:20])
 	if err != nil {
 		t.Fatal(err)
 	}
