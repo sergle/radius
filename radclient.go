@@ -11,7 +11,7 @@ type RadClient struct {
 	timeout time.Duration
 }
 
-const sendTimeout time.Duration = 2
+const sendTimeout time.Duration = 2 * time.Second
 const bufSize int = 4096
 
 func NewRadClient(server string, secret string) *RadClient {
@@ -49,7 +49,7 @@ func (c *RadClient) Send(request *Packet) (*Packet, error) {
 		timeout = sendTimeout
 	}
 
-	conn.SetDeadline(time.Now().Add(timeout * time.Second))
+	conn.SetDeadline(time.Now().Add(timeout))
 
 	_, err = conn.Write(buf)
 	if err != nil {

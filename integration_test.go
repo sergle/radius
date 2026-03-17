@@ -55,7 +55,7 @@ func TestEndToEndRADIUS(t *testing.T) {
 
 	// 3. Client Interaction
 	client := NewRadClient(actualAddr, secret)
-	client.timeout = 2
+	client.SetTimeout(2 * time.Second)
 
 	t.Run("Valid Credentials", func(t *testing.T) {
 		req := client.NewRequest(AccessRequest)
@@ -99,7 +99,7 @@ func TestEndToEndRADIUS(t *testing.T) {
 
 		// Try to send after shutdown
 		req := client.NewRequest(AccessRequest)
-		client.timeout = 1 // 1 second timeout for test
+		client.SetTimeout(1 * time.Second)
 		_, err := client.Send(req)
 		if err == nil {
 			t.Error("Expected error sending to stopped server, got nil")
