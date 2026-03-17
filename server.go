@@ -36,6 +36,20 @@ func NewServer(addr string, secret string, service Service) *Server {
 	s := &Server{
 		addr:    addr,
 		secret:  secret,
+		clients: nil,
+		service: service,
+	}
+	return s
+}
+
+// NewServerWithClientList constructs a UDP RADIUS server bound to addr that
+// resolves shared secrets per client using clients.
+//
+// If a request comes from a host not present in the list, it is dropped.
+func NewServerWithClientList(addr string, clients *ClientList, service Service) *Server {
+	s := &Server{
+		addr:    addr,
+		clients: clients,
 		service: service,
 	}
 	return s
@@ -45,6 +59,7 @@ func NewServer(addr string, secret string, service Service) *Server {
 type Server struct {
 	addr    string
 	secret  string
+	clients *ClientList
 	service Service
 	conn    *net.UDPConn
 	ctx     context.Context
@@ -83,6 +98,8 @@ func (s *Server) ListenAndServe() error {
 		}
 
 		b := serverBufferPool.Get().([]byte)
+		// Ensure full buffer length for reads, even if a shorter slice was pooled.
+		b = b[:cap(b)]
 		n, raddr, err := s.conn.ReadFromUDP(b)
 		if err != nil {
 			serverBufferPool.Put(b)
@@ -94,9 +111,15 @@ func (s *Server) ListenAndServe() error {
 			}
 		}
 
-		go func(ctx context.Context, buf []byte, addr *net.UDPAddr) {
+		go func(ctx context.Context, buf []byte, n int, addr *net.UDPAddr) {
 			defer serverBufferPool.Put(buf)
-			p, err := DecodeRequestPooled(s.secret, buf)
+			secret, ok := s.secretForAddr(addr)
+			if !ok {
+				log.Printf("unknown RADIUS client %s", addr.String())
+				return
+			}
+
+			p, err := DecodeRequestPooled(secret, buf[:n])
 			if err != nil {
 				log.Printf("decode packet error %v", err)
 				return
@@ -109,18 +132,56 @@ func (s *Server) ListenAndServe() error {
 				return
 			}
 			npac.Identifier = p.Identifier
-			npac.Secret = s.secret
+			npac.Secret = secret
 
 			// Reuse the same buffer for encoding if possible
 			// RADIUS max length is 4096, so buf is enough
-			n, err := npac.EncodeTo(buf)
+			writtenN, err := npac.EncodeTo(buf)
 			if err != nil {
 				log.Printf("encode packet error %v", err)
 				return
 			}
-			s.conn.WriteToUDP(buf[:n], addr)
-		}(s.ctx, b[:n], raddr)
+			s.conn.WriteToUDP(buf[:writtenN], addr)
+		}(s.ctx, b, n, raddr)
 	}
+}
+
+// SetClientList sets the client list used to resolve per-client shared secrets.
+// When set, the server will prefer the list over the Server.secret field.
+func (s *Server) SetClientList(clients *ClientList) {
+	s.clients = clients
+}
+
+func (s *Server) secretForAddr(addr *net.UDPAddr) (string, bool) {
+	if s.clients != nil {
+		host := addr.IP.String()
+		if host == "" {
+			// Defensive: addr.IP should always be set, but fall back to parsing.
+			if h, _, err := net.SplitHostPort(addr.String()); err == nil {
+				host = h
+			}
+		}
+		cl := s.clients.Get(host)
+		if cl == nil {
+			// Also allow indexing by the full remote address (host:port).
+			// This is useful when multiple clients share an IP but differ by port
+			// (for example, during local testing).
+			cl = s.clients.Get(addr.String())
+		}
+		if cl == nil {
+			return "", false
+		}
+		sec := cl.GetSecret()
+		if sec == "" {
+			return "", false
+		}
+		return sec, true
+	}
+
+	if s.secret == "" {
+		return "", false
+	}
+	return s.secret, true
 }
 
 // Stop cancels the server context and closes the UDP listener.

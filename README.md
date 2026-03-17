@@ -60,6 +60,7 @@ You can also call `dict.LoadFile(...)` multiple times (for example, once per ven
 package main
 
 import (
+	"context"
 	"log"
 	"github.com/sergle/radius/v2"
 )
@@ -79,7 +80,15 @@ func main() {
 		return reply
 	})
 
+	// Option A: single shared secret for all clients
 	srv := radius.NewServer(":1812", "shared-secret", handler)
+
+	// Option B: per-client shared secrets (lookup by remote host IP)
+	// clients := radius.NewClientList([]radius.Client{
+	// 	radius.NewClient("192.0.2.10", "secret-a"),
+	// 	radius.NewClient("192.0.2.11", "secret-b"),
+	// })
+	// srv := radius.NewServerWithClientList(":1812", clients, handler)
 	log.Fatal(srv.ListenAndServe())
 }
 ```
