@@ -20,10 +20,16 @@ const (
 	AttrCallingStationId     AttributeType = 31
 	AttrNASIdentifier        AttributeType = 32
 	AttrAcctStatusType       AttributeType = 40
+	AttrAcctDelayTime        AttributeType = 41
 	AttrAcctInputOctets      AttributeType = 42
 	AttrAcctOutputOctets     AttributeType = 43
 	AttrAcctSessionId        AttributeType = 44
+	AttrAcctSessionTime      AttributeType = 46
+	AttrAcctInputPackets     AttributeType = 47
+	AttrAcctOutputPackets    AttributeType = 48
 	AttrAcctTerminateCause   AttributeType = 49
+	AttrAcctMultiSessionId   AttributeType = 50
+	AttrAcctLinkCount        AttributeType = 51
 	AttrAcctInputGigawords   AttributeType = 52
 	AttrAcctOutputGigawords  AttributeType = 53
 	AttrCHAPChallenge        AttributeType = 60

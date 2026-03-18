@@ -28,9 +28,15 @@ VALUE		Acct-Status-Type	Interim-Update		3
 VALUE		Acct-Status-Type	Accounting-On		7
 VALUE		Acct-Status-Type	Accounting-Off		8
 
+ATTRIBUTE	Acct-Delay-Time		41	integer
+
 ATTRIBUTE	Acct-Input-Octets	42	integer
 ATTRIBUTE	Acct-Output-Octets	43	integer
 ATTRIBUTE	Acct-Session-Id		44	string
+
+ATTRIBUTE	Acct-Session-Time	46	integer
+ATTRIBUTE	Acct-Input-Packets	47	integer
+ATTRIBUTE	Acct-Output-Packets	48	integer
 
 ATTRIBUTE	Acct-Terminate-Cause	49	integer
 VALUE		Acct-Terminate-Cause	User-Request		1
@@ -51,6 +57,9 @@ VALUE		Acct-Terminate-Cause	Service-Unavailable	15
 VALUE		Acct-Terminate-Cause	Callback		16
 VALUE		Acct-Terminate-Cause	User-Error		17
 VALUE		Acct-Terminate-Cause	Host-Request		18
+
+ATTRIBUTE	Acct-Multi-Session-Id	50	string
+ATTRIBUTE	Acct-Link-Count		51	integer
 
 ATTRIBUTE	Acct-Input-Gigawords	52	integer
 ATTRIBUTE	Acct-Output-Gigawords	53	integer
