@@ -139,6 +139,24 @@ packet.EachAVP(func(attr radius.AVP) bool {
 })
 ```
 
+## Security: Requiring Message-Authenticator (Optional)
+RADIUS "Response Authenticator" integrity is based on an MD5 construction that is vulnerable to modern collision attacks in certain on-path (MITM) threat models (see [BLAST RADIUS – Attack Details](https://www.blastradius.fail/attack-details)).
+
+This library **generates and verifies `Message-Authenticator` (HMAC-MD5, RFC 3579)** when present, and **automatically includes it on Access-* packets it encodes**. For compatibility with legacy peers, decoding historically treated `Message-Authenticator` as optional.
+
+If you want stricter behavior, you can opt-in to **reject Access-* packets that omit `Message-Authenticator`**:
+
+```go
+packet, err := radius.DecodeRequestWithOptions(secret, buf, &radius.DecodeOptions{
+	RequireMessageAuthenticator: true,
+})
+if err != nil {
+	// err == radius.ErrMessageAuthenticatorMissing when absent on Access-*
+	log.Fatal(err)
+}
+_ = packet
+```
+
 ## High Performance: Zero-Allocation Pooling
 For the absolute highest performance, use `sync.Pool` and direct buffer encoding.
 
