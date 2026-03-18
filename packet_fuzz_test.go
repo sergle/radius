@@ -93,6 +93,8 @@ func exercisePacket(p *Packet) {
 	})
 	_ = p.GetUsername()
 	_ = p.GetPassword()
+	_, _ = p.GetCHAPPassword()
+	_ = p.GetCHAPChallenge()
 	_ = p.GetNasIpAddress()
 	_ = p.GetNASPort()
 	_ = p.GetNASIdentifier()

@@ -3,7 +3,7 @@
 // The library supports:
 // - Encoding and decoding RADIUS packets (with authenticator verification)
 // - Parsing FreeRADIUS-style dictionary files for attribute typing and enums
-// - Convenience helpers for common attributes (User-Name, User-Password, etc.)
+// - Convenience helpers for common attributes (User-Name, User-Password, CHAP, etc.)
 // - A simple UDP client (RadClient) and UDP server (Server)
 //
 // Most applications will:

@@ -1,6 +1,7 @@
 # Minimal builtin dictionary for basic functionality without external files
 ATTRIBUTE	User-Name		1	string
 ATTRIBUTE	User-Password		2	password
+ATTRIBUTE	CHAP-Password		3	octets
 ATTRIBUTE	NAS-IP-Address		4	ipaddr
 ATTRIBUTE	NAS-Port		5	integer
 ATTRIBUTE	Service-Type		6	integer
@@ -53,6 +54,8 @@ VALUE		Acct-Terminate-Cause	Host-Request		18
 
 ATTRIBUTE	Acct-Input-Gigawords	52	integer
 ATTRIBUTE	Acct-Output-Gigawords	53	integer
+
+ATTRIBUTE	CHAP-Challenge		60	octets
 
 ATTRIBUTE	NAS-Port-Type		61	integer
 VALUE		NAS-Port-Type		Async			0

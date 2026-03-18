@@ -122,6 +122,44 @@ func main() {
 }
 ```
 
+## Quick Start (Client with CHAP)
+CHAP sends a challenge and a response derived from the password:
+\(response = MD5(chapID || password || challenge)\).
+
+```go
+package main
+
+import (
+	"context"
+	"log"
+	"time"
+
+	"github.com/sergle/radius/v2"
+)
+
+func main() {
+	client := radius.NewRadClient("127.0.0.1:1812", "shared-secret")
+
+	req := client.NewRequest(radius.AccessRequest)
+	req.AddAVP(radius.AVP{Type: radius.AttrUserName, Value: []byte("admin")})
+
+	chapID := uint8(1)
+	challenge := []byte("1234567890abcdef") // 16 bytes (RFC2865: 1..16)
+	if err := req.SetCHAPPasswordFromSecret(chapID, "secret", challenge); err != nil {
+		log.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	reply, err := client.SendContext(ctx, req)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("Reply: %s", reply.Code)
+}
+```
+
 ## High Performance: Lazy Decoding
 For high-load proxies or filters where performance is critical, use lazy decoding to avoid unnecessary allocations.
 

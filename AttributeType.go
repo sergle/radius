@@ -10,6 +10,7 @@ type AttributeType uint8
 const (
 	AttrUserName             AttributeType = 1
 	AttrUserPassword         AttributeType = 2
+	AttrCHAPPassword         AttributeType = 3
 	AttrNASIPAddress         AttributeType = 4
 	AttrNASPort              AttributeType = 5
 	AttrServiceType          AttributeType = 6
@@ -25,6 +26,7 @@ const (
 	AttrAcctTerminateCause   AttributeType = 49
 	AttrAcctInputGigawords   AttributeType = 52
 	AttrAcctOutputGigawords  AttributeType = 53
+	AttrCHAPChallenge        AttributeType = 60
 	AttrNASPortType          AttributeType = 61
 	AttrEAPMessage           AttributeType = 79
 	AttrMessageAuthenticator AttributeType = 80
