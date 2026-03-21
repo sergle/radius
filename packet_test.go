@@ -182,6 +182,35 @@ func TestPacketGolden(t *testing.T) {
 	}
 }
 
+func TestGetEAPMessageMultiFragment(t *testing.T) {
+	// Build an EAP-Response/Identity whose data spans two EAP-Message AVPs.
+	// The EAP packet is: Code=2, ID=1, Length=5+data, Type=1, Data=identity
+	// We split the encoded bytes into two consecutive EAP-Message attributes.
+	identity := "user@example.com"
+	eapPkt := &EapPacket{Code: EapCodeResponse, Identifier: 1, Type: EapTypeIdentity, Data: []byte(identity)}
+	encoded := eapPkt.Encode() // 5 + 16 = 21 bytes
+
+	// Split at byte 10: first AVP carries bytes 0..9, second carries bytes 10..20
+	split := 10
+	p := Request(AccessRequest, "secret")
+	p.AddAVP(AVP{Type: AttrEAPMessage, Value: encoded[:split]})
+	p.AddAVP(AVP{Type: AttrEAPMessage, Value: encoded[split:]})
+
+	got := p.GetEAPMessage()
+	if got == nil {
+		t.Fatal("GetEAPMessage returned nil")
+	}
+	if got.Code != EapCodeResponse {
+		t.Errorf("Code: got %v, want %v", got.Code, EapCodeResponse)
+	}
+	if got.Type != EapTypeIdentity {
+		t.Errorf("Type: got %v, want %v", got.Type, EapTypeIdentity)
+	}
+	if string(got.Data) != identity {
+		t.Errorf("Data: got %q, want %q", string(got.Data), identity)
+	}
+}
+
 func TestPacketEAPGolden(t *testing.T) {
 	inBytes := []byte{0x1, 0xe6, 0x0, 0xa5, 0xe6, 0x17, 0x46, 0x35, 0xe4, 0xba, 0x8f, 0xe5, 0x15, 0x90, 0x96, 0x33, 0xd0,
 		0xb3, 0x61, 0x34, 0x1, 0x12, 0x63, 0x62, 0x46, 0x69, 0x42, 0x6f, 0x6f, 0x52, 0x6e, 0x5a, 0x73, 0x58, 0x6e,

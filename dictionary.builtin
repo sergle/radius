@@ -16,6 +16,7 @@ VALUE		Service-Type		Authenticate-Only	8
 VALUE		Service-Type		Callback-NAS-Prompt	9
 
 ATTRIBUTE	Reply-Message		18	string
+ATTRIBUTE	State			24	octets
 ATTRIBUTE	Vendor-Specific		26	vsa
 ATTRIBUTE	Called-Station-Id	30	string
 ATTRIBUTE	Calling-Station-Id	31	string
@@ -27,6 +28,12 @@ VALUE		Acct-Status-Type	Stop			2
 VALUE		Acct-Status-Type	Interim-Update		3
 VALUE		Acct-Status-Type	Accounting-On		7
 VALUE		Acct-Status-Type	Accounting-Off		8
+VALUE		Acct-Status-Type	Tunnel-Start		9
+VALUE		Acct-Status-Type	Tunnel-Stop		10
+VALUE		Acct-Status-Type	Tunnel-Reject		11
+VALUE		Acct-Status-Type	Tunnel-Link-Start	12
+VALUE		Acct-Status-Type	Tunnel-Link-Stop	13
+VALUE		Acct-Status-Type	Tunnel-Link-Reject	14
 
 ATTRIBUTE	Acct-Delay-Time		41	integer
 
@@ -63,6 +70,7 @@ ATTRIBUTE	Acct-Link-Count		51	integer
 
 ATTRIBUTE	Acct-Input-Gigawords	52	integer
 ATTRIBUTE	Acct-Output-Gigawords	53	integer
+ATTRIBUTE	Event-Timestamp		55	integer
 
 ATTRIBUTE	CHAP-Challenge		60	octets
 
@@ -83,6 +91,80 @@ VALUE		NAS-Port-Type		Cable			12
 VALUE		NAS-Port-Type		Wireless-Other		13
 VALUE		NAS-Port-Type		Wireless-802.11		14
 
+ATTRIBUTE	Port-Limit		62	integer
+
+# RFC 2868 - RADIUS Attributes for Tunnel Protocol Support
+ATTRIBUTE	Tunnel-Type		64	integer
+VALUE		Tunnel-Type		PPTP			1
+VALUE		Tunnel-Type		L2F			2
+VALUE		Tunnel-Type		L2TP			3
+VALUE		Tunnel-Type		ATMP			4
+VALUE		Tunnel-Type		VTP			5
+VALUE		Tunnel-Type		AH			6
+VALUE		Tunnel-Type		IP-IP			7
+VALUE		Tunnel-Type		MIN-IP-IP		8
+VALUE		Tunnel-Type		ESP			9
+VALUE		Tunnel-Type		GRE			10
+VALUE		Tunnel-Type		DVS			11
+VALUE		Tunnel-Type		IP-in-IP		12
+VALUE		Tunnel-Type		VLAN			13
+
+ATTRIBUTE	Tunnel-Medium-Type	65	integer
+VALUE		Tunnel-Medium-Type	IPv4			1
+VALUE		Tunnel-Medium-Type	IPv6			2
+VALUE		Tunnel-Medium-Type	NSAP			3
+VALUE		Tunnel-Medium-Type	HDLC			4
+VALUE		Tunnel-Medium-Type	BBN-1822		5
+VALUE		Tunnel-Medium-Type	802			6
+VALUE		Tunnel-Medium-Type	E.163			7
+VALUE		Tunnel-Medium-Type	E.164			8
+VALUE		Tunnel-Medium-Type	F.69			9
+VALUE		Tunnel-Medium-Type	X.121			10
+VALUE		Tunnel-Medium-Type	IPX			11
+VALUE		Tunnel-Medium-Type	Appletalk		12
+VALUE		Tunnel-Medium-Type	Decnet-IV		13
+VALUE		Tunnel-Medium-Type	Banyan-Vines	        14
+VALUE		Tunnel-Medium-Type	E.164-NSAP		15
+
+ATTRIBUTE	Tunnel-Client-Endpoint	66	string
+ATTRIBUTE	Tunnel-Server-Endpoint	67	string
+
+# RFC 2867 - RADIUS Accounting Modifications for Tunnel Protocol Support
+ATTRIBUTE	Acct-Tunnel-Connection	68	string
+
+# RFC 2868 (continued)
+ATTRIBUTE	Tunnel-Password		69	octets
+
+# RFC 2869 - RADIUS Extensions
+ATTRIBUTE	Prompt			76	integer
+VALUE		Prompt			No-Echo			0
+VALUE		Prompt			Echo			1
+ATTRIBUTE	Connect-Info		77	string
+
 ATTRIBUTE	EAP-Message		79	eapmessage
 ATTRIBUTE	Message-Authenticator	80	octets
+
+# RFC 2868 (continued)
+ATTRIBUTE	Tunnel-Private-Group-ID	81	string
+ATTRIBUTE	Tunnel-Assignment-ID	82	string
+ATTRIBUTE	Tunnel-Preference	83	integer
+
+# RFC 2867 (continued)
+ATTRIBUTE	Acct-Tunnel-Packets-Lost	86	integer
+
+# RFC 2869 (continued)
+ATTRIBUTE	Acct-Interim-Interval	85	integer
 ATTRIBUTE	NAS-Port-Id		87	string
+ATTRIBUTE	Framed-Pool		88	string
+
+# RFC 2868 (continued)
+ATTRIBUTE	Tunnel-Client-Auth-ID	90	string
+ATTRIBUTE	Tunnel-Server-Auth-ID	91	string
+
+# RFC 3162 - RADIUS and IPv6
+ATTRIBUTE	NAS-IPv6-Address	95	ipv6addr
+ATTRIBUTE	Framed-Interface-Id	96	octets
+ATTRIBUTE	Framed-IPv6-Prefix	97	octets
+ATTRIBUTE	Login-IPv6-Host		98	ipv6addr
+ATTRIBUTE	Framed-IPv6-Route	99	string
+ATTRIBUTE	Framed-IPv6-Pool	100	string

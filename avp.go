@@ -65,11 +65,18 @@ type avpDataType interface {
 type AcctStatusTypeEnum uint32
 
 const (
-	AcctStatusTypeEnumStart         AcctStatusTypeEnum = 1
-	AcctStatusTypeEnumStop          AcctStatusTypeEnum = 2
-	AcctStatusTypeEnumInterimUpdate AcctStatusTypeEnum = 3
-	AcctStatusTypeEnumAccountingOn  AcctStatusTypeEnum = 7
-	AcctStatusTypeEnumAccountingOff AcctStatusTypeEnum = 8
+	AcctStatusTypeEnumStart           AcctStatusTypeEnum = 1
+	AcctStatusTypeEnumStop            AcctStatusTypeEnum = 2
+	AcctStatusTypeEnumInterimUpdate   AcctStatusTypeEnum = 3
+	AcctStatusTypeEnumAccountingOn    AcctStatusTypeEnum = 7
+	AcctStatusTypeEnumAccountingOff   AcctStatusTypeEnum = 8
+	// RFC 2867 - tunnel accounting status types
+	AcctStatusTypeEnumTunnelStart     AcctStatusTypeEnum = 9
+	AcctStatusTypeEnumTunnelStop      AcctStatusTypeEnum = 10
+	AcctStatusTypeEnumTunnelReject    AcctStatusTypeEnum = 11
+	AcctStatusTypeEnumTunnelLinkStart AcctStatusTypeEnum = 12
+	AcctStatusTypeEnumTunnelLinkStop  AcctStatusTypeEnum = 13
+	AcctStatusTypeEnumTunnelLinkReject AcctStatusTypeEnum = 14
 )
 
 // String returns the standard name for the accounting status value.
@@ -85,6 +92,18 @@ func (e AcctStatusTypeEnum) String() string {
 		return "AccountingOn"
 	case AcctStatusTypeEnumAccountingOff:
 		return "AccountingOff"
+	case AcctStatusTypeEnumTunnelStart:
+		return "Tunnel-Start"
+	case AcctStatusTypeEnumTunnelStop:
+		return "Tunnel-Stop"
+	case AcctStatusTypeEnumTunnelReject:
+		return "Tunnel-Reject"
+	case AcctStatusTypeEnumTunnelLinkStart:
+		return "Tunnel-Link-Start"
+	case AcctStatusTypeEnumTunnelLinkStop:
+		return "Tunnel-Link-Stop"
+	case AcctStatusTypeEnumTunnelLinkReject:
+		return "Tunnel-Link-Reject"
 	}
 	return "unknow code " + strconv.Itoa(int(e))
 }
@@ -164,6 +183,135 @@ func (e ServiceTypeEnum) String() string {
 		return "CallbackFramed"
 	case ServiceTypeEnumOutbound:
 		return "Outbound"
+	}
+	return "unknow code " + strconv.Itoa(int(e))
+}
+
+// PromptEnum is the decoded form of Prompt (RFC 2869).
+type PromptEnum uint32
+
+const (
+	PromptEnumNoEcho PromptEnum = 0
+	PromptEnumEcho   PromptEnum = 1
+)
+
+// String returns the standard name for the prompt value.
+func (e PromptEnum) String() string {
+	switch e {
+	case PromptEnumNoEcho:
+		return "No-Echo"
+	case PromptEnumEcho:
+		return "Echo"
+	}
+	return "unknow code " + strconv.Itoa(int(e))
+}
+
+// TunnelTypeEnum is the decoded form of Tunnel-Type (RFC 2868).
+type TunnelTypeEnum uint32
+
+const (
+	TunnelTypeEnumPPTP     TunnelTypeEnum = 1
+	TunnelTypeEnumL2F      TunnelTypeEnum = 2
+	TunnelTypeEnumL2TP     TunnelTypeEnum = 3
+	TunnelTypeEnumATMP     TunnelTypeEnum = 4
+	TunnelTypeEnumVTP      TunnelTypeEnum = 5
+	TunnelTypeEnumAH       TunnelTypeEnum = 6
+	TunnelTypeEnumIPIP     TunnelTypeEnum = 7
+	TunnelTypeEnumMinIPIP  TunnelTypeEnum = 8
+	TunnelTypeEnumESP      TunnelTypeEnum = 9
+	TunnelTypeEnumGRE      TunnelTypeEnum = 10
+	TunnelTypeEnumDVS      TunnelTypeEnum = 11
+	TunnelTypeEnumIPInIP   TunnelTypeEnum = 12
+	TunnelTypeEnumVLAN     TunnelTypeEnum = 13
+)
+
+// String returns the standard name for the tunnel type value.
+func (e TunnelTypeEnum) String() string {
+	switch e {
+	case TunnelTypeEnumPPTP:
+		return "PPTP"
+	case TunnelTypeEnumL2F:
+		return "L2F"
+	case TunnelTypeEnumL2TP:
+		return "L2TP"
+	case TunnelTypeEnumATMP:
+		return "ATMP"
+	case TunnelTypeEnumVTP:
+		return "VTP"
+	case TunnelTypeEnumAH:
+		return "AH"
+	case TunnelTypeEnumIPIP:
+		return "IP-IP"
+	case TunnelTypeEnumMinIPIP:
+		return "MIN-IP-IP"
+	case TunnelTypeEnumESP:
+		return "ESP"
+	case TunnelTypeEnumGRE:
+		return "GRE"
+	case TunnelTypeEnumDVS:
+		return "DVS"
+	case TunnelTypeEnumIPInIP:
+		return "IP-in-IP"
+	case TunnelTypeEnumVLAN:
+		return "VLAN"
+	}
+	return "unknow code " + strconv.Itoa(int(e))
+}
+
+// TunnelMediumTypeEnum is the decoded form of Tunnel-Medium-Type (RFC 2868).
+type TunnelMediumTypeEnum uint32
+
+const (
+	TunnelMediumTypeEnumIPv4        TunnelMediumTypeEnum = 1
+	TunnelMediumTypeEnumIPv6        TunnelMediumTypeEnum = 2
+	TunnelMediumTypeEnumNSAP        TunnelMediumTypeEnum = 3
+	TunnelMediumTypeEnumHDLC        TunnelMediumTypeEnum = 4
+	TunnelMediumTypeEnumBBN1822     TunnelMediumTypeEnum = 5
+	TunnelMediumTypeEnum802         TunnelMediumTypeEnum = 6
+	TunnelMediumTypeEnumE163        TunnelMediumTypeEnum = 7
+	TunnelMediumTypeEnumE164        TunnelMediumTypeEnum = 8
+	TunnelMediumTypeEnumF69         TunnelMediumTypeEnum = 9
+	TunnelMediumTypeEnumX121        TunnelMediumTypeEnum = 10
+	TunnelMediumTypeEnumIPX         TunnelMediumTypeEnum = 11
+	TunnelMediumTypeEnumAppletalk   TunnelMediumTypeEnum = 12
+	TunnelMediumTypeEnumDecnetIV    TunnelMediumTypeEnum = 13
+	TunnelMediumTypeEnumBanyanVines TunnelMediumTypeEnum = 14
+	TunnelMediumTypeEnumE164NSAP    TunnelMediumTypeEnum = 15
+)
+
+// String returns the standard name for the tunnel medium type value.
+func (e TunnelMediumTypeEnum) String() string {
+	switch e {
+	case TunnelMediumTypeEnumIPv4:
+		return "IPv4"
+	case TunnelMediumTypeEnumIPv6:
+		return "IPv6"
+	case TunnelMediumTypeEnumNSAP:
+		return "NSAP"
+	case TunnelMediumTypeEnumHDLC:
+		return "HDLC"
+	case TunnelMediumTypeEnumBBN1822:
+		return "BBN-1822"
+	case TunnelMediumTypeEnum802:
+		return "802"
+	case TunnelMediumTypeEnumE163:
+		return "E.163"
+	case TunnelMediumTypeEnumE164:
+		return "E.164"
+	case TunnelMediumTypeEnumF69:
+		return "F.69"
+	case TunnelMediumTypeEnumX121:
+		return "X.121"
+	case TunnelMediumTypeEnumIPX:
+		return "IPX"
+	case TunnelMediumTypeEnumAppletalk:
+		return "Appletalk"
+	case TunnelMediumTypeEnumDecnetIV:
+		return "Decnet-IV"
+	case TunnelMediumTypeEnumBanyanVines:
+		return "Banyan-Vines"
+	case TunnelMediumTypeEnumE164NSAP:
+		return "E.164-NSAP"
 	}
 	return "unknow code " + strconv.Itoa(int(e))
 }

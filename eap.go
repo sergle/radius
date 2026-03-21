@@ -77,6 +77,9 @@ type EapPacket struct {
 }
 
 func (a *EapPacket) String() string {
+	if a.Code == EapCodeSuccess || a.Code == EapCodeFailure {
+		return fmt.Sprintf("Eap Code:%s id:%d", a.Code.String(), a.Identifier)
+	}
 	return fmt.Sprintf("Eap Code:%s id:%d Type:%s Data:[%s]", a.Code.String(), a.Identifier, a.Type.String(), a.valueString())
 }
 
@@ -101,6 +104,13 @@ func (a *EapPacket) Copy() *EapPacket {
 }
 
 func (a *EapPacket) Encode() (b []byte) {
+	if a.Code == EapCodeSuccess || a.Code == EapCodeFailure {
+		b = make([]byte, 4)
+		b[0] = byte(a.Code)
+		b[1] = byte(a.Identifier)
+		binary.BigEndian.PutUint16(b[2:4], 4)
+		return b
+	}
 	b = make([]byte, len(a.Data)+5)
 	b[0] = byte(a.Code)
 	b[1] = byte(a.Identifier)
@@ -118,18 +128,26 @@ func (a *EapPacket) ToEAPMessage() *AVP {
 }
 
 func EapDecode(b []byte) (eap *EapPacket, err error) {
-	if len(b) < 5 {
-		return nil, fmt.Errorf("[EapDecode] protocol error input too small 1")
-	}
-	length := binary.BigEndian.Uint16(b[2:4])
-	if length < 5 || len(b) < int(length) {
+	if len(b) < 4 {
 		return nil, fmt.Errorf("[EapDecode] protocol error input too small")
 	}
-	eap = &EapPacket{
-		Code:       EapCode(b[0]),
-		Identifier: uint8(b[1]),
-		Type:       EapType(b[4]),
-		Data:       b[5:length],
+	length := binary.BigEndian.Uint16(b[2:4])
+	if length < 4 || len(b) < int(length) {
+		return nil, fmt.Errorf("[EapDecode] protocol error input too small")
 	}
+	code := EapCode(b[0])
+	eap = &EapPacket{
+		Code:       code,
+		Identifier: uint8(b[1]),
+	}
+	// EAP-Success and EAP-Failure have no Type or Data fields (RFC 3748 §4)
+	if code == EapCodeSuccess || code == EapCodeFailure {
+		return eap, nil
+	}
+	if length < 5 || len(b) < 5 {
+		return nil, fmt.Errorf("[EapDecode] protocol error: Request/Response too small")
+	}
+	eap.Type = EapType(b[4])
+	eap.Data = b[5:length]
 	return eap, nil
 }

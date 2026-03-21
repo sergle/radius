@@ -27,7 +27,6 @@ func (s AvpEapMessage) String(p *Packet, a AVP) string {
 	return eap.(*EapPacket).String()
 }
 
-// TODO
 func (s AvpEapMessage) FromString(v string) []byte {
 	return []byte(v)
 }

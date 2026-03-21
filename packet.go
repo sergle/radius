@@ -798,17 +798,26 @@ func (p *Packet) GetNASIdentifier() string {
 	return ""
 }
 
-// GetEAPMessage returns the decoded EAP-Message as an *EapPacket, if present.
+// GetEAPMessage reassembles and decodes the EAP-Message from the packet.
+// Per RFC 3579 §3.1, a single EAP packet may be split across multiple
+// consecutive EAP-Message attributes (each carrying at most 253 bytes).
+// All fragments are concatenated in order before decoding.
 func (p *Packet) GetEAPMessage() *EapPacket {
-	avp := p.GetAVP(AttrEAPMessage)
-	if avp == nil {
+	var buf []byte
+	p.EachAVP(func(a AVP) bool {
+		if a.Type == AttrEAPMessage {
+			buf = append(buf, a.Value...)
+		}
+		return true
+	})
+	if len(buf) == 0 {
 		return nil
 	}
-	val := avp.Decode(p)
-	if eap, ok := val.(*EapPacket); ok {
-		return eap
+	eap, err := EapDecode(buf)
+	if err != nil {
+		return nil
 	}
-	return nil
+	return eap
 }
 
 // GetNASPortType returns NAS-Port-Type if present, or 0 otherwise.

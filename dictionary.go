@@ -420,13 +420,13 @@ func (d *Dictionary) parseEndTLV(attrName string) error {
 var attrTypeHandlers = map[string]avpDataType{
 	"integer":    avpUint32,
 	"ipaddr":     avpIP,
+	"ipv6addr":   avpIP,
 	"string":     avpString,
 	"octets":     avpBinary,
 	"password":   avpPassword,
 	"vsa":        avpVendor,
 	"eapmessage": avpEapMessage,
 	// "byte"
-	// "ipv6addr"
 	// "short"
 	// "date"
 	// "tlv"
