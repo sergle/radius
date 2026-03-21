@@ -65,17 +65,17 @@ type avpDataType interface {
 type AcctStatusTypeEnum uint32
 
 const (
-	AcctStatusTypeEnumStart           AcctStatusTypeEnum = 1
-	AcctStatusTypeEnumStop            AcctStatusTypeEnum = 2
-	AcctStatusTypeEnumInterimUpdate   AcctStatusTypeEnum = 3
-	AcctStatusTypeEnumAccountingOn    AcctStatusTypeEnum = 7
-	AcctStatusTypeEnumAccountingOff   AcctStatusTypeEnum = 8
+	AcctStatusTypeEnumStart         AcctStatusTypeEnum = 1
+	AcctStatusTypeEnumStop          AcctStatusTypeEnum = 2
+	AcctStatusTypeEnumInterimUpdate AcctStatusTypeEnum = 3
+	AcctStatusTypeEnumAccountingOn  AcctStatusTypeEnum = 7
+	AcctStatusTypeEnumAccountingOff AcctStatusTypeEnum = 8
 	// RFC 2867 - tunnel accounting status types
-	AcctStatusTypeEnumTunnelStart     AcctStatusTypeEnum = 9
-	AcctStatusTypeEnumTunnelStop      AcctStatusTypeEnum = 10
-	AcctStatusTypeEnumTunnelReject    AcctStatusTypeEnum = 11
-	AcctStatusTypeEnumTunnelLinkStart AcctStatusTypeEnum = 12
-	AcctStatusTypeEnumTunnelLinkStop  AcctStatusTypeEnum = 13
+	AcctStatusTypeEnumTunnelStart      AcctStatusTypeEnum = 9
+	AcctStatusTypeEnumTunnelStop       AcctStatusTypeEnum = 10
+	AcctStatusTypeEnumTunnelReject     AcctStatusTypeEnum = 11
+	AcctStatusTypeEnumTunnelLinkStart  AcctStatusTypeEnum = 12
+	AcctStatusTypeEnumTunnelLinkStop   AcctStatusTypeEnum = 13
 	AcctStatusTypeEnumTunnelLinkReject AcctStatusTypeEnum = 14
 )
 
@@ -111,7 +111,6 @@ func (e AcctStatusTypeEnum) String() string {
 // NASPortTypeEnum is the decoded form of NAS-Port-Type.
 type NASPortTypeEnum uint32
 
-// TODO finish it
 const (
 	NASPortTypeEnumAsync            NASPortTypeEnum = 0
 	NASPortTypeEnumSync             NASPortTypeEnum = 1
@@ -126,6 +125,8 @@ const (
 	NASPortTypeEnumCable            NASPortTypeEnum = 17
 	NASPortTypeEnumWirelessOther    NASPortTypeEnum = 18
 	NASPortTypeEnumWireless80211    NASPortTypeEnum = 19
+	NASPortTypeEnumTokenRing        NASPortTypeEnum = 20
+	NASPortTypeEnumFDDI             NASPortTypeEnum = 21
 )
 
 // String returns the standard name for the NAS port type value.
@@ -151,6 +152,14 @@ func (e NASPortTypeEnum) String() string {
 		return "Ethernet"
 	case NASPortTypeEnumCable:
 		return "Cable"
+	case NASPortTypeEnumWirelessOther:
+		return "Wireless-Other"
+	case NASPortTypeEnumWireless80211:
+		return "Wireless-IEEE-802.11"
+	case NASPortTypeEnumTokenRing:
+		return "Token-Ring"
+	case NASPortTypeEnumFDDI:
+		return "FDDI"
 	}
 	return "unknow code " + strconv.Itoa(int(e))
 }
@@ -158,7 +167,6 @@ func (e NASPortTypeEnum) String() string {
 // ServiceTypeEnum is the decoded form of Service-Type.
 type ServiceTypeEnum uint32
 
-// TODO finish it
 const (
 	ServiceTypeEnumLogin            ServiceTypeEnum = 1
 	ServiceTypeEnumFramed           ServiceTypeEnum = 2
@@ -168,6 +176,7 @@ const (
 	ServiceTypeEnumAdministrative   ServiceTypeEnum = 6
 	ServiceTypeEnumNASPrompt        ServiceTypeEnum = 7
 	ServiceTypeEnumAuthenticateOnly ServiceTypeEnum = 8
+	ServiceTypeEnumCallCheck        ServiceTypeEnum = 10
 )
 
 // String returns the standard name for the service type value.
@@ -183,6 +192,14 @@ func (e ServiceTypeEnum) String() string {
 		return "CallbackFramed"
 	case ServiceTypeEnumOutbound:
 		return "Outbound"
+	case ServiceTypeEnumAdministrative:
+		return "Administrative"
+	case ServiceTypeEnumNASPrompt:
+		return "NAS-Prompt"
+	case ServiceTypeEnumAuthenticateOnly:
+		return "Authenticate-Only"
+	case ServiceTypeEnumCallCheck:
+		return "Call-Check"
 	}
 	return "unknow code " + strconv.Itoa(int(e))
 }
@@ -210,19 +227,19 @@ func (e PromptEnum) String() string {
 type TunnelTypeEnum uint32
 
 const (
-	TunnelTypeEnumPPTP     TunnelTypeEnum = 1
-	TunnelTypeEnumL2F      TunnelTypeEnum = 2
-	TunnelTypeEnumL2TP     TunnelTypeEnum = 3
-	TunnelTypeEnumATMP     TunnelTypeEnum = 4
-	TunnelTypeEnumVTP      TunnelTypeEnum = 5
-	TunnelTypeEnumAH       TunnelTypeEnum = 6
-	TunnelTypeEnumIPIP     TunnelTypeEnum = 7
-	TunnelTypeEnumMinIPIP  TunnelTypeEnum = 8
-	TunnelTypeEnumESP      TunnelTypeEnum = 9
-	TunnelTypeEnumGRE      TunnelTypeEnum = 10
-	TunnelTypeEnumDVS      TunnelTypeEnum = 11
-	TunnelTypeEnumIPInIP   TunnelTypeEnum = 12
-	TunnelTypeEnumVLAN     TunnelTypeEnum = 13
+	TunnelTypeEnumPPTP    TunnelTypeEnum = 1
+	TunnelTypeEnumL2F     TunnelTypeEnum = 2
+	TunnelTypeEnumL2TP    TunnelTypeEnum = 3
+	TunnelTypeEnumATMP    TunnelTypeEnum = 4
+	TunnelTypeEnumVTP     TunnelTypeEnum = 5
+	TunnelTypeEnumAH      TunnelTypeEnum = 6
+	TunnelTypeEnumIPIP    TunnelTypeEnum = 7
+	TunnelTypeEnumMinIPIP TunnelTypeEnum = 8
+	TunnelTypeEnumESP     TunnelTypeEnum = 9
+	TunnelTypeEnumGRE     TunnelTypeEnum = 10
+	TunnelTypeEnumDVS     TunnelTypeEnum = 11
+	TunnelTypeEnumIPInIP  TunnelTypeEnum = 12
+	TunnelTypeEnumVLAN    TunnelTypeEnum = 13
 )
 
 // String returns the standard name for the tunnel type value.
@@ -320,24 +337,28 @@ func (e TunnelMediumTypeEnum) String() string {
 type AcctTerminateCauseEnum uint32
 
 const (
-	AcctTerminateCauseEnumUserRequest       AcctTerminateCauseEnum = 1
-	AcctTerminateCauseEnumLostCarrier       AcctTerminateCauseEnum = 2
-	AcctTerminateCauseEnumLostService       AcctTerminateCauseEnum = 3
-	AcctTerminateCauseEnumIdleTimeout       AcctTerminateCauseEnum = 4
-	AcctTerminateCauseEnumSessionTimeout    AcctTerminateCauseEnum = 5
-	AcctTerminateCauseEnumAdminReset        AcctTerminateCauseEnum = 6
-	AcctTerminateCauseEnumAdminReboot       AcctTerminateCauseEnum = 7
-	AcctTerminateCauseEnumPortError         AcctTerminateCauseEnum = 8
-	AcctTerminateCauseEnumNASError          AcctTerminateCauseEnum = 9
-	AcctTerminateCauseEnumNASRequest        AcctTerminateCauseEnum = 10
-	AcctTerminateCauseEnumNASReboot         AcctTerminateCauseEnum = 11
-	AcctTerminateCauseEnumPortUnneeded      AcctTerminateCauseEnum = 12
-	AcctTerminateCauseEnumPortPreempted     AcctTerminateCauseEnum = 13
-	AcctTerminateCauseEnumPortSuspended     AcctTerminateCauseEnum = 14
-	AcctTerminateCauseEnumServiceUnavailable AcctTerminateCauseEnum = 15
-	AcctTerminateCauseEnumCallback          AcctTerminateCauseEnum = 16
-	AcctTerminateCauseEnumUserError         AcctTerminateCauseEnum = 17
-	AcctTerminateCauseEnumHostRequest       AcctTerminateCauseEnum = 18
+	AcctTerminateCauseEnumUserRequest             AcctTerminateCauseEnum = 1
+	AcctTerminateCauseEnumLostCarrier             AcctTerminateCauseEnum = 2
+	AcctTerminateCauseEnumLostService             AcctTerminateCauseEnum = 3
+	AcctTerminateCauseEnumIdleTimeout             AcctTerminateCauseEnum = 4
+	AcctTerminateCauseEnumSessionTimeout          AcctTerminateCauseEnum = 5
+	AcctTerminateCauseEnumAdminReset              AcctTerminateCauseEnum = 6
+	AcctTerminateCauseEnumAdminReboot             AcctTerminateCauseEnum = 7
+	AcctTerminateCauseEnumPortError               AcctTerminateCauseEnum = 8
+	AcctTerminateCauseEnumNASError                AcctTerminateCauseEnum = 9
+	AcctTerminateCauseEnumNASRequest              AcctTerminateCauseEnum = 10
+	AcctTerminateCauseEnumNASReboot               AcctTerminateCauseEnum = 11
+	AcctTerminateCauseEnumPortUnneeded            AcctTerminateCauseEnum = 12
+	AcctTerminateCauseEnumPortPreempted           AcctTerminateCauseEnum = 13
+	AcctTerminateCauseEnumPortSuspended           AcctTerminateCauseEnum = 14
+	AcctTerminateCauseEnumServiceUnavailable      AcctTerminateCauseEnum = 15
+	AcctTerminateCauseEnumCallback                AcctTerminateCauseEnum = 16
+	AcctTerminateCauseEnumUserError               AcctTerminateCauseEnum = 17
+	AcctTerminateCauseEnumHostRequest             AcctTerminateCauseEnum = 18
+	AcctTerminateCauseEnumSupplicantRestart       AcctTerminateCauseEnum = 19
+	AcctTerminateCauseEnumReauthenticationFailure AcctTerminateCauseEnum = 20
+	AcctTerminateCauseEnumPortReinitialized       AcctTerminateCauseEnum = 21
+	AcctTerminateCauseEnumPortAdminDisabled       AcctTerminateCauseEnum = 22
 )
 
 // String returns the standard name for the accounting terminate cause value.
@@ -379,6 +400,14 @@ func (e AcctTerminateCauseEnum) String() string {
 		return "UserError"
 	case AcctTerminateCauseEnumHostRequest:
 		return "HostRequest"
+	case AcctTerminateCauseEnumSupplicantRestart:
+		return "SupplicantRestart"
+	case AcctTerminateCauseEnumReauthenticationFailure:
+		return "ReauthenticationFailure"
+	case AcctTerminateCauseEnumPortReinitialized:
+		return "PortReinitialized"
+	case AcctTerminateCauseEnumPortAdminDisabled:
+		return "PortAdminDisabled"
 	}
 	return "unknow code " + strconv.Itoa(int(e))
 }

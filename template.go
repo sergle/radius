@@ -2,6 +2,7 @@ package radius
 
 import (
 	"fmt"
+	"strconv"
 )
 
 // AVPTemplate is an interface for both standard attributes and VSAs.
@@ -27,15 +28,15 @@ func (t *AttributeTemplate) Add(p *Packet, value string) {
 	}
 }
 
-// VSATemplate stores a pre-resolved VSA definition for reuse.
-type VSATemplate struct {
+// vsaTemplate stores a pre-resolved VSA definition for reuse.
+type vsaTemplate struct {
 	vendorID VendorID
 	vsaType  VendorAttr
 	handler  avpDataType
 }
 
 // Add encodes the value and adds it as a VSA to the provided packet.
-func (t *VSATemplate) Add(p *Packet, value string) {
+func (t *vsaTemplate) Add(p *Packet, value string) {
 	vsa := VSA{
 		Vendor: t.vendorID,
 		Type:   t.vsaType,
@@ -92,8 +93,7 @@ func (d *Dictionary) GetTemplate(name string) (*AttributeTemplate, error) {
 	}, nil
 }
 
-// GetVSATemplate creates a VSATemplate for the given vendor and attribute names.
-func (d *Dictionary) GetVSATemplate(vendorName, attrName string) (*VSATemplate, error) {
+func (d *Dictionary) getVSATemplate(vendorName, attrName string) (AVPTemplate, error) {
 	d.RLock()
 	defer d.RUnlock()
 
@@ -117,11 +117,62 @@ func (d *Dictionary) GetVSATemplate(vendorName, attrName string) (*VSATemplate, 
 		return nil, fmt.Errorf("no handler found for type %s", typeName)
 	}
 
-	return &VSATemplate{
+	return &vsaTemplate{
 		vendorID: vID,
 		vsaType:  aID,
 		handler:  handler,
 	}, nil
+}
+
+// vlanTemplate implements AVPTemplate for RFC 3580 §3.31 dynamic VLAN assignment.
+type vlanTemplate struct{}
+
+// Add parses value as a decimal VLAN ID and calls SetVLAN on the packet.
+// If value is not a valid VLAN ID (1–4094) the call is a no-op.
+func (t *vlanTemplate) Add(p *Packet, value string) {
+	id, err := strconv.ParseUint(value, 10, 16)
+	if err != nil || id < 1 || id > 4094 {
+		return
+	}
+	p.SetVLAN(uint16(id))
+}
+
+// AddAttributes appends one or more attributes by name to the request template.
+// Returns an error if any attribute is not found in the dictionary.
+func (t *RequestTemplate) AddAttributes(d *Dictionary, names ...string) error {
+	for _, name := range names {
+		tmpl, err := d.GetTemplate(name)
+		if err != nil {
+			return err
+		}
+		t.templates = append(t.templates, tmpl)
+	}
+	return nil
+}
+
+// AddAttributeTypes appends one or more attributes by their AttributeType ID to the request template.
+// The handler is resolved from the default dictionary; unknown attributes fall back to binary encoding.
+func (t *RequestTemplate) AddAttributeTypes(attrTypes ...AttributeType) {
+	for _, at := range attrTypes {
+		desc := getAttributeTypeDesc(at)
+		t.templates = append(t.templates, &AttributeTemplate{attrType: at, handler: desc.dataType})
+	}
+}
+
+// AddVSAAttribute appends a VSA attribute by vendor and attribute name to the request template.
+// Returns an error if the vendor or attribute is not found in the dictionary.
+func (t *RequestTemplate) AddVSAAttribute(d *Dictionary, vendorName, attrName string) error {
+	tmpl, err := d.getVSATemplate(vendorName, attrName)
+	if err != nil {
+		return err
+	}
+	t.templates = append(t.templates, tmpl)
+	return nil
+}
+
+// AddVLAN appends a vlanTemplate to the request template.
+func (t *RequestTemplate) AddVLAN() {
+	t.templates = append(t.templates, &vlanTemplate{})
 }
 
 // CreateRequestTemplate creates a RequestTemplate for the given packet code and list of attribute names.

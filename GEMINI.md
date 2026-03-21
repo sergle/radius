@@ -142,13 +142,13 @@ username := packet.GetUsername()
 The library uses standard Go testing tools. To run the tests:
 
 ```bash
-go test -v ./...
+make test
 ```
 
 To run benchmarks:
 
 ```bash
-go test -bench=. ./...
+make bench
 ```
 
 ## 📜 References

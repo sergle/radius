@@ -100,6 +100,51 @@ func TestParseLineErrors(t *testing.T) {
 	}
 }
 
+func TestLoadBuiltin(t *testing.T) {
+	// Verify the embedded data is non-empty and that LoadBuiltin succeeds
+	// without any file on disk.
+	if len(builtinDictionaryData) == 0 {
+		t.Fatal("builtinDictionaryData is empty — embed directive did not capture the file")
+	}
+
+	d := NewDictionary()
+	if err := d.LoadBuiltin(); err != nil {
+		t.Fatalf("LoadBuiltin: %v", err)
+	}
+
+	// Spot-check a representative sample of attributes from the builtin.
+	checks := []struct {
+		name    string
+		wantID  AttributeType
+		wantTyp string
+	}{
+		{"User-Name", AttrUserName, "string"},
+		{"User-Password", AttrUserPassword, "password"},
+		{"NAS-IP-Address", AttrNASIPAddress, "ipaddr"},
+		{"EAP-Message", AttrEAPMessage, "eapmessage"},
+		{"Message-Authenticator", AttrMessageAuthenticator, "octets"},
+		{"Session-Timeout", AttrSessionTimeout, "integer"},
+		{"Tunnel-Type", AttrTunnelType, "integer"},
+		{"Acct-Terminate-Cause", AttrAcctTerminateCause, "integer"},
+	}
+	for _, c := range checks {
+		if id := d.GetAttributeID(c.name); id != c.wantID {
+			t.Errorf("%s: ID got %d, want %d", c.name, id, c.wantID)
+		}
+		if typ := d.GetAttributeType(c.name); typ != c.wantTyp {
+			t.Errorf("%s: type got %q, want %q", c.name, typ, c.wantTyp)
+		}
+	}
+
+	// Verify that calling LoadBuiltin a second time is a no-op (idempotent).
+	if err := d.LoadBuiltin(); err != nil {
+		t.Fatalf("second LoadBuiltin: %v", err)
+	}
+	if id := d.GetAttributeID("User-Name"); id != AttrUserName {
+		t.Errorf("after second LoadBuiltin User-Name ID got %d", id)
+	}
+}
+
 func TestConcurrency(t *testing.T) {
 	d := NewDictionary()
 	tmpDir := t.TempDir()

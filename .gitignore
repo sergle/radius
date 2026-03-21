@@ -3,3 +3,4 @@ examples/server/server
 client_example.exe
 examples/client/client.exe
 examples/server/server.exe
+examples/chap_client/chap_client

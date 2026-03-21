@@ -2,18 +2,22 @@ package radius
 
 import (
 	"bufio"
+	"bytes"
+	_ "embed"
 	"encoding/binary"
 	"errors"
 	"fmt"
-
+	"io"
 	"log"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
-	// ASCII whitespace checker for RADIUS files (only space and tab)
 )
+
+//go:embed dictionary.builtin
+var builtinDictionaryData []byte
 
 // isSpace checks for ASCII space or tab characters.
 var isSpace = func(r rune) bool { return r == ' ' || r == '\t' }
@@ -148,20 +152,27 @@ func (d *Dictionary) loadFileInternal(fname string) error {
 	}
 	defer file.Close()
 
-	scanner := bufio.NewScanner(file)
+	return d.loadReader(fname, file)
+}
+
+func (d *Dictionary) loadReader(name string, r io.Reader) error {
+	scanner := bufio.NewScanner(r)
 	scanner.Split(bufio.ScanLines)
 
 	for scanner.Scan() {
-		line := scanner.Text()
-		//log.Printf("Line: %s\n", line)
-
-		err := d.parseLine(fname, line)
-		if err != nil {
+		if err := d.parseLine(name, scanner.Text()); err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+// LoadBuiltin loads the embedded built-in dictionary into d.
+func (d *Dictionary) LoadBuiltin() error {
+	d.Lock()
+	defer d.Unlock()
+	return d.loadReader("dictionary.builtin", bytes.NewReader(builtinDictionaryData))
 }
 
 func (d *Dictionary) parseLine(fname string, line string) error {

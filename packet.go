@@ -361,6 +361,36 @@ func (p *Packet) Reply() *Packet {
 	return pac
 }
 
+func (p *Packet) replyWithCode(code PacketCode) *Packet {
+	pac := p.Reply()
+	pac.Code = code
+	return pac
+}
+
+// ReplyAccept creates an Access-Accept reply to this packet.
+func (p *Packet) ReplyAccept() *Packet { return p.replyWithCode(AccessAccept) }
+
+// ReplyReject creates an Access-Reject reply to this packet.
+func (p *Packet) ReplyReject() *Packet { return p.replyWithCode(AccessReject) }
+
+// ReplyChallenge creates an Access-Challenge reply to this packet.
+func (p *Packet) ReplyChallenge() *Packet { return p.replyWithCode(AccessChallenge) }
+
+// ReplyAccountingResponse creates an Accounting-Response reply to this packet.
+func (p *Packet) ReplyAccountingResponse() *Packet { return p.replyWithCode(AccountingResponse) }
+
+// ReplyDisconnectAccept creates a Disconnect-Accept reply to this packet.
+func (p *Packet) ReplyDisconnectAccept() *Packet { return p.replyWithCode(DisconnectAccept) }
+
+// ReplyDisconnectReject creates a Disconnect-Reject reply to this packet.
+func (p *Packet) ReplyDisconnectReject() *Packet { return p.replyWithCode(DisconnectReject) }
+
+// ReplyCoAAccept creates a CoA-Accept reply to this packet.
+func (p *Packet) ReplyCoAAccept() *Packet { return p.replyWithCode(CoAAccept) }
+
+// ReplyCoAReject creates a CoA-Reject reply to this packet.
+func (p *Packet) ReplyCoAReject() *Packet { return p.replyWithCode(CoAReject) }
+
 // Send encodes the packet and writes it to addr using the provided PacketConn.
 func (p *Packet) Send(c net.PacketConn, addr net.Addr) error {
 	buf, err := p.Encode()
@@ -856,4 +886,77 @@ func (p *Packet) GetServiceType() ServiceTypeEnum {
 		return ServiceTypeEnum(binary.BigEndian.Uint32(b))
 	}
 	return ServiceTypeEnum(0)
+}
+
+// SetVLAN adds the three-attribute combination required for dynamic VLAN assignment
+// per RFC 3580 §3.31: Tunnel-Type=VLAN, Tunnel-Medium-Type=802, and
+// Tunnel-Private-Group-ID set to the decimal VLAN ID string.
+func (p *Packet) SetVLAN(vlanID uint16) {
+	tunnelType := make([]byte, 4)
+	binary.BigEndian.PutUint32(tunnelType, uint32(TunnelTypeEnumVLAN))
+	p.SetAVP(AVP{Type: AttrTunnelType, Value: tunnelType})
+
+	tunnelMedium := make([]byte, 4)
+	binary.BigEndian.PutUint32(tunnelMedium, uint32(TunnelMediumTypeEnum802))
+	p.SetAVP(AVP{Type: AttrTunnelMediumType, Value: tunnelMedium})
+
+	p.SetAVP(AVP{Type: AttrTunnelPrivateGroupID, Value: []byte(strconv.Itoa(int(vlanID)))})
+}
+
+// GetVLAN returns the VLAN ID from the packet if the RFC 3580 §3.31 tunnel
+// attribute combination is present and valid (Tunnel-Type=VLAN,
+// Tunnel-Medium-Type=802, Tunnel-Private-Group-ID parseable as 1–4094).
+// Returns 0, false if the combination is absent or invalid.
+func (p *Packet) GetVLAN() (uint16, bool) {
+	ttAVP := p.GetAVP(AttrTunnelType)
+	tmAVP := p.GetAVP(AttrTunnelMediumType)
+	pgAVP := p.GetAVP(AttrTunnelPrivateGroupID)
+	if ttAVP == nil || tmAVP == nil || pgAVP == nil {
+		return 0, false
+	}
+
+	ttVal := ttAVP.Decode(p)
+	switch v := ttVal.(type) {
+	case TunnelTypeEnum:
+		if v != TunnelTypeEnumVLAN {
+			return 0, false
+		}
+	case uint32:
+		if TunnelTypeEnum(v) != TunnelTypeEnumVLAN {
+			return 0, false
+		}
+	default:
+		return 0, false
+	}
+
+	tmVal := tmAVP.Decode(p)
+	switch v := tmVal.(type) {
+	case TunnelMediumTypeEnum:
+		if v != TunnelMediumTypeEnum802 {
+			return 0, false
+		}
+	case uint32:
+		if TunnelMediumTypeEnum(v) != TunnelMediumTypeEnum802 {
+			return 0, false
+		}
+	default:
+		return 0, false
+	}
+
+	pgVal := pgAVP.Decode(p)
+	var pgStr string
+	switch v := pgVal.(type) {
+	case string:
+		pgStr = v
+	case []byte:
+		pgStr = string(v)
+	default:
+		return 0, false
+	}
+
+	id, err := strconv.ParseUint(pgStr, 10, 16)
+	if err != nil || id < 1 || id > 4094 {
+		return 0, false
+	}
+	return uint16(id), true
 }

@@ -16,21 +16,10 @@ func main() {
 	pass := flag.String("pass", "a", "Password for CHAP")
 	flag.Parse()
 
-	// Dictionary resolution logic (same as examples/client)
-	if *dictPath == "" {
-		defaults := []string{
-			"../../dictionary.builtin",
-			"./dictionary",
-		}
-		for _, p := range defaults {
-			if _, err := os.Stat(p); err == nil {
-				*dictPath = p
-				break
-			}
-		}
-	}
-
 	dict := radius.NewDictionary()
+	if err := dict.LoadBuiltin(); err != nil {
+		log.Fatalf("Failed to load built-in dictionary: %v", err)
+	}
 	if *dictPath != "" {
 		if err := dict.LoadFile(*dictPath); err != nil {
 			log.Fatalf("Failed to load dictionary from %s: %v", *dictPath, err)

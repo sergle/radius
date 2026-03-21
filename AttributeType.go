@@ -14,9 +14,16 @@ const (
 	AttrNASIPAddress         AttributeType = 4
 	AttrNASPort              AttributeType = 5
 	AttrServiceType          AttributeType = 6
+	AttrFramedIPAddress      AttributeType = 8
+	AttrFilterId             AttributeType = 11
+	AttrFramedMTU            AttributeType = 12
 	AttrReplyMessage         AttributeType = 18
 	AttrState                AttributeType = 24
+	AttrClass                AttributeType = 25
 	AttrVendorSpecific       AttributeType = 26
+	AttrSessionTimeout       AttributeType = 27
+	AttrIdleTimeout          AttributeType = 28
+	AttrTerminationAction    AttributeType = 29
 	AttrCalledStationId      AttributeType = 30
 	AttrCallingStationId     AttributeType = 31
 	AttrNASIdentifier        AttributeType = 32

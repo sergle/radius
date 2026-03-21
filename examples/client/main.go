@@ -17,24 +17,12 @@ func main() {
 	reqType := flag.String("type", "auth", "Request type: 'auth' (Access-Request) or 'disc' (Disconnect-Request)")
 	flag.Parse()
 
-	// Dictionary resolution logic
-	if *dictPath == "" {
-		defaults := []string{
-			"../../dictionary.builtin",
-			"./dictionary",
-		}
-		for _, p := range defaults {
-			if _, err := os.Stat(p); err == nil {
-				*dictPath = p
-				break
-			}
-		}
-	}
-
 	dict := radius.NewDictionary()
+	if err := dict.LoadBuiltin(); err != nil {
+		log.Fatalf("Failed to load built-in dictionary: %v", err)
+	}
 	if *dictPath != "" {
-		err := dict.LoadFile(*dictPath)
-		if err != nil {
+		if err := dict.LoadFile(*dictPath); err != nil {
 			log.Fatalf("Failed to load dictionary from %s: %v", *dictPath, err)
 		}
 		log.Printf("Loaded dictionary from %s", *dictPath)

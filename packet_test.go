@@ -182,6 +182,90 @@ func TestPacketGolden(t *testing.T) {
 	}
 }
 
+func TestSetGetVLAN(t *testing.T) {
+	p := Request(AccessAccept, "secret")
+	p.SetVLAN(100)
+
+	id, ok := p.GetVLAN()
+	if !ok {
+		t.Fatal("GetVLAN returned false")
+	}
+	if id != 100 {
+		t.Errorf("VLAN ID: got %d, want 100", id)
+	}
+}
+
+func TestGetVLANMissingAttributes(t *testing.T) {
+	// No attributes at all.
+	p := Request(AccessAccept, "secret")
+	if _, ok := p.GetVLAN(); ok {
+		t.Error("expected false with no attributes")
+	}
+
+	// Only Tunnel-Type set.
+	p.SetAVP(AVP{Type: AttrTunnelType, Value: []byte{0, 0, 0, 13}})
+	if _, ok := p.GetVLAN(); ok {
+		t.Error("expected false with only Tunnel-Type")
+	}
+}
+
+func TestGetVLANWrongTunnelType(t *testing.T) {
+	p := Request(AccessAccept, "secret")
+	p.SetVLAN(200)
+	// Overwrite Tunnel-Type with L2TP (3).
+	p.SetAVP(AVP{Type: AttrTunnelType, Value: []byte{0, 0, 0, 3}})
+	if _, ok := p.GetVLAN(); ok {
+		t.Error("expected false with wrong Tunnel-Type")
+	}
+}
+
+func TestGetVLANWrongMediumType(t *testing.T) {
+	p := Request(AccessAccept, "secret")
+	p.SetVLAN(200)
+	// Overwrite Tunnel-Medium-Type with IPv4 (1).
+	p.SetAVP(AVP{Type: AttrTunnelMediumType, Value: []byte{0, 0, 0, 1}})
+	if _, ok := p.GetVLAN(); ok {
+		t.Error("expected false with wrong Tunnel-Medium-Type")
+	}
+}
+
+func TestGetVLANInvalidID(t *testing.T) {
+	tests := []struct {
+		name string
+		id   string
+	}{
+		{"zero", "0"},
+		{"above max", "4095"},
+		{"non-numeric", "abc"},
+		{"empty", ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			p := Request(AccessAccept, "secret")
+			p.SetAVP(AVP{Type: AttrTunnelType, Value: []byte{0, 0, 0, 13}})
+			p.SetAVP(AVP{Type: AttrTunnelMediumType, Value: []byte{0, 0, 0, 6}})
+			p.SetAVP(AVP{Type: AttrTunnelPrivateGroupID, Value: []byte(tc.id)})
+			if _, ok := p.GetVLAN(); ok {
+				t.Errorf("expected false for VLAN ID %q", tc.id)
+			}
+		})
+	}
+}
+
+func TestGetVLANBoundary(t *testing.T) {
+	for _, id := range []uint16{1, 2, 4093, 4094} {
+		p := Request(AccessAccept, "secret")
+		p.SetVLAN(id)
+		got, ok := p.GetVLAN()
+		if !ok {
+			t.Errorf("VLAN %d: GetVLAN returned false", id)
+		}
+		if got != id {
+			t.Errorf("VLAN %d: got %d", id, got)
+		}
+	}
+}
+
 func TestGetEAPMessageMultiFragment(t *testing.T) {
 	// Build an EAP-Response/Identity whose data spans two EAP-Message AVPs.
 	// The EAP packet is: Code=2, ID=1, Length=5+data, Type=1, Data=identity

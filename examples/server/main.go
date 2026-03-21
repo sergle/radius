@@ -13,43 +13,30 @@ import (
 )
 
 func main() {
-	dictPath := flag.String("dict", os.Getenv("RADIUS_DICT"), "Path to RADIUS dictionary file")
+	dictPath := flag.String("dict", os.Getenv("RADIUS_DICT"), "Path to additional vendor dictionary file (optional)")
 	addr := flag.String("addr", "127.0.0.1:1812", "Address to listen on")
 	secret := flag.String("secret", "gopher", "RADIUS shared secret")
 	flag.Parse()
-	if *dictPath == "" {
-		defaults := []string{
-			"../../dictionary.builtin",
-			"./dictionary",
-		}
-		for _, p := range defaults {
-			if _, err := os.Stat(p); err == nil {
-				*dictPath = p
-				break
-			}
-		}
-	}
 
 	dict := radius.NewDictionary()
+	if err := dict.LoadBuiltin(); err != nil {
+		log.Fatalf("Failed to load built-in dictionary: %v", err)
+	}
 	if *dictPath != "" {
-		err := dict.LoadFile(*dictPath)
-		if err != nil {
+		if err := dict.LoadFile(*dictPath); err != nil {
 			log.Fatalf("Failed to load dictionary from %s: %v", *dictPath, err)
 		}
 		log.Printf("Loaded dictionary from %s", *dictPath)
-	} else {
-		log.Println("No dictionary loaded. Some AVP decoding might be limited.")
 	}
 
-	// Pre-resolve templates for efficient reuse in handlers
-	// These are now local variables, not part of a struct.
-	replyMsgTemplate, err := dict.GetTemplate("Reply-Message")
+	// Pre-resolve a reusable reply template: Reply-Message + Cisco h323-remote-address VSA.
+	// Fill() only populates as many slots as values provided, so single-value calls
+	// (AccessAccept/Reject) only set Reply-Message; two-value calls (DisconnectAccept) set both.
+	replyTemplate, err := dict.CreateRequestTemplate(radius.AccessAccept, "Reply-Message")
 	if err != nil {
 		log.Printf("Warning: Reply-Message template failed: %v", err)
 	}
-
-	ciscoVsaTemplate, err := dict.GetVSATemplate("Cisco", "h323-remote-address")
-	if err != nil {
+	if err := replyTemplate.AddVSAAttribute(dict, "Cisco", "h323-remote-address"); err != nil {
 		log.Printf("Warning: Cisco VSA template failed: %v", err)
 	}
 
@@ -66,29 +53,27 @@ func main() {
 			log.Printf("  AVP: name=%s type=%s value=%v\n", attrName, attrType, dict.DecodeAVPValue(request, avp))
 		}
 
-		npac := request.Reply()
 		switch request.Code {
 		case radius.AccessRequest:
 			if request.GetUsername() == "a" && request.GetPassword() == "a" {
-				npac.Code = radius.AccessAccept
-				replyMsgTemplate.Add(npac, "Authentication successful")
-			} else {
-				npac.Code = radius.AccessReject
-				replyMsgTemplate.Add(npac, "Authentication failed")
+				npac := request.ReplyAccept()
+				replyTemplate.Fill(npac, "Authentication successful")
+				return npac
 			}
+			npac := request.ReplyReject()
+			replyTemplate.Fill(npac, "Authentication failed")
+			return npac
 		case radius.AccountingRequest:
-			npac.Code = radius.AccountingResponse
+			return request.ReplyAccountingResponse()
 		case radius.DisconnectRequest:
-			npac.Code = radius.DisconnectAccept
-			replyMsgTemplate.Add(npac, "Session disconnected")
-			ciscoVsaTemplate.Add(npac, "10.20.30.41")
+			npac := request.ReplyDisconnectAccept()
+			replyTemplate.Fill(npac, "Session disconnected", "10.20.30.41")
+			log.Printf("[%d] Reply: %s\n", count, npac.String())
+			return npac
 		default:
 			log.Printf("[%d] [WRN] Received unknown packet code: %d\n", count, request.Code)
 			return nil
 		}
-
-		log.Printf("[%d] Reply: %s\n", count, npac.String())
-		return npac
 	})
 
 	s := radius.NewServer(*addr, *secret, handler)

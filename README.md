@@ -47,9 +47,9 @@ if err := dict.LoadFile("/path/to/your/dictionary"); err != nil {
 // Optional: make this dictionary the default for package-level lookups.
 radius.SetDefaultDictionary(dict)
 
-// Example: pre-resolve a Cisco VSA template for reuse.
-ciscoH323RemoteAddr, _ := dict.GetVSATemplate("Cisco", "h323-remote-address")
-_ = ciscoH323RemoteAddr
+// Example: pre-resolve a reply template with a Cisco VSA for reuse.
+replyTemplate, _ := dict.CreateRequestTemplate(radius.AccessAccept, "Reply-Message")
+replyTemplate.AddVSAAttribute(dict, "Cisco", "h323-remote-address")
 ```
 
 ### Alternative: Load multiple files directly
@@ -69,15 +69,13 @@ func main() {
 	handler := radius.HandlerFunc(func(ctx context.Context, request *radius.Packet) *radius.Packet {
 		log.Printf("Received %s from %s", request.Code, request.ClientAddr)
 		
-		reply := request.Reply()
 		if request.Code == radius.AccessRequest {
 			if request.GetUsername() == "admin" && request.GetPassword() == "secret" {
-				reply.Code = radius.AccessAccept
-			} else {
-				reply.Code = radius.AccessReject
+				return request.ReplyAccept()
 			}
+			return request.ReplyReject()
 		}
-		return reply
+		return nil
 	})
 
 	// Option A: single shared secret for all clients

@@ -14,10 +14,21 @@ VALUE		Service-Type		Administrative		6
 VALUE		Service-Type		NAS-Prompt		7
 VALUE		Service-Type		Authenticate-Only	8
 VALUE		Service-Type		Callback-NAS-Prompt	9
+VALUE		Service-Type		Call-Check		10
+
+ATTRIBUTE	Framed-IP-Address	8	ipaddr
+ATTRIBUTE	Filter-Id		11	string
+ATTRIBUTE	Framed-MTU		12	integer
 
 ATTRIBUTE	Reply-Message		18	string
 ATTRIBUTE	State			24	octets
+ATTRIBUTE	Class			25	octets
 ATTRIBUTE	Vendor-Specific		26	vsa
+ATTRIBUTE	Session-Timeout		27	integer
+ATTRIBUTE	Idle-Timeout		28	integer
+ATTRIBUTE	Termination-Action	29	integer
+VALUE		Termination-Action	Default			0
+VALUE		Termination-Action	RADIUS-Request		1
 ATTRIBUTE	Called-Station-Id	30	string
 ATTRIBUTE	Calling-Station-Id	31	string
 ATTRIBUTE	NAS-Identifier		32	string
@@ -64,6 +75,10 @@ VALUE		Acct-Terminate-Cause	Service-Unavailable	15
 VALUE		Acct-Terminate-Cause	Callback		16
 VALUE		Acct-Terminate-Cause	User-Error		17
 VALUE		Acct-Terminate-Cause	Host-Request		18
+VALUE		Acct-Terminate-Cause	Supplicant-Restart		19
+VALUE		Acct-Terminate-Cause	Reauthentication-Failure	20
+VALUE		Acct-Terminate-Cause	Port-Reinitialized		21
+VALUE		Acct-Terminate-Cause	Port-Admin-Disabled		22
 
 ATTRIBUTE	Acct-Multi-Session-Id	50	string
 ATTRIBUTE	Acct-Link-Count		51	integer
@@ -90,6 +105,8 @@ VALUE		NAS-Port-Type		xDSL			11
 VALUE		NAS-Port-Type		Cable			12
 VALUE		NAS-Port-Type		Wireless-Other		13
 VALUE		NAS-Port-Type		Wireless-802.11		14
+VALUE		NAS-Port-Type		Token-Ring		20
+VALUE		NAS-Port-Type		FDDI			21
 
 ATTRIBUTE	Port-Limit		62	integer
 
