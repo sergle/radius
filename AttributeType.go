@@ -78,9 +78,15 @@ const (
 	// RFC 2869 (continued)
 	AttrAcctInterimInterval AttributeType = 85
 
+	// RFC 4372 - Chargeable User Identity
+	AttrChargeableUserIdentity AttributeType = 89
+
 	// RFC 2868 (continued)
 	AttrTunnelClientAuthID AttributeType = 90
 	AttrTunnelServerAuthID AttributeType = 91
+
+	// RFC 4849 - RADIUS Filter Rule Attribute
+	AttrNASFilterRule AttributeType = 92
 
 	// RFC 3162 - RADIUS and IPv6
 	AttrNASIPv6Address    AttributeType = 95
@@ -89,6 +95,9 @@ const (
 	AttrLoginIPv6Host     AttributeType = 98
 	AttrFramedIPv6Route   AttributeType = 99
 	AttrFramedIPv6Pool    AttributeType = 100
+
+	// RFC 5176 - Dynamic Authorization Extensions to RADIUS
+	AttrErrorCause AttributeType = 101
 
 	// RFC 5090 - RADIUS Extension for Digest Authentication
 	AttrDigestResponse         AttributeType = 103
