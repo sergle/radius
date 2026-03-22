@@ -293,8 +293,8 @@ func (p *Packet) SetAVP(avp AVP) {
 }
 
 // AddAVP appends avp to the packet's attribute list.
-func (p *Packet) AddAVP(avp AVP) {
-	p.AVPs = append(p.AVPs, avp)
+func (p *Packet) AddAVP(avps ...AVP) {
+	p.AVPs = append(p.AVPs, avps...)
 }
 
 // AddVSA adds a Vendor-Specific Attribute (VSA) to the packet.

@@ -58,7 +58,7 @@ func TestEndToEndRADIUS(t *testing.T) {
 	client.SetTimeout(2 * time.Second)
 
 	t.Run("Valid Credentials", func(t *testing.T) {
-		req := client.NewRequest(AccessRequest)
+		req := client.NewAccessRequest()
 		req.AddAVP(AVP{Type: AttrUserName, Value: []byte("testuser")})
 		req.AddPassword("testpass")
 
@@ -78,7 +78,7 @@ func TestEndToEndRADIUS(t *testing.T) {
 	})
 
 	t.Run("Invalid Credentials", func(t *testing.T) {
-		req := client.NewRequest(AccessRequest)
+		req := client.NewAccessRequest()
 		req.AddAVP(AVP{Type: AttrUserName, Value: []byte("testuser")})
 		req.AddPassword("wrongpass")
 
@@ -97,7 +97,7 @@ func TestEndToEndRADIUS(t *testing.T) {
 		ctx, cancelReq := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancelReq()
 
-		req := client.NewRequest(AccessRequest)
+		req := client.NewAccessRequest()
 		req.AddAVP(AVP{Type: AttrUserName, Value: []byte("testuser")})
 		req.AddPassword("testpass")
 
@@ -117,7 +117,7 @@ func TestEndToEndRADIUS(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 
 		// Try to send after shutdown
-		req := client.NewRequest(AccessRequest)
+		req := client.NewAccessRequest()
 		client.SetTimeout(1 * time.Second)
 		_, err := client.Send(req)
 		if err == nil {

@@ -89,6 +89,28 @@ const (
 	AttrLoginIPv6Host     AttributeType = 98
 	AttrFramedIPv6Route   AttributeType = 99
 	AttrFramedIPv6Pool    AttributeType = 100
+
+	// RFC 5090 - RADIUS Extension for Digest Authentication
+	AttrDigestResponse         AttributeType = 103
+	AttrDigestRealm            AttributeType = 104
+	AttrDigestNonce            AttributeType = 105
+	AttrDigestResponseAuth     AttributeType = 106
+	AttrDigestNextnonce        AttributeType = 107
+	AttrDigestMethod           AttributeType = 108
+	AttrDigestURI              AttributeType = 109
+	AttrDigestQop              AttributeType = 110
+	AttrDigestAlgorithm        AttributeType = 111
+	AttrDigestEntityBodyHash   AttributeType = 112
+	AttrDigestCNonce           AttributeType = 113
+	AttrDigestNonceCount       AttributeType = 114
+	AttrDigestUsername         AttributeType = 115
+	AttrDigestOpaque           AttributeType = 116
+	AttrDigestAuthParam        AttributeType = 117
+	AttrDigestAKAAuts          AttributeType = 118
+	AttrDigestDomain           AttributeType = 119
+	AttrDigestStale            AttributeType = 120
+	AttrDigestHA1              AttributeType = 121
+	AttrSIPAOR                 AttributeType = 122
 )
 
 func getAttributeTypeDesc(t AttributeType) attributeTypeDesc {

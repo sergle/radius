@@ -277,8 +277,7 @@ func TestGetEAPMessageMultiFragment(t *testing.T) {
 	// Split at byte 10: first AVP carries bytes 0..9, second carries bytes 10..20
 	split := 10
 	p := Request(AccessRequest, "secret")
-	p.AddAVP(AVP{Type: AttrEAPMessage, Value: encoded[:split]})
-	p.AddAVP(AVP{Type: AttrEAPMessage, Value: encoded[split:]})
+	p.AddAVP(AVP{Type: AttrEAPMessage, Value: encoded[:split]}, AVP{Type: AttrEAPMessage, Value: encoded[split:]})
 
 	got := p.GetEAPMessage()
 	if got == nil {

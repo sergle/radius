@@ -85,8 +85,7 @@ func TestEAPMSCHAPv2Integration(t *testing.T) {
 			challengeEap := (&MsChapV2Packet{Eap: baseEap, OpCode: MsChapV2OpCodeChallenge, Data: challengePayload}).ToEap()
 
 			reply.Code = AccessChallenge
-			reply.AddAVP(*challengeEap.ToEAPMessage())
-			reply.AddAVP(AVP{Type: AttrState, Value: []byte(stateKey)})
+			reply.AddAVP(*challengeEap.ToEAPMessage(), AVP{Type: AttrState, Value: []byte(stateKey)})
 
 		case EapTypeMSCHAPV2:
 			t.Log("RADIUS[round 2]: received MSCHAPv2 response → verifying NT-Response")
@@ -280,9 +279,8 @@ func runEAPMSCHAPv2(t *testing.T, serverAddr, radiusSecret, username, password s
 			eapFromSup := <-supToNAS
 			t.Logf("NAS: received EAP %v/%v from supplicant → forwarding to RADIUS", eapFromSup.Code, eapFromSup.Type)
 
-			req := radClient.NewRequest(AccessRequest)
-			req.AddAVP(AVP{Type: AttrUserName, Value: []byte(username)})
-			req.AddAVP(*eapFromSup.ToEAPMessage())
+			req := radClient.NewAccessRequest()
+			req.AddAVP(AVP{Type: AttrUserName, Value: []byte(username)}, *eapFromSup.ToEAPMessage())
 			if currentState != nil {
 				req.AddAVP(AVP{Type: AttrState, Value: currentState})
 			}

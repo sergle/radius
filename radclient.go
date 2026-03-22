@@ -95,6 +95,17 @@ func (c *RadClient) Send(request *Packet) (*Packet, error) {
 // NewRequest constructs a new request packet with the given code using the
 // client's shared secret.
 func (c *RadClient) NewRequest(code PacketCode) *Packet {
-	request := Request(code, c.secret)
-	return request
+	return Request(code, c.secret)
 }
+
+// NewAccessRequest constructs an Access-Request packet.
+func (c *RadClient) NewAccessRequest() *Packet { return c.NewRequest(AccessRequest) }
+
+// NewAccountingRequest constructs an Accounting-Request packet.
+func (c *RadClient) NewAccountingRequest() *Packet { return c.NewRequest(AccountingRequest) }
+
+// NewDisconnectRequest constructs a Disconnect-Request (RFC 3576) packet.
+func (c *RadClient) NewDisconnectRequest() *Packet { return c.NewRequest(DisconnectRequest) }
+
+// NewCoARequest constructs a Change-of-Authorization Request (RFC 3576) packet.
+func (c *RadClient) NewCoARequest() *Packet { return c.NewRequest(CoARequest) }
