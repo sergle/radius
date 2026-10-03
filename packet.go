@@ -17,6 +17,7 @@ import (
 var ErrMessageAuthenticatorCheckFail = fmt.Errorf("RADIUS Message-Authenticator verification failed")
 var ErrAuthenticatorCheckFail = fmt.Errorf("RADIUS Authenticator verification failed")
 var ErrMessageAuthenticatorMissing = fmt.Errorf("RADIUS Message-Authenticator missing")
+var ErrInvalidPacketLength = fmt.Errorf("RADIUS packet Length field is invalid")
 
 // the size of the RADIUS packet header (RFC 2865 section 3)
 // Code (1), Identifier (1), Length (2) and Authenticator (16)
@@ -521,7 +522,7 @@ func decodePacket(Secret string, buf []byte, requestAuth []byte, opts *DecodeOpt
 }
 
 func decodePacketTo(p *Packet, Secret string, buf []byte, requestAuth []byte, opts *DecodeOptions) error {
-	err := decodePacketHeaderTo(p, Secret, buf, requestAuth)
+	buf, err := decodePacketHeaderTo(p, Secret, buf, requestAuth)
 	if err != nil {
 		return err
 	}
@@ -554,7 +555,8 @@ func decodePacketTo(p *Packet, Secret string, buf []byte, requestAuth []byte, op
 }
 
 func decodePacketLazy(Secret string, buf []byte, requestAuth []byte, opts *DecodeOptions) (p *Packet, err error) {
-	p, err = decodePacketHeader(Secret, buf, requestAuth)
+	p = &Packet{Secret: Secret}
+	buf, err = decodePacketHeaderTo(p, Secret, buf, requestAuth)
 	if err != nil {
 		return p, err
 	}
@@ -570,16 +572,16 @@ func decodePacketLazy(Secret string, buf []byte, requestAuth []byte, opts *Decod
 	return p, nil
 }
 
-func decodePacketHeader(Secret string, buf []byte, requestAuth []byte) (p *Packet, err error) {
-	p = &Packet{Secret: Secret}
-	err = decodePacketHeaderTo(p, Secret, buf, requestAuth)
-	return p, err
-}
-
-func decodePacketHeaderTo(p *Packet, Secret string, buf []byte, requestAuth []byte) error {
+// decodePacketHeaderTo verifies the header and returns buf cut to its Length field.
+func decodePacketHeaderTo(p *Packet, Secret string, buf []byte, requestAuth []byte) ([]byte, error) {
 	if len(buf) < packetHeaderLen {
-		return errors.New("invalid length")
+		return nil, ErrInvalidPacketLength
 	}
+	length := int(binary.BigEndian.Uint16(buf[2:4]))
+	if length < packetHeaderLen || length > maxPacketLen || length > len(buf) {
+		return nil, ErrInvalidPacketLength
+	}
+	buf = buf[:length]
 
 	p.Secret = Secret
 	p.Code = PacketCode(buf[0])
@@ -587,9 +589,9 @@ func decodePacketHeaderTo(p *Packet, Secret string, buf []byte, requestAuth []by
 	copy(p.Authenticator[:], buf[4:packetHeaderLen])
 
 	if err := p.checkAuthenticator(buf, requestAuth); err != nil {
-		return err
+		return nil, err
 	}
-	return nil
+	return buf, nil
 }
 
 func (p *Packet) checkAuthenticator(buf []byte, requestAuth []byte) (err error) {
