@@ -16,6 +16,12 @@ import (
 	"sync"
 )
 
+var (
+	ErrUnknownAttribute         = errors.New("unknown attribute")
+	ErrUnknownVendor            = errors.New("unknown vendor")
+	ErrUnsupportedAttributeType = errors.New("unsupported attribute type")
+)
+
 //go:embed dictionary.builtin
 var builtinDictionaryData []byte
 
@@ -592,33 +598,58 @@ func (d *Dictionary) GetVendorID(vendorName string) VendorID {
 	return d.vendorID[vendorName]
 }
 
-// NewAVP constructs an AVP from the attribute name and a string value using
-// the attribute type defined in the dictionary.
+// NewAVP is like ParseAVP but logs the error and returns the zero AVP.
 func (d *Dictionary) NewAVP(attrName string, attrValue string) AVP {
-	attrID := d.GetAttributeID(attrName)
-	attrType := d.GetAttributeType(attrName)
-	handler := attrTypeHandlers[attrType]
-	if handler == nil {
-		log.Printf("Unknown type %s\n", attrType)
-		return AVP{}
+	avp, err := d.ParseAVP(attrName, attrValue)
+	if err != nil {
+		log.Printf("NewAVP: %v\n", err)
 	}
-
-	value := handler.FromString(attrValue)
-
-	avp := AVP{Type: attrID, Value: value}
 	return avp
 }
 
-// NewVSA constructs a Vendor-Specific Attribute from the vendor name, attribute
-// name, and a string value using the VSA type defined in the dictionary.
+// NewVSA is like ParseVSA but logs the error and returns the zero VSA.
 func (d *Dictionary) NewVSA(vendorName string, attrName string, attrValue string) VSA {
-	vendorID := d.GetVendorID(vendorName)
-	attrID := d.GetVSAAttributeID(vendorID, attrName)
-	attrType := d.GetVSAAttributeType(vendorID, attrName)
-	handler := attrTypeHandlers[attrType]
-
-	value := handler.FromString(attrValue)
-
-	vsa := VSA{Vendor: vendorID, Type: attrID, Value: value}
+	vsa, err := d.ParseVSA(vendorName, attrName, attrValue)
+	if err != nil {
+		log.Printf("NewVSA: %v\n", err)
+	}
 	return vsa
+}
+
+// ParseAVP constructs an AVP from the attribute name and a string value using
+// the attribute type defined in the dictionary.
+func (d *Dictionary) ParseAVP(attrName string, attrValue string) (AVP, error) {
+	d.RLock()
+	attrID, ok := d.attrID[attrName]
+	attrType := d.attrType[attrName]
+	d.RUnlock()
+	if !ok {
+		return AVP{}, fmt.Errorf("%w: %s", ErrUnknownAttribute, attrName)
+	}
+	handler := attrTypeHandlers[attrType]
+	if handler == nil {
+		return AVP{}, fmt.Errorf("%w %q for attribute %s", ErrUnsupportedAttributeType, attrType, attrName)
+	}
+	return AVP{Type: attrID, Value: handler.FromString(attrValue)}, nil
+}
+
+// ParseVSA constructs a Vendor-Specific Attribute from the vendor name, attribute
+// name, and a string value using the VSA type defined in the dictionary.
+func (d *Dictionary) ParseVSA(vendorName string, attrName string, attrValue string) (VSA, error) {
+	d.RLock()
+	vendorID, vendorOK := d.vendorID[vendorName]
+	attrID, attrOK := d.vsaAttrID[vendorID][attrName]
+	attrType := d.vsaAttrType[vendorID][attrName]
+	d.RUnlock()
+	if !vendorOK {
+		return VSA{}, fmt.Errorf("%w: %s", ErrUnknownVendor, vendorName)
+	}
+	if !attrOK {
+		return VSA{}, fmt.Errorf("%w: %s/%s", ErrUnknownAttribute, vendorName, attrName)
+	}
+	handler := attrTypeHandlers[attrType]
+	if handler == nil {
+		return VSA{}, fmt.Errorf("%w %q for attribute %s/%s", ErrUnsupportedAttributeType, attrType, vendorName, attrName)
+	}
+	return VSA{Vendor: vendorID, Type: attrID, Value: handler.FromString(attrValue)}, nil
 }
