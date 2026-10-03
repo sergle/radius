@@ -18,11 +18,12 @@ var ErrMessageAuthenticatorCheckFail = fmt.Errorf("RADIUS Message-Authenticator 
 var ErrAuthenticatorCheckFail = fmt.Errorf("RADIUS Authenticator verification failed")
 var ErrMessageAuthenticatorMissing = fmt.Errorf("RADIUS Message-Authenticator missing")
 
-// packetHeaderLen is the size of the RADIUS packet header: Code (1),
-// Identifier (1), Length (2) and Authenticator (16) (RFC 2865 section 3).
-const packetHeaderLen = 20
+// the size of the RADIUS packet header (RFC 2865 section 3)
+// Code (1), Identifier (1), Length (2) and Authenticator (16)
+const authenticatorLen = 16
+const packetHeaderLen = 1 + 1 + 2 + authenticatorLen
 
-// messageAuthenticatorLen is the Length of a Message-Authenticator attribute:
+// length of a Message-Authenticator attribute:
 // 2-byte header plus a 16-byte HMAC-MD5 value (RFC 3579 section 3.2).
 const messageAuthenticatorLen = 2 + md5.Size
 
@@ -46,7 +47,7 @@ type Packet struct {
 	Secret        string
 	Code          PacketCode
 	Identifier    uint8
-	Authenticator [16]byte
+	Authenticator [authenticatorLen]byte
 	AVPs          []AVP
 	RawAVPs       []byte // Unparsed attributes for lazy decoding
 	ClientAddr    string
@@ -75,7 +76,7 @@ func (p *Packet) Reset() {
 	p.Secret = ""
 	p.Code = 0
 	p.Identifier = 0
-	p.Authenticator = [16]byte{}
+	p.Authenticator = [authenticatorLen]byte{}
 	p.AVPs = p.AVPs[:0]
 	p.RawAVPs = nil
 	p.ClientAddr = ""
@@ -124,7 +125,8 @@ func (p *Packet) EncodeTo(b []byte) (n int, err error) {
 			Value: make([]byte, md5.Size),
 		})
 
-		if p.Code == AccessRequest && p.Authenticator[0] == 0 {
+		// generate only if not set yet
+		if p.Code == AccessRequest && p.Authenticator == [authenticatorLen]byte{} {
 			_, err := rand.Read(p.Authenticator[:])
 			if err != nil {
 				return 0, err
@@ -137,7 +139,7 @@ func (p *Packet) EncodeTo(b []byte) (n int, err error) {
 	// hash input per RFC 2866/5176. Ensure we don't accidentally hash any
 	// caller-provided authenticator value.
 	if p.Code.IsRequest() && p.Code != AccessRequest {
-		p.Authenticator = [16]byte{}
+		p.Authenticator = [authenticatorLen]byte{}
 	}
 
 	// When the password request recalculation

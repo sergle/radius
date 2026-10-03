@@ -127,3 +127,31 @@ func TestLazyDecodeVerifiesMessageAuthenticator(t *testing.T) {
 		t.Fatalf("DecodeReply with tampered Message-Authenticator: got %v, want %v", err, ErrMessageAuthenticatorCheckFail)
 	}
 }
+
+// A Request Authenticator that happens to start with a zero byte must not be
+// replaced by EncodeTo: User-Password was already encrypted with it.
+func TestEncodeKeepsAuthenticatorWithLeadingZero(t *testing.T) {
+	const secret = "testing123"
+	const password = "s3cret-pass"
+
+	p := Request(AccessRequest, secret)
+	p.Authenticator[0] = 0
+	want := p.Authenticator
+	p.AddPassword(password)
+
+	b, err := p.Encode()
+	if err != nil {
+		t.Fatalf("Encode failed: %v", err)
+	}
+	if p.Authenticator != want {
+		t.Fatalf("Authenticator changed by Encode:\nwant %x\ngot  %x", want, p.Authenticator)
+	}
+
+	req, err := DecodeRequest(secret, b)
+	if err != nil {
+		t.Fatalf("DecodeRequest failed: %v", err)
+	}
+	if got := req.GetPassword(); got != password {
+		t.Fatalf("GetPassword = %q, want %q", got, password)
+	}
+}
