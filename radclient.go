@@ -17,7 +17,6 @@ type RadClient struct {
 }
 
 const sendTimeout time.Duration = 2 * time.Second
-const bufSize int = 4096
 
 // NewRadClient constructs a client for a server address (for example "host:1812")
 // and a shared secret.
@@ -51,8 +50,8 @@ func (c *RadClient) SendContext(ctx context.Context, request *Packet) (*Packet, 
 	defer conn.Close()
 
 	if udpConn, ok := conn.(*net.UDPConn); ok {
-		udpConn.SetWriteBuffer(bufSize)
-		udpConn.SetReadBuffer(bufSize)
+		udpConn.SetWriteBuffer(maxPacketLen)
+		udpConn.SetReadBuffer(maxPacketLen)
 	}
 
 	timeout := c.timeout
@@ -73,7 +72,7 @@ func (c *RadClient) SendContext(ctx context.Context, request *Packet) (*Packet, 
 	}
 
 	// read answer (n bytes)
-	b := make([]byte, bufSize)
+	b := make([]byte, maxPacketLen)
 	n, err := conn.Read(b)
 	if err != nil {
 		return nil, err

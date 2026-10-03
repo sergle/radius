@@ -68,7 +68,7 @@ type Server struct {
 
 var serverBufferPool = sync.Pool{
 	New: func() interface{} {
-		return make([]byte, 4096)
+		return make([]byte, maxPacketLen)
 	},
 }
 
@@ -134,14 +134,17 @@ func (s *Server) ListenAndServe() error {
 			npac.Identifier = p.Identifier
 			npac.Secret = secret
 
-			// Reuse the same buffer for encoding if possible
-			// RADIUS max length is 4096, so buf is enough
-			writtenN, err := npac.EncodeTo(buf)
+			// Reply AVPs may alias buf (values copied from the request),
+			// so encode into a separate buffer.
+			out := serverBufferPool.Get().([]byte)
+			out = out[:cap(out)]
+			defer serverBufferPool.Put(out)
+			writtenN, err := npac.EncodeTo(out)
 			if err != nil {
 				log.Printf("encode packet error %v", err)
 				return
 			}
-			s.conn.WriteToUDP(buf[:writtenN], addr)
+			s.conn.WriteToUDP(out[:writtenN], addr)
 		}(s.ctx, b, n, raddr)
 	}
 }

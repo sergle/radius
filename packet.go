@@ -23,6 +23,9 @@ var ErrMessageAuthenticatorMissing = fmt.Errorf("RADIUS Message-Authenticator mi
 const authenticatorLen = 16
 const packetHeaderLen = 1 + 1 + 2 + authenticatorLen
 
+// maximum RADIUS packet length (RFC 2865 section 3)
+const maxPacketLen = 4096
+
 // length of a Message-Authenticator attribute:
 // 2-byte header plus a 16-byte HMAC-MD5 value (RFC 3579 section 3.2).
 const messageAuthenticatorLen = 2 + md5.Size
@@ -105,7 +108,7 @@ func (p *Packet) Copy() *Packet {
 // If the packet Code requires it, Encode will compute and include
 // Message-Authenticator and/or update the packet Authenticator.
 func (p *Packet) Encode() (b []byte, err error) {
-	b = make([]byte, 4096)
+	b = make([]byte, maxPacketLen)
 	n, err := p.EncodeTo(b)
 	if err != nil {
 		return nil, err
@@ -181,7 +184,7 @@ func (p *Packet) EncodeTo(b []byte) (n int, err error) {
 }
 
 func (p *Packet) encodeNoHash() (b []byte, err error) {
-	b = make([]byte, 4096)
+	b = make([]byte, maxPacketLen)
 	n, err := p.encodeNoHashTo(b)
 	if err != nil {
 		return nil, err

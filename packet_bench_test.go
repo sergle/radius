@@ -85,7 +85,7 @@ func BenchmarkEncodePacketTo(b *testing.B) {
 	for i := 0; i < 20; i++ {
 		p.AddAVP(AVP{Type: 1, Value: []byte("benchmark-x")})
 	}
-	buf := make([]byte, 4096)
+	buf := make([]byte, maxPacketLen)
 
 	b.ReportAllocs()
 	b.ResetTimer()

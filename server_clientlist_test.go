@@ -36,7 +36,7 @@ func sendRadiusFromLocal(t *testing.T, localIP string, localPort int, serverAddr
 		return nil, err
 	}
 
-	b := make([]byte, 4096)
+	b := make([]byte, maxPacketLen)
 	n, err := conn.Read(b)
 	if err != nil {
 		return nil, err

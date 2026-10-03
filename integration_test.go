@@ -1,6 +1,7 @@
 package radius
 
 import (
+	"bytes"
 	"context"
 	"testing"
 	"time"
@@ -124,4 +125,97 @@ func TestEndToEndRADIUS(t *testing.T) {
 			t.Error("Expected error sending to stopped server, got nil")
 		}
 	})
+}
+
+func TestServerReplyCopiesRequestAVPs(t *testing.T) {
+	const (
+		secret         = "shared-secret"
+		attrProxyState = AttributeType(33)
+	)
+
+	handler := HandlerFunc(func(ctx context.Context, request *Packet) *Packet {
+		reply := request.Reply()
+		reply.Code = AccessChallenge
+		// Shift copied values so encoding overwrites their source bytes.
+		reply.AddAVP(AVP{Type: AttrReplyMessage, Value: []byte("please answer the challenge")})
+		reply.AddAVP(*request.GetAVP(AttrState))
+		request.EachAVP(func(a AVP) bool {
+			if a.Type == attrProxyState {
+				reply.AddAVP(a)
+			}
+			return true
+		})
+		reply.AddAVP(AVP{Type: AttrClass, Value: request.GetAVP(AttrUserName).Value})
+		return reply
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	srv := NewServer("127.0.0.1:0", secret, handler)
+	srv.ctx = ctx
+	srv.cancel = cancel
+	go func() { _ = srv.ListenAndServe() }()
+
+	var actualAddr string
+	for i := 0; i < 10; i++ {
+		if srv.conn != nil {
+			actualAddr = srv.conn.LocalAddr().String()
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if actualAddr == "" {
+		t.Fatal("Server failed to start in time")
+	}
+
+	client := NewRadClient(actualAddr, secret)
+	client.SetTimeout(2 * time.Second)
+
+	state := []byte("STATE-0123456789")
+	proxyStates := [][]byte{[]byte("proxy-state-one"), []byte("proxy-state-two")}
+	userName := []byte("echo me back here!!")
+
+	req := client.NewAccessRequest()
+	req.AddAVP(AVP{Type: AttrUserName, Value: userName})
+	req.AddAVP(AVP{Type: AttrState, Value: state})
+	for _, ps := range proxyStates {
+		req.AddAVP(AVP{Type: attrProxyState, Value: ps})
+	}
+
+	reply, err := client.Send(req)
+	if err != nil {
+		t.Fatalf("Failed to send request: %v", err)
+	}
+	if reply.Code != AccessChallenge {
+		t.Fatalf("Expected Access-Challenge, got %v", reply.Code)
+	}
+
+	if got := reply.GetAVP(AttrState); got == nil || !bytes.Equal(got.Value, state) {
+		t.Errorf("State: got %q, want %q", avpValue(got), state)
+	}
+	var gotPS [][]byte
+	for _, a := range reply.AVPs {
+		if a.Type == attrProxyState {
+			gotPS = append(gotPS, a.Value)
+		}
+	}
+	if len(gotPS) != len(proxyStates) {
+		t.Fatalf("Proxy-State: got %d attributes, want %d", len(gotPS), len(proxyStates))
+	}
+	for i := range proxyStates {
+		if !bytes.Equal(gotPS[i], proxyStates[i]) {
+			t.Errorf("Proxy-State[%d]: got %q, want %q", i, gotPS[i], proxyStates[i])
+		}
+	}
+	if got := reply.GetAVP(AttrClass); got == nil || !bytes.Equal(got.Value, userName) {
+		t.Errorf("Class: got %q, want %q", avpValue(got), userName)
+	}
+}
+
+func avpValue(a *AVP) []byte {
+	if a == nil {
+		return nil
+	}
+	return a.Value
 }
