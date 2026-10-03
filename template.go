@@ -25,6 +25,10 @@ func (t *AttributeTemplate) Add(p *Packet, value string) {
 		p.AddPassword(value)
 		return
 	}
+	if t.handler == avpPassword {
+		p.AddAVP(AVP{Type: t.attrType, Value: avpPassword.Encode(value, p.Secret, p.Authenticator[:])})
+		return
+	}
 	v, err := encodeValue(t.handler, t.names, value)
 	if err != nil {
 		log.Printf("template: %v for attribute %s\n", err, t.attrType)
@@ -43,6 +47,10 @@ type vsaTemplate struct {
 
 // Add encodes the value and adds it as a VSA to the provided packet; invalid values are logged and skipped.
 func (t *vsaTemplate) Add(p *Packet, value string) {
+	if t.handler == avpPassword {
+		p.AddVSA(VSA{Vendor: t.vendorID, Type: t.vsaType, Value: avpPassword.Encode(value, p.Secret, p.Authenticator[:])})
+		return
+	}
 	v, err := encodeValue(t.handler, t.names, value)
 	if err != nil {
 		log.Printf("template: %v for VSA %d/%d\n", err, t.vendorID, t.vsaType)

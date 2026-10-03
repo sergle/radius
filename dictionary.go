@@ -21,6 +21,7 @@ var (
 	ErrUnknownVendor            = errors.New("unknown vendor")
 	ErrUnsupportedAttributeType = errors.New("unsupported attribute type")
 	ErrInvalidValue             = errors.New("invalid attribute value")
+	ErrEncryptedAttribute       = errors.New("encrypted attribute needs a packet, use AddPassword")
 )
 
 //go:embed dictionary.builtin
@@ -86,6 +87,8 @@ type Dictionary struct {
 	attrName map[AttributeType]string
 	// map attribute name to type name
 	attrType map[string]string
+	// map attribute name to flags column options
+	attrFlags map[string]attributeFlags
 	// map attribute name + enum name to id
 	constID map[string]map[string]uint32
 	// map attribute name + enum id to enum name
@@ -103,9 +106,10 @@ type Dictionary struct {
 
 	// vsa
 	// vendor -> attribute name -> attribute id
-	vsaAttrID   map[VendorID]map[string]VendorAttr
-	vsaAttrName map[VendorID]map[VendorAttr]string
-	vsaAttrType map[VendorID]map[string]string
+	vsaAttrID    map[VendorID]map[string]VendorAttr
+	vsaAttrName  map[VendorID]map[VendorAttr]string
+	vsaAttrType  map[VendorID]map[string]string
+	vsaAttrFlags map[VendorID]map[string]attributeFlags
 	// vendor -> attribute name -> constant name -> constant id
 	vsaConstID   map[VendorID]map[string]map[string]uint32
 	vsaConstName map[VendorID]map[string]map[uint32]string
@@ -118,6 +122,7 @@ func NewDictionary() *Dictionary {
 	dict.attrID = make(map[string]AttributeType)
 	dict.attrName = make(map[AttributeType]string)
 	dict.attrType = make(map[string]string)
+	dict.attrFlags = make(map[string]attributeFlags)
 	dict.constID = make(map[string]map[string]uint32)
 	dict.constName = make(map[string]map[uint32]string)
 	dict.fileList = make(map[string]bool)
@@ -126,6 +131,7 @@ func NewDictionary() *Dictionary {
 	dict.vsaAttrID = make(map[VendorID]map[string]VendorAttr)
 	dict.vsaAttrName = make(map[VendorID]map[VendorAttr]string)
 	dict.vsaAttrType = make(map[VendorID]map[string]string)
+	dict.vsaAttrFlags = make(map[VendorID]map[string]attributeFlags)
 	dict.vsaConstID = make(map[VendorID]map[string]map[string]uint32)
 	dict.vsaConstName = make(map[VendorID]map[string]map[uint32]string)
 
@@ -184,7 +190,7 @@ func (d *Dictionary) LoadBuiltin() error {
 
 func (d *Dictionary) parseLine(fname string, line string) error {
 
-	// ATTRIBUTE     User-Name                               1       string
+	// ATTRIBUTE     User-Name                               1       string  [flags]
 	parts := splitLine(line)
 
 	if len(parts) == 0 {
@@ -201,7 +207,11 @@ func (d *Dictionary) parseLine(fname string, line string) error {
 		if len(parts) < 4 {
 			return errors.New("Invalid ATTRIBUTE line: " + line)
 		}
-		return d.parseAttribute(parts[1], parts[2], parts[3])
+		flags := ""
+		if len(parts) > 4 {
+			flags = parts[4]
+		}
+		return d.parseAttribute(parts[1], parts[2], parts[3], flags)
 	case "VALUE":
 		if len(parts) < 4 {
 			return errors.New("Invalid VALUE line: " + line)
@@ -244,7 +254,60 @@ func (d *Dictionary) parseLine(fname string, line string) error {
 
 }
 
-func (d *Dictionary) parseAttribute(attrName string, attrID string, attrType string) error {
+// FreeRADIUS "encrypt=" methods.
+const (
+	encryptNone           = 0
+	encryptUserPassword   = 1 // RFC 2865 section 5.2
+	encryptTunnelPassword = 2 // RFC 2868 section 3.5
+	encryptAscendSecret   = 3
+)
+
+// attributeFlags holds the ATTRIBUTE flags column (e.g. "has_tag,encrypt=2").
+type attributeFlags struct {
+	encrypt int
+	hasTag  bool
+}
+
+// parseAttributeFlags parses the flags column; unknown options are ignored.
+func parseAttributeFlags(attrName string, flags string) attributeFlags {
+	var f attributeFlags
+	if flags == "" {
+		return f
+	}
+	for _, opt := range strings.Split(flags, ",") {
+		name, value, _ := strings.Cut(opt, "=")
+		switch name {
+		case "has_tag":
+			f.hasTag = true
+		case "encrypt":
+			n, err := strconv.Atoi(value)
+			if err != nil {
+				log.Printf("Invalid encrypt flag %q for attr %s. Ignoring\n", value, attrName)
+				continue
+			}
+			f.encrypt = n
+		}
+	}
+	return f
+}
+
+// effectiveType returns the handler type for attrType given its encrypt method.
+func (f attributeFlags) effectiveType(attrType string) string {
+	if f.encrypt == encryptNone || (attrType != typeString && attrType != typeOctets) {
+		return attrType
+	}
+	switch f.encrypt {
+	case encryptUserPassword:
+		return typePassword
+	case encryptTunnelPassword, encryptAscendSecret:
+		// Not decrypted yet; don't present ciphertext as text.
+		return typeOctets
+	}
+	log.Printf("Unknown encrypt method %d. Treating as octets\n", f.encrypt)
+	return typeOctets
+}
+
+func (d *Dictionary) parseAttribute(attrName string, attrID string, attrType string, flags string) error {
 	// id_size := 8
 	// if d.current_vendor > 0 {
 	//     // some vendors has 16-bit attr id (Lucent)
@@ -266,21 +329,27 @@ func (d *Dictionary) parseAttribute(attrName string, attrID string, attrType str
 		return nil
 	}
 
+	f := parseAttributeFlags(attrName, flags)
+	attrType = f.effectiveType(attrType)
+
 	if d.currentVendor > 0 {
 		if _, ok := d.vsaAttrID[d.currentVendor]; !ok {
 			d.vsaAttrID[d.currentVendor] = make(map[string]VendorAttr)
 			d.vsaAttrName[d.currentVendor] = make(map[VendorAttr]string)
 			d.vsaAttrType[d.currentVendor] = make(map[string]string)
+			d.vsaAttrFlags[d.currentVendor] = make(map[string]attributeFlags)
 		}
 
 		d.vsaAttrID[d.currentVendor][attrName] = VendorAttr(aID)
 		d.vsaAttrName[d.currentVendor][VendorAttr(aID)] = attrName
 		d.vsaAttrType[d.currentVendor][attrName] = attrType
+		d.vsaAttrFlags[d.currentVendor][attrName] = f
 		//fmt.Printf("Attr %s / %s has id %d and type %s\n", d.vendorName[ d.currentVendor ], attrName, aID, attrType)
 	} else {
 		d.attrID[attrName] = AttributeType(aID)
 		d.attrName[AttributeType(aID)] = attrName
 		d.attrType[attrName] = attrType
+		d.attrFlags[attrName] = f
 		//log.Printf("Attr %s has id %d and type %s\n", attrName, aID, attrType)
 	}
 
@@ -436,16 +505,28 @@ func (d *Dictionary) parseEndTLV(attrName string) error {
 	return nil
 }
 
+// dictionary attribute type names
+const (
+	typeInteger    = "integer"
+	typeIPAddr     = "ipaddr"
+	typeIPv6Addr   = "ipv6addr"
+	typeString     = "string"
+	typeOctets     = "octets"
+	typePassword   = "password"
+	typeVSA        = "vsa"
+	typeEAPMessage = "eapmessage"
+)
+
 // attribute type to handler mapping
 var attrTypeHandlers = map[string]avpDataType{
-	"integer":    avpUint32,
-	"ipaddr":     avpIP,
-	"ipv6addr":   avpIP,
-	"string":     avpString,
-	"octets":     avpBinary,
-	"password":   avpPassword,
-	"vsa":        avpVendor,
-	"eapmessage": avpEapMessage,
+	typeInteger:    avpUint32,
+	typeIPAddr:     avpIP,
+	typeIPv6Addr:   avpIP,
+	typeString:     avpString,
+	typeOctets:     avpBinary,
+	typePassword:   avpPassword,
+	typeVSA:        avpVendor,
+	typeEAPMessage: avpEapMessage,
 	// "byte"
 	// "short"
 	// "date"
@@ -665,6 +746,9 @@ func (d *Dictionary) ParseVSA(vendorName string, attrName string, attrValue stri
 
 // encodeValue encodes value with handler; integers accept a VALUE name from names or a number.
 func encodeValue(handler avpDataType, names map[string]uint32, value string) ([]byte, error) {
+	if handler == avpPassword {
+		return nil, ErrEncryptedAttribute
+	}
 	if handler != avpUint32 {
 		return handler.FromString(value), nil
 	}
