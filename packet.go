@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"crypto"
 	"crypto/hmac"
-	_ "crypto/md5"
+	"crypto/md5"
 	"crypto/rand"
 	"encoding/binary"
 	"errors"
@@ -17,6 +17,14 @@ import (
 var ErrMessageAuthenticatorCheckFail = fmt.Errorf("RADIUS Message-Authenticator verification failed")
 var ErrAuthenticatorCheckFail = fmt.Errorf("RADIUS Authenticator verification failed")
 var ErrMessageAuthenticatorMissing = fmt.Errorf("RADIUS Message-Authenticator missing")
+
+// packetHeaderLen is the size of the RADIUS packet header: Code (1),
+// Identifier (1), Length (2) and Authenticator (16) (RFC 2865 section 3).
+const packetHeaderLen = 20
+
+// messageAuthenticatorLen is the Length of a Message-Authenticator attribute:
+// 2-byte header plus a 16-byte HMAC-MD5 value (RFC 3579 section 3.2).
+const messageAuthenticatorLen = 2 + md5.Size
 
 // DecodeOptions controls optional decode-time security checks.
 //
@@ -113,7 +121,7 @@ func (p *Packet) EncodeTo(b []byte) (n int, err error) {
 		// append Message-Authenticator AVP
 		p.SetAVP(AVP{
 			Type:  AttrMessageAuthenticator,
-			Value: make([]byte, 16),
+			Value: make([]byte, md5.Size),
 		})
 
 		if p.Code == AccessRequest && p.Authenticator[0] == 0 {
@@ -142,10 +150,10 @@ func (p *Packet) EncodeTo(b []byte) (n int, err error) {
 		//Calculation Message-Authenticator it is placed in the rearmost
 		hasher := hmac.New(crypto.MD5.New, []byte(p.Secret))
 		hasher.Write(b[:n])
-		copy(b[n-16:n], hasher.Sum(nil))
+		copy(b[n-md5.Size:n], hasher.Sum(nil))
 		// update value in packet structure
 		avp := p.GetAVP(AttrMessageAuthenticator)
-		copy(avp.Value, b[n-16:n])
+		copy(avp.Value, b[n-md5.Size:n])
 	}
 
 	// fix up the authenticator
@@ -162,7 +170,7 @@ func (p *Packet) EncodeTo(b []byte) (n int, err error) {
 		hasher.Write(b[:n])
 		hasher.Write([]byte(p.Secret))
 		copy(p.Authenticator[:], hasher.Sum(nil))
-		copy(b[4:20], p.Authenticator[:])
+		copy(b[4:packetHeaderLen], p.Authenticator[:])
 	default:
 		return 0, fmt.Errorf("not handle p.Code %d", p.Code)
 	}
@@ -180,16 +188,16 @@ func (p *Packet) encodeNoHash() (b []byte, err error) {
 }
 
 func (p *Packet) encodeNoHashTo(b []byte) (n int, err error) {
-	if len(b) < 20 {
+	if len(b) < packetHeaderLen {
 		return 0, errors.New("buffer too small")
 	}
 	b[0] = uint8(p.Code)
 	b[1] = uint8(p.Identifier)
-	copy(b[4:20], p.Authenticator[:])
-	written := 20
+	copy(b[4:packetHeaderLen], p.Authenticator[:])
+	written := packetHeaderLen
 
 	if len(p.AVPs) > 0 {
-		bb := b[20:]
+		bb := b[packetHeaderLen:]
 		for i := range p.AVPs {
 			n, err := p.AVPs[i].Encode(bb)
 			written += n
@@ -199,10 +207,10 @@ func (p *Packet) encodeNoHashTo(b []byte) (n int, err error) {
 			bb = bb[n:]
 		}
 	} else if len(p.RawAVPs) > 0 {
-		if len(b) < 20+len(p.RawAVPs) {
+		if len(b) < packetHeaderLen+len(p.RawAVPs) {
 			return 0, errors.New("buffer too small")
 		}
-		copy(b[20:], p.RawAVPs)
+		copy(b[packetHeaderLen:], p.RawAVPs)
 		written += len(p.RawAVPs)
 	}
 
@@ -513,9 +521,10 @@ func decodePacketTo(p *Packet, Secret string, buf []byte, requestAuth []byte, op
 		return err
 	}
 
-	//read attributes
-	b := buf[20:]
-	for len(b) >= 2 {
+	//read attributes, remembering where the first Message-Authenticator is
+	maOffset := -1
+	b := buf[packetHeaderLen:]
+	for pos := packetHeaderLen; len(b) >= 2; {
 		length := uint8(b[1])
 		if int(length) > len(b) || length < 2 {
 			return errors.New("invalid length")
@@ -524,11 +533,15 @@ func decodePacketTo(p *Packet, Secret string, buf []byte, requestAuth []byte, op
 		attr.Type = AttributeType(b[0])
 		attr.Value = b[2:length]
 		p.AVPs = append(p.AVPs, attr)
+		if attr.Type == AttrMessageAuthenticator && maOffset < 0 {
+			maOffset = pos
+		}
+		pos += int(length)
 		b = b[length:]
 	}
 
-	//Verify the Message-Authenticator and verify that the algorithm here is correct through testing
-	err = p.checkMessageAuthenticator(requestAuth, opts)
+	// Verify the Message-Authenticator
+	err = p.checkMessageAuthenticator(buf, maOffset, requestAuth, opts)
 	if err != nil {
 		return err
 	}
@@ -540,12 +553,12 @@ func decodePacketLazy(Secret string, buf []byte, requestAuth []byte, opts *Decod
 	if err != nil {
 		return p, err
 	}
-	p.RawAVPs = buf[20:]
+	p.RawAVPs = buf[packetHeaderLen:]
 
 	// Verify the Message-Authenticator
 	// Note: Message-Authenticator verification requires walking the attributes
 	// if we want to be fully lazy, we could defer this, but it's safer to check now.
-	err = p.checkMessageAuthenticator(requestAuth, opts)
+	err = p.checkMessageAuthenticator(buf, findAttributeOffset(buf, AttrMessageAuthenticator), requestAuth, opts)
 	if err != nil {
 		return p, err
 	}
@@ -559,14 +572,14 @@ func decodePacketHeader(Secret string, buf []byte, requestAuth []byte) (p *Packe
 }
 
 func decodePacketHeaderTo(p *Packet, Secret string, buf []byte, requestAuth []byte) error {
-	if len(buf) < 20 {
+	if len(buf) < packetHeaderLen {
 		return errors.New("invalid length")
 	}
 
 	p.Secret = Secret
 	p.Code = PacketCode(buf[0])
 	p.Identifier = buf[1]
-	copy(p.Authenticator[:], buf[4:20])
+	copy(p.Authenticator[:], buf[4:packetHeaderLen])
 
 	if err := p.checkAuthenticator(buf, requestAuth); err != nil {
 		return err
@@ -589,7 +602,7 @@ func (p *Packet) checkAuthenticator(buf []byte, requestAuth []byte) (err error) 
 		// value from request packet
 		hasher.Write(requestAuth)
 	}
-	hasher.Write(buf[20:])
+	hasher.Write(buf[packetHeaderLen:])
 	hasher.Write([]byte(p.Secret))
 	expected := hasher.Sum(nil)
 	if !bytes.Equal(expected, p.Authenticator[:]) {
@@ -599,41 +612,52 @@ func (p *Packet) checkAuthenticator(buf []byte, requestAuth []byte) (err error) 
 	return nil
 }
 
-// check value of Message-Authenticator AVP
-func (p *Packet) checkMessageAuthenticator(requestAuth []byte, opts *DecodeOptions) (err error) {
-	avp := p.GetAVP(AttrMessageAuthenticator)
-	if avp == nil {
+// findAttributeOffset returns the offset in buf of the first attribute of the
+// given type, or -1 if there is none before the end or a malformed attribute.
+func findAttributeOffset(buf []byte, attrType AttributeType) int {
+	b := buf[packetHeaderLen:]
+	for pos := packetHeaderLen; len(b) >= 2; {
+		length := int(b[1])
+		if length > len(b) || length < 2 {
+			return -1
+		}
+		if AttributeType(b[0]) == attrType {
+			return pos
+		}
+		pos += length
+		b = b[length:]
+	}
+	return -1
+}
+
+// check value of Message-Authenticator AVP against the received bytes in buf;
+// offset is the position of the attribute in buf, or -1 if it is absent
+func (p *Packet) checkMessageAuthenticator(buf []byte, offset int, requestAuth []byte, opts *DecodeOptions) (err error) {
+	if offset < 0 {
 		if opts != nil && opts.RequireMessageAuthenticator && p.Code.IsAccess() {
 			return ErrMessageAuthenticatorMissing
 		}
 		return nil
 	}
-	origValue := make([]byte, 16)
-	copy(origValue, avp.Value)
-	// restore after validation
-	defer func() { copy(avp.Value, origValue) }()
-
-	if !p.Code.IsRequest() {
-		// orig authenticator from request to verify reply
-		pAuth := make([]byte, 16)
-		copy(pAuth, p.Authenticator[:])
-		defer func() { copy(p.Authenticator[:], pAuth) }()
-		copy(p.Authenticator[:], requestAuth)
+	if buf[offset+1] != messageAuthenticatorLen {
+		return ErrMessageAuthenticatorCheckFail
 	}
+	value := buf[offset+2 : offset+messageAuthenticatorLen]
 
-	avp.Value = make([]byte, 16)
-
-	// TODO do not encode/decode, verify agains buf[] on packet
-	// For lazy packets, we must use encodeNoHash which now handles RawAVPs
-	// We use a stack buffer to avoid allocation
-	var buf [4096]byte
-	n, err := p.encodeNoHashTo(buf[:])
-	if err != nil {
-		return err
-	}
+	// HMAC-MD5 over the packet with the Message-Authenticator value zeroed;
+	// replies are hashed with the Request Authenticator in place of their own.
+	var zero [md5.Size]byte
 	hasher := hmac.New(crypto.MD5.New, []byte(p.Secret))
-	hasher.Write(buf[:n])
-	if !hmac.Equal(hasher.Sum(nil), origValue) {
+	hasher.Write(buf[0:4])
+	if p.Code.IsRequest() {
+		hasher.Write(buf[4:packetHeaderLen])
+	} else {
+		hasher.Write(requestAuth)
+	}
+	hasher.Write(buf[packetHeaderLen : offset+2])
+	hasher.Write(zero[:])
+	hasher.Write(buf[offset+messageAuthenticatorLen:])
+	if !hmac.Equal(hasher.Sum(nil), value) {
 		return ErrMessageAuthenticatorCheckFail
 	}
 	return nil

@@ -1,6 +1,8 @@
 package radius
 
 import (
+	"bytes"
+	"crypto/md5"
 	"encoding/binary"
 	"testing"
 )
@@ -68,5 +70,60 @@ func TestRequireMessageAuthenticatorOption(t *testing.T) {
 	_, err = DecodeRequestWithOptions(secret, withoutMA, &DecodeOptions{RequireMessageAuthenticator: true})
 	if err != ErrMessageAuthenticatorMissing {
 		t.Fatalf("DecodeRequestWithOptions expected %v, got %v", ErrMessageAuthenticatorMissing, err)
+	}
+}
+
+// Lazy decoding must verify the Message-Authenticator that EncodeTo adds to
+// every Access-* packet, for both requests and replies.
+func TestLazyDecodeVerifiesMessageAuthenticator(t *testing.T) {
+	const secret = "testing123"
+
+	req := Request(AccessRequest, secret)
+	req.Identifier = 7
+	req.AddAVP(AVP{Type: AttrUserName, Value: []byte("alice")})
+	reqBuf, err := req.Encode()
+	if err != nil {
+		t.Fatalf("Encode request failed: %v", err)
+	}
+
+	lazyReq, err := DecodeRequestLazy(secret, reqBuf)
+	if err != nil {
+		t.Fatalf("DecodeRequestLazy failed: %v", err)
+	}
+	if got := lazyReq.GetUsername(); got != "alice" {
+		t.Fatalf("lazy request User-Name = %q, want %q", got, "alice")
+	}
+
+	reply := req.Reply()
+	reply.Code = AccessAccept
+	reply.AddAVP(AVP{Type: AttrReplyMessage, Value: []byte("welcome")})
+	replyBuf, err := reply.Encode()
+	if err != nil {
+		t.Fatalf("Encode reply failed: %v", err)
+	}
+	original := append([]byte(nil), replyBuf...)
+
+	if _, err := DecodeReplyLazy(secret, replyBuf, req.Authenticator[:]); err != nil {
+		t.Fatalf("DecodeReplyLazy failed: %v", err)
+	}
+	if !bytes.Equal(replyBuf, original) {
+		t.Fatalf("DecodeReplyLazy modified the input buffer")
+	}
+
+	// A tampered Message-Authenticator must still be rejected. Fix up the
+	// Response Authenticator so only the Message-Authenticator check fails.
+	tampered := append([]byte(nil), replyBuf...)
+	tampered[len(tampered)-1] ^= 0xff
+	h := md5.New()
+	h.Write(tampered[0:4])
+	h.Write(req.Authenticator[:])
+	h.Write(tampered[20:])
+	h.Write([]byte(secret))
+	copy(tampered[4:20], h.Sum(nil))
+	if _, err := DecodeReplyLazy(secret, tampered, req.Authenticator[:]); err != ErrMessageAuthenticatorCheckFail {
+		t.Fatalf("DecodeReplyLazy with tampered Message-Authenticator: got %v, want %v", err, ErrMessageAuthenticatorCheckFail)
+	}
+	if _, err := DecodeReply(secret, tampered, req.Authenticator[:]); err != ErrMessageAuthenticatorCheckFail {
+		t.Fatalf("DecodeReply with tampered Message-Authenticator: got %v, want %v", err, ErrMessageAuthenticatorCheckFail)
 	}
 }
