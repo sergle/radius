@@ -127,4 +127,3 @@ func TestServerClientList(t *testing.T) {
 		t.Fatal("server did not stop in time")
 	}
 }
-

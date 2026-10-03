@@ -70,4 +70,3 @@ func TestRequireMessageAuthenticatorOption(t *testing.T) {
 		t.Fatalf("DecodeRequestWithOptions expected %v, got %v", ErrMessageAuthenticatorMissing, err)
 	}
 }
-

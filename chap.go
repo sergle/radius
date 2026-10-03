@@ -100,4 +100,3 @@ func (p *Packet) SetCHAPPasswordFromSecret(chapID uint8, password string, challe
 	p.SetCHAPPassword(chapID, resp)
 	return nil
 }
-

@@ -15,7 +15,7 @@ func TestPacketResilienceNoDictionary(t *testing.T) {
 
 	secret := "secret"
 	pkg := Request(AccessRequest, secret)
-	
+
 	// Add attributes manually as raw bytes
 	pkg.SetAVP(AVP{Type: AttrUserName, Value: []byte("testuser")})
 	pkg.SetAVP(AVP{Type: AttrUserPassword, Value: avpPassword.Encode("testpass", secret, pkg.Authenticator[:])})

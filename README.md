@@ -1,7 +1,8 @@
 a golang radius library (v2)
 =============================
 
-[![PkgGoDev](https://pkg.go.dev/badge/radius)](https://pkg.go.dev/radius)
+[![CI](https://github.com/sergle/radius/actions/workflows/ci.yml/badge.svg)](https://github.com/sergle/radius/actions/workflows/ci.yml)
+[![PkgGoDev](https://pkg.go.dev/badge/github.com/sergle/radius/v2)](https://pkg.go.dev/github.com/sergle/radius/v2)
 [![MIT License](http://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](https://github.com/sergle/radius/blob/master/LICENSE)
 
 A feature-rich RADIUS library for Go. This is a significantly refactored version (v2) of the original library, optimized for clarity and ease of use.
@@ -222,7 +223,7 @@ n, err := packet.EncodeTo(buf)
 4. **Packet Creation**: Use `client.NewRequest(code)` or `radius.Request(code, secret)` for more control.
 
 ## Documentation
-- [Go Package Documentation](https://pkg.go.dev/radius)
+- [Go Package Documentation](https://pkg.go.dev/github.com/sergle/radius/v2)
 
 ## References
 * EAP MS-CHAPv2 packet format: http://tools.ietf.org/id/draft-kamath-pppext-eap-mschapv2-01.txt

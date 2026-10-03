@@ -53,7 +53,10 @@ func md4(msg []byte) []byte {
 			c = bits.RotateLeft32(c+(d^a^b)+X[ks[2]]+0x6ed9eba1, 11)
 			b = bits.RotateLeft32(b+(c^d^a)+X[ks[3]]+0x6ed9eba1, 15)
 		}
-		h[0] += a; h[1] += b; h[2] += c; h[3] += d
+		h[0] += a
+		h[1] += b
+		h[2] += c
+		h[3] += d
 	}
 	out := make([]byte, 16)
 	for i, v := range h {
@@ -145,7 +148,7 @@ func MsChapV2PacketFromEap(eap *EapPacket) (p *MsChapV2Packet, err error) {
 	return p, nil
 }
 
-//Does not include eap information
+// Does not include eap information
 func (p *MsChapV2Packet) String() string {
 	return fmt.Sprintf("OpCode:%s Data:[%#v]", p.OpCode, p.Data)
 }

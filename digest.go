@@ -294,4 +294,3 @@ func (r *DigestAuthResponse) AddAuthParam(v string) *DigestAuthResponse {
 	addDigestStr(r.p, AttrDigestAuthParam, v)
 	return r
 }
-

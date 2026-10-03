@@ -11,4 +11,3 @@
 // - Create request packets with RadClient.NewRequest (or Request)
 // - Send requests with RadClient.Send / SendContext and inspect replies
 package radius
-

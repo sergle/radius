@@ -22,7 +22,6 @@ import (
 
 // ── State attribute ───────────────────────────────────────────────────────────
 
-
 // ── Integration test ──────────────────────────────────────────────────────────
 
 func TestEAPMSCHAPv2Integration(t *testing.T) {

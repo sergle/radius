@@ -91,4 +91,3 @@ func TestSetCHAPChallengeRejectsInvalidLength(t *testing.T) {
 		t.Fatalf("expected error for too-long challenge")
 	}
 }
-

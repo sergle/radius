@@ -47,4 +47,3 @@ func main() {
 
 	log.Printf("Received reply:\n%s", reply.String())
 }
-
