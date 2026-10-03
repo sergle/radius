@@ -34,7 +34,7 @@ go test -fuzz=^FuzzDecodeRequest$ -fuzztime=30s .   # single fuzz target
 - Three decode flavors, each with `...WithOptions` variants taking `DecodeOptions` (e.g. `RequireMessageAuthenticator`): normal (`DecodeRequest/Reply`), pooled (`...Pooled`, from `packetPool`; caller must `Release()`), and lazy (`...Lazy`, keeps `RawAVPs` unparsed; `GetAVP`/`EachAVP`/`HasAVP` iterate raw bytes). Accessors must handle both `AVPs` and `RawAVPs`.
 - Replies are verified against the request authenticator (`DecodeReply(secret, buf, requestAuth)`).
 
-**Server (`server.go`).** UDP loop with pooled buffers; each datagram is handled in a goroutine. The secret is resolved per remote IP via `ClientList` (`client.go`) or the single shared secret. The request is decoded with `DecodeRequestPooled` and **released after the handler returns**, and the reply is encoded into the same read buffer — handlers must not retain the request `*Packet` beyond the call. `Identifier` and `Secret` are copied onto the returned reply automatically.
+**Server (`server.go`).** `ListenAndServe` = `Listen` (binds; then `Addr()` is valid, e.g. for `:0`) + `Serve`; `Stop` is safe before `Listen` and repeatable. Tests use `startTestServer`. UDP loop with pooled buffers; each datagram is handled in a goroutine. The secret is resolved per remote IP via `ClientList` (`client.go`) or the single shared secret. The request is decoded with `DecodeRequestPooled` and **released after the handler returns**, and the reply is encoded into a separate pooled buffer — handlers must not retain the request `*Packet` beyond the call. `Identifier` and `Secret` are copied onto the returned reply automatically.
 
 **Client (`radclient.go`).** `RadClient.SendContext` sends over UDP and decodes the reply with the request's authenticator. `NewRequest`/`NewAccessRequest`/etc. pre-fill the secret.
 
@@ -45,4 +45,4 @@ go test -fuzz=^FuzzDecodeRequest$ -fuzztime=30s .   # single fuzz target
 ## Notes
 
 - VSAs assume 1-byte vendor attribute type and length (see TODOs in `avp_vendor.go`); WiMAX/Lucent-style formats are not supported.
-- CI is GitHub Actions (`.github/workflows/ci.yml`): gofmt check, `go vet`, `make build`, `go test`, and `make fuzz`. The `go test -race` step is commented out until the `Server.conn` data race is fixed.
+- CI is GitHub Actions (`.github/workflows/ci.yml`): gofmt check, `go vet`, `make build`, `go test`, `go test -race`, and `make fuzz`.

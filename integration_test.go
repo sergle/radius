@@ -27,32 +27,8 @@ func TestEndToEndRADIUS(t *testing.T) {
 	})
 
 	// 2. Start Server
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	srv := NewServer(addr, secret, handler)
-	srv.ctx = ctx
-	srv.cancel = cancel
-
-	// Start server in background
-	errChan := make(chan error, 1)
-	go func() {
-		errChan <- srv.ListenAndServe()
-	}()
-
-	// Wait for server to start and get the address
-	var actualAddr string
-	for i := 0; i < 10; i++ {
-		if srv.conn != nil {
-			actualAddr = srv.conn.LocalAddr().String()
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-
-	if actualAddr == "" {
-		t.Fatal("Server failed to start in time")
-	}
+	actualAddr, done := startTestServer(t, srv)
 
 	// 3. Client Interaction
 	client := NewRadClient(actualAddr, secret)
@@ -112,10 +88,14 @@ func TestEndToEndRADIUS(t *testing.T) {
 		}
 	})
 
-	// 4. Test Server Stop (Context Cancellation)
+	// 4. Test Server Stop
 	t.Run("Server Shutdown", func(t *testing.T) {
-		cancel()
-		time.Sleep(50 * time.Millisecond)
+		srv.Stop()
+		select {
+		case <-done:
+		case <-time.After(serverStopTimeout):
+			t.Fatal("server did not stop in time")
+		}
 
 		// Try to send after shutdown
 		req := client.NewAccessRequest()
@@ -149,25 +129,7 @@ func TestServerReplyCopiesRequestAVPs(t *testing.T) {
 		return reply
 	})
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	srv := NewServer("127.0.0.1:0", secret, handler)
-	srv.ctx = ctx
-	srv.cancel = cancel
-	go func() { _ = srv.ListenAndServe() }()
-
-	var actualAddr string
-	for i := 0; i < 10; i++ {
-		if srv.conn != nil {
-			actualAddr = srv.conn.LocalAddr().String()
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	if actualAddr == "" {
-		t.Fatal("Server failed to start in time")
-	}
+	actualAddr, _ := startTestServer(t, NewServer("127.0.0.1:0", secret, handler))
 
 	client := NewRadClient(actualAddr, secret)
 	client.SetTimeout(2 * time.Second)

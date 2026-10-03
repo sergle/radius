@@ -26,25 +26,7 @@ func TestServerSurvivesMalformedPacketAndPanickingHandler(t *testing.T) {
 		return reply
 	})
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	srv := NewServer("127.0.0.1:0", secret, handler)
-	srv.ctx = ctx
-	srv.cancel = cancel
-	go srv.ListenAndServe()
-	defer srv.Stop()
-
-	var addr string
-	for i := 0; i < 20; i++ {
-		if srv.conn != nil {
-			addr = srv.conn.LocalAddr().String()
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	if addr == "" {
-		t.Fatal("server failed to start in time")
-	}
+	addr, _ := startTestServer(t, NewServer("127.0.0.1:0", secret, handler))
 
 	client := NewRadClient(addr, secret)
 	client.SetTimeout(500 * time.Millisecond)

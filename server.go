@@ -2,6 +2,7 @@ package radius
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net"
 	"runtime/debug"
@@ -40,6 +41,7 @@ func NewServer(addr string, secret string, service Service) *Server {
 		clients: nil,
 		service: service,
 	}
+	s.ctx, s.cancel = context.WithCancel(context.Background())
 	return s
 }
 
@@ -53,6 +55,7 @@ func NewServerWithClientList(addr string, clients *ClientList, service Service) 
 		clients: clients,
 		service: service,
 	}
+	s.ctx, s.cancel = context.WithCancel(context.Background())
 	return s
 }
 
@@ -62,10 +65,18 @@ type Server struct {
 	secret  string
 	clients *ClientList
 	service Service
-	conn    *net.UDPConn
-	ctx     context.Context
-	cancel  context.CancelFunc
+
+	mu     sync.Mutex // guards conn
+	conn   *net.UDPConn
+	ctx    context.Context
+	cancel context.CancelFunc
 }
+
+var (
+	ErrServerStopped    = errors.New("radius: server stopped")
+	errAlreadyListening = errors.New("radius: server already listening")
+	errNotListening     = errors.New("radius: Serve called before Listen")
+)
 
 var serverBufferPool = sync.Pool{
 	New: func() interface{} {
@@ -73,39 +84,74 @@ var serverBufferPool = sync.Pool{
 	},
 }
 
-// ListenAndServe listens on UDP and processes RADIUS requests until stopped.
-//
-// Each request is handled in its own goroutine; the server reuses internal
-// buffers to reduce allocations.
-func (s *Server) ListenAndServe() error {
-	if s.ctx == nil {
-		s.ctx, s.cancel = context.WithCancel(context.Background())
+// Listen binds the UDP socket; after it returns, Addr reports the bound address.
+func (s *Server) Listen() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.ctx.Err() != nil {
+		return ErrServerStopped
+	}
+	if s.conn != nil {
+		return errAlreadyListening
 	}
 	addr, err := net.ResolveUDPAddr("udp", s.addr)
 	if err != nil {
 		return err
 	}
-	s.conn, err = net.ListenUDP("udp", addr)
+	conn, err := net.ListenUDP("udp", addr)
 	if err != nil {
 		return err
 	}
-	defer s.conn.Close()
+	s.conn = conn
+	return nil
+}
+
+// Addr returns the bound address, or nil if the server is not listening.
+func (s *Server) Addr() net.Addr {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.conn == nil {
+		return nil
+	}
+	return s.conn.LocalAddr()
+}
+
+// ListenAndServe listens on UDP and processes RADIUS requests until stopped.
+//
+// Each request is handled in its own goroutine; the server reuses internal
+// buffers to reduce allocations.
+func (s *Server) ListenAndServe() error {
+	if err := s.Listen(); err != nil {
+		return err
+	}
+	return s.Serve()
+}
+
+// Serve processes RADIUS requests on the socket bound by Listen until stopped.
+func (s *Server) Serve() error {
+	s.mu.Lock()
+	conn, ctx := s.conn, s.ctx
+	s.mu.Unlock()
+	if conn == nil {
+		return errNotListening
+	}
+	defer conn.Close()
 
 	for {
 		select {
-		case <-s.ctx.Done():
-			return s.ctx.Err()
+		case <-ctx.Done():
+			return ctx.Err()
 		default:
 		}
 
 		b := serverBufferPool.Get().([]byte)
 		// Ensure full buffer length for reads, even if a shorter slice was pooled.
 		b = b[:cap(b)]
-		n, raddr, err := s.conn.ReadFromUDP(b)
+		n, raddr, err := conn.ReadFromUDP(b)
 		if err != nil {
 			serverBufferPool.Put(b)
 			select {
-			case <-s.ctx.Done():
+			case <-ctx.Done():
 				return nil
 			default:
 				return err
@@ -151,8 +197,8 @@ func (s *Server) ListenAndServe() error {
 				log.Printf("encode packet error %v", err)
 				return
 			}
-			s.conn.WriteToUDP(out[:writtenN], addr)
-		}(s.ctx, b, n, raddr)
+			conn.WriteToUDP(out[:writtenN], addr)
+		}(ctx, b, n, raddr)
 	}
 }
 
@@ -195,10 +241,11 @@ func (s *Server) secretForAddr(addr *net.UDPAddr) (string, bool) {
 }
 
 // Stop cancels the server context and closes the UDP listener.
+// It is safe to call before Listen and more than once.
 func (s *Server) Stop() {
-	if s.cancel != nil {
-		s.cancel()
-	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cancel()
 	if s.conn != nil {
 		s.conn.Close()
 	}

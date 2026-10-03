@@ -137,25 +137,7 @@ func TestEAPMSCHAPv2Integration(t *testing.T) {
 	})
 
 	// ── Start RADIUS server ───────────────────────────────────────────────────
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	srv := NewServer("127.0.0.1:0", radiusSecret, handler)
-	srv.ctx = ctx
-	srv.cancel = cancel
-	go srv.ListenAndServe()
-
-	var serverAddr string
-	for i := 0; i < 20; i++ {
-		if srv.conn != nil {
-			serverAddr = srv.conn.LocalAddr().String()
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if serverAddr == "" {
-		t.Fatal("RADIUS server failed to start")
-	}
+	serverAddr, _ := startTestServer(t, NewServer("127.0.0.1:0", radiusSecret, handler))
 
 	// ── Run sub-tests ─────────────────────────────────────────────────────────
 	t.Run("valid credentials", func(t *testing.T) {

@@ -61,27 +61,8 @@ func TestServerClientList(t *testing.T) {
 		return reply
 	})
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	srv := NewServerWithClientList("127.0.0.1:0", clients, handler)
-	srv.ctx = ctx
-	srv.cancel = cancel
-
-	errChan := make(chan error, 1)
-	go func() { errChan <- srv.ListenAndServe() }()
-
-	var actualAddr string
-	for i := 0; i < 20; i++ {
-		if srv.conn != nil {
-			actualAddr = srv.conn.LocalAddr().String()
-			break
-		}
-		time.Sleep(25 * time.Millisecond)
-	}
-	if actualAddr == "" {
-		t.Fatal("server failed to start in time")
-	}
+	actualAddr, done := startTestServer(t, srv)
 
 	t.Run("known client 127.0.0.1", func(t *testing.T) {
 		req := Request(AccessRequest, "secret-1")
@@ -119,11 +100,10 @@ func TestServerClientList(t *testing.T) {
 		}
 	})
 
-	cancel()
 	srv.Stop()
 	select {
-	case <-errChan:
-	case <-time.After(2 * time.Second):
+	case <-done:
+	case <-time.After(serverStopTimeout):
 		t.Fatal("server did not stop in time")
 	}
 }

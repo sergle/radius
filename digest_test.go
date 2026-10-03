@@ -318,22 +318,8 @@ func startRadiusServer(t *testing.T, realm string, users map[string]string, secr
 		return req.Accept(rspauth).Packet()
 	})
 
-	srvCtx, cancel := context.WithCancel(context.Background())
-	srv := NewServer("127.0.0.1:0", secret, handler)
-	srv.ctx = srvCtx
-	srv.cancel = cancel
-
-	go srv.ListenAndServe()
-	t.Cleanup(cancel)
-
-	for i := 0; i < 20; i++ {
-		if srv.conn != nil {
-			return srv.conn.LocalAddr().String()
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	t.Fatal("RADIUS server failed to bind")
-	return ""
+	addr, _ := startTestServer(t, NewServer("127.0.0.1:0", secret, handler))
+	return addr
 }
 
 // ── Full flow integration test ───────────────────────────────────────────────
