@@ -10,6 +10,7 @@ func NewClientList(cs []Client) *ClientList {
 }
 
 // ClientList is a concurrency-safe set of RADIUS clients indexed by host.
+// The zero value is an empty list ready to use.
 type ClientList struct {
 	herd map[string]Client
 	sync.RWMutex
@@ -27,6 +28,9 @@ func (cls *ClientList) Get(host string) Client {
 func (cls *ClientList) AddOrUpdate(cl Client) {
 	cls.Lock()
 	defer cls.Unlock()
+	if cls.herd == nil {
+		cls.herd = make(map[string]Client)
+	}
 	cls.herd[cl.GetHost()] = cl
 }
 
@@ -39,14 +43,13 @@ func (cls *ClientList) Remove(host string) {
 
 // SetHerd replaces the current client set with herd.
 func (cls *ClientList) SetHerd(herd []Client) {
+	m := make(map[string]Client, len(herd))
+	for _, v := range herd {
+		m[v.GetHost()] = v
+	}
 	cls.Lock()
 	defer cls.Unlock()
-	if cls.herd == nil {
-		cls.herd = make(map[string]Client)
-	}
-	for _, v := range herd {
-		cls.herd[v.GetHost()] = v
-	}
+	cls.herd = m
 }
 
 // GetHerd returns a snapshot of the current clients.
