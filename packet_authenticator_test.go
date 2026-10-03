@@ -43,22 +43,18 @@ func TestRequireMessageAuthenticatorOption(t *testing.T) {
 	// to simulate legacy / non-compliant clients.
 	p := Request(AccessRequest, secret)
 	p.Identifier = 1
+	p.AddAVP(AVP{Type: AttrUserName, Value: []byte("alice")})
 	b, err := p.Encode()
 	if err != nil {
 		t.Fatalf("Encode failed: %v", err)
 	}
 
-	// Message-Authenticator is type 80 with length 18 and is appended by EncodeTo
-	// for Access-* packets in this library.
-	if len(b) < 20+18 {
-		t.Fatalf("encoded packet too short: %d", len(b))
-	}
-	last := b[len(b)-18:]
-	if last[0] != byte(AttrMessageAuthenticator) || last[1] != 18 {
-		t.Fatalf("expected trailing Message-Authenticator AVP, got type=%d len=%d", last[0], last[1])
+	// EncodeTo adds Message-Authenticator as the first attribute of Access-* packets.
+	if b[packetHeaderLen] != byte(AttrMessageAuthenticator) || b[packetHeaderLen+1] != messageAuthenticatorLen {
+		t.Fatalf("expected leading Message-Authenticator AVP, got type=%d len=%d", b[packetHeaderLen], b[packetHeaderLen+1])
 	}
 
-	withoutMA := append([]byte(nil), b[:len(b)-18]...)
+	withoutMA := append(append([]byte(nil), b[:packetHeaderLen]...), b[packetHeaderLen+messageAuthenticatorLen:]...)
 	binary.BigEndian.PutUint16(withoutMA[2:4], uint16(len(withoutMA)))
 
 	// Default behavior: still decodes (compatibility).
@@ -113,7 +109,7 @@ func TestLazyDecodeVerifiesMessageAuthenticator(t *testing.T) {
 	// A tampered Message-Authenticator must still be rejected. Fix up the
 	// Response Authenticator so only the Message-Authenticator check fails.
 	tampered := append([]byte(nil), replyBuf...)
-	tampered[len(tampered)-1] ^= 0xff
+	tampered[packetHeaderLen+messageAuthenticatorLen-1] ^= 0xff
 	h := md5.New()
 	h.Write(tampered[0:4])
 	h.Write(req.Authenticator[:])

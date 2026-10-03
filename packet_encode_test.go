@@ -259,3 +259,52 @@ func TestEncodeRejectsBadMessageAuthenticatorLength(t *testing.T) {
 		t.Fatal("Encode accepted a 3-byte Message-Authenticator")
 	}
 }
+
+// Blast-RADIUS: EncodeTo must put a new Message-Authenticator first in Access-* packets.
+func TestEncodeMessageAuthenticatorFirst(t *testing.T) {
+	const secret = "testing123"
+	requireMA := &DecodeOptions{RequireMessageAuthenticator: true}
+
+	req := Request(AccessRequest, secret)
+	req.AddAVP(AVP{Type: AttrUserName, Value: []byte("alice")})
+	reqBuf, err := req.Encode()
+	if err != nil {
+		t.Fatalf("Encode request: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		p    *Packet
+	}{
+		{"Access-Request", req},
+		{"Access-Accept", req.ReplyAccept()},
+		{"Access-Reject", req.ReplyReject()},
+		{"Access-Challenge", req.ReplyChallenge()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := reqBuf
+			if tc.p != req {
+				tc.p.AddAVP(AVP{Type: AttrReplyMessage, Value: []byte("hello")})
+				if b, err = tc.p.Encode(); err != nil {
+					t.Fatalf("Encode: %v", err)
+				}
+			}
+			if b[packetHeaderLen] != byte(AttrMessageAuthenticator) || b[packetHeaderLen+1] != messageAuthenticatorLen {
+				t.Fatalf("Message-Authenticator not first in %x", b)
+			}
+
+			var got *Packet
+			if tc.p == req {
+				got, err = DecodeRequestWithOptions(secret, b, requireMA)
+			} else {
+				got, err = DecodeReplyWithOptions(secret, b, req.Authenticator[:], requireMA)
+			}
+			if err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			if n := len(got.AVPs); n != 2 {
+				t.Errorf("got %d AVPs, want 2", n)
+			}
+		})
+	}
+}

@@ -108,10 +108,7 @@ func TestEndToEndRADIUS(t *testing.T) {
 }
 
 func TestServerReplyCopiesRequestAVPs(t *testing.T) {
-	const (
-		secret         = "shared-secret"
-		attrProxyState = AttributeType(33)
-	)
+	const secret = "shared-secret"
 
 	handler := HandlerFunc(func(ctx context.Context, request *Packet) *Packet {
 		reply := request.Reply()
@@ -120,7 +117,7 @@ func TestServerReplyCopiesRequestAVPs(t *testing.T) {
 		reply.AddAVP(AVP{Type: AttrReplyMessage, Value: []byte("please answer the challenge")})
 		reply.AddAVP(*request.GetAVP(AttrState))
 		request.EachAVP(func(a AVP) bool {
-			if a.Type == attrProxyState {
+			if a.Type == AttrProxyState {
 				reply.AddAVP(a)
 			}
 			return true
@@ -142,7 +139,7 @@ func TestServerReplyCopiesRequestAVPs(t *testing.T) {
 	req.AddAVP(AVP{Type: AttrUserName, Value: userName})
 	req.AddAVP(AVP{Type: AttrState, Value: state})
 	for _, ps := range proxyStates {
-		req.AddAVP(AVP{Type: attrProxyState, Value: ps})
+		req.AddAVP(AVP{Type: AttrProxyState, Value: ps})
 	}
 
 	reply, err := client.Send(req)
@@ -158,7 +155,7 @@ func TestServerReplyCopiesRequestAVPs(t *testing.T) {
 	}
 	var gotPS [][]byte
 	for _, a := range reply.AVPs {
-		if a.Type == attrProxyState {
+		if a.Type == AttrProxyState {
 			gotPS = append(gotPS, a.Value)
 		}
 	}

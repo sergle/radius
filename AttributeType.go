@@ -27,6 +27,7 @@ const (
 	AttrCalledStationId     AttributeType = 30
 	AttrCallingStationId    AttributeType = 31
 	AttrNASIdentifier       AttributeType = 32
+	AttrProxyState          AttributeType = 33
 	AttrAcctStatusType      AttributeType = 40
 	AttrAcctDelayTime       AttributeType = 41
 	AttrAcctInputOctets     AttributeType = 42

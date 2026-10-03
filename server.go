@@ -66,6 +66,9 @@ type Server struct {
 	clients *ClientList
 	service Service
 
+	requireMA        bool // drop Access-Requests without Message-Authenticator
+	allowProxyNoAuth bool // accept Access-Requests with Proxy-State but no Message-Authenticator
+
 	mu     sync.Mutex // guards conn
 	conn   *net.UDPConn
 	ctx    context.Context
@@ -172,12 +175,18 @@ func (s *Server) Serve() error {
 				return
 			}
 
-			p, err := DecodeRequestPooled(secret, buf[:n])
+			opts := DecodeOptions{RequireMessageAuthenticator: s.requireMA}
+			p, err := DecodeRequestPooledWithOptions(secret, buf[:n], &opts)
 			if err != nil {
 				log.Printf("decode packet error %v", err)
 				return
 			}
 			defer p.Release()
+			if p.Code == AccessRequest && !s.allowProxyNoAuth &&
+				p.HasAVP(AttrProxyState) && !p.HasAVP(AttrMessageAuthenticator) {
+				log.Printf("dropping Access-Request from %s: Proxy-State without Message-Authenticator", addr)
+				return
+			}
 			p.ClientAddr = addr.String()
 
 			npac := s.service.RadiusHandle(ctx, p)
@@ -206,6 +215,18 @@ func (s *Server) Serve() error {
 // When set, the server will prefer the list over the Server.secret field.
 func (s *Server) SetClientList(clients *ClientList) {
 	s.clients = clients
+}
+
+// SetRequireMessageAuthenticator makes the server drop Access-Requests without a
+// Message-Authenticator (default false). Call it before Listen/Serve.
+func (s *Server) SetRequireMessageAuthenticator(require bool) {
+	s.requireMA = require
+}
+
+// SetLimitProxyState controls dropping Access-Requests that carry Proxy-State but
+// no Message-Authenticator (default true, Blast-RADIUS mitigation). Call it before Listen/Serve.
+func (s *Server) SetLimitProxyState(limit bool) {
+	s.allowProxyNoAuth = !limit
 }
 
 func (s *Server) secretForAddr(addr *net.UDPAddr) (string, bool) {

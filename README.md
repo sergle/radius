@@ -176,12 +176,25 @@ packet.EachAVP(func(attr radius.AVP) bool {
 })
 ```
 
-## Security: Requiring Message-Authenticator (Optional)
-RADIUS "Response Authenticator" integrity is based on an MD5 construction that is vulnerable to modern collision attacks in certain on-path (MITM) threat models (see [BLAST RADIUS – Attack Details](https://www.blastradius.fail/attack-details)).
+## Security: Message-Authenticator (Blast-RADIUS)
+RADIUS "Response Authenticator" integrity is based on an MD5 construction that is vulnerable to modern collision attacks in certain on-path (MITM) threat models (CVE-2024-3596, see [BLAST RADIUS – Attack Details](https://www.blastradius.fail/attack-details)).
 
-This library **generates and verifies `Message-Authenticator` (HMAC-MD5, RFC 3579)** when present, and **automatically includes it on Access-* packets it encodes**. For compatibility with legacy peers, decoding historically treated `Message-Authenticator` as optional.
+This library **generates and verifies `Message-Authenticator` (HMAC-MD5, RFC 3579)** and **includes it as the first attribute on Access-* packets it encodes**, which is the recommended mitigation.
 
-If you want stricter behavior, you can opt-in to **reject Access-* packets that omit `Message-Authenticator`**:
+**Client:** `RadClient` rejects Access-* replies without `Message-Authenticator` (`radius.ErrMessageAuthenticatorMissing`). For legacy servers that don't send one:
+
+```go
+client.SetRequireMessageAuthenticator(false)
+```
+
+**Server:** set these before `Listen`/`Serve`:
+
+```go
+srv.SetLimitProxyState(true)              // default: drop Access-Requests with Proxy-State but no Message-Authenticator
+srv.SetRequireMessageAuthenticator(false) // default: set true to drop every Access-Request without one
+```
+
+**Decoding directly:** `Message-Authenticator` is optional by default for compatibility; opt in to reject Access-* packets that omit it:
 
 ```go
 packet, err := radius.DecodeRequestWithOptions(secret, buf, &radius.DecodeOptions{

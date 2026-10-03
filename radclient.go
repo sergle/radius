@@ -14,6 +14,8 @@ type RadClient struct {
 	secret  string
 	server  string
 	timeout time.Duration
+
+	allowMissingMA bool // Access-* replies may omit Message-Authenticator
 }
 
 const sendTimeout time.Duration = 2 * time.Second
@@ -28,6 +30,13 @@ func NewRadClient(server string, secret string) *RadClient {
 // has no deadline.
 func (c *RadClient) SetTimeout(t time.Duration) {
 	c.timeout = t
+}
+
+// SetRequireMessageAuthenticator controls whether Access-* replies must carry a
+// valid Message-Authenticator (default true, RFC 3579 / Blast-RADIUS mitigation).
+// Disable it only for legacy servers that do not send one.
+func (c *RadClient) SetRequireMessageAuthenticator(require bool) {
+	c.allowMissingMA = !require
 }
 
 // SendContext sends a RADIUS packet using the provided context, allowing callers
@@ -78,7 +87,8 @@ func (c *RadClient) SendContext(ctx context.Context, request *Packet) (*Packet, 
 		return nil, err
 	}
 
-	reply, err := DecodeReply(c.secret, b[:n], requestAuth)
+	opts := DecodeOptions{RequireMessageAuthenticator: !c.allowMissingMA}
+	reply, err := DecodeReplyWithOptions(c.secret, b[:n], requestAuth, &opts)
 	if err != nil {
 		return nil, err
 	}

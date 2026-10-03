@@ -32,6 +32,7 @@ VALUE		Termination-Action	RADIUS-Request		1
 ATTRIBUTE	Called-Station-Id	30	string
 ATTRIBUTE	Calling-Station-Id	31	string
 ATTRIBUTE	NAS-Identifier		32	string
+ATTRIBUTE	Proxy-State		33	octets
 
 ATTRIBUTE	Acct-Status-Type	40	integer
 VALUE		Acct-Status-Type	Start			1

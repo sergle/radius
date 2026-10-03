@@ -108,6 +108,7 @@ func (p *Packet) Copy() *Packet {
 //
 // If the packet Code requires it, Encode will compute and include
 // Message-Authenticator and the packet Authenticator in the output.
+// A Message-Authenticator not already in the packet is added as the first attribute.
 // Replies are left unchanged; a request's Authenticator is set to the one
 // sent (random for an Access-Request if unset).
 func (p *Packet) Encode() (b []byte, err error) {
@@ -132,7 +133,9 @@ func (p *Packet) EncodeTo(b []byte) (n int, err error) {
 		}
 	}
 
-	n, err = p.encodeNoHashTo(b)
+	// a new Message-Authenticator goes first (Blast-RADIUS, CVE-2024-3596)
+	addMA := p.Code.IsAccess() && !p.HasAVP(AttrMessageAuthenticator)
+	n, err = p.encodeNoHashTo(b, addMA)
 	if err != nil {
 		return
 	}
@@ -146,19 +149,13 @@ func (p *Packet) EncodeTo(b []byte) (n int, err error) {
 	}
 
 	if p.Code.IsAccess() {
-		// fill an existing Message-Authenticator in place, or append one
-		off := findAttributeOffset(b[:n], AttrMessageAuthenticator)
-		if off < 0 {
-			if len(b) < n+messageAuthenticatorLen {
-				return 0, errors.New("buffer too small")
+		// an existing Message-Authenticator is filled in place
+		off := packetHeaderLen
+		if !addMA {
+			off = findAttributeOffset(b[:n], AttrMessageAuthenticator)
+			if off < 0 || b[off+1] != messageAuthenticatorLen {
+				return 0, errors.New("invalid Message-Authenticator")
 			}
-			off = n
-			b[off] = uint8(AttrMessageAuthenticator)
-			b[off+1] = messageAuthenticatorLen
-			n += messageAuthenticatorLen
-			binary.BigEndian.PutUint16(b[2:4], uint16(n))
-		} else if b[off+1] != messageAuthenticatorLen {
-			return 0, errors.New("invalid Message-Authenticator length")
 		}
 		value := b[off+2 : off+messageAuthenticatorLen]
 		clear(value)
@@ -194,14 +191,16 @@ func (p *Packet) EncodeTo(b []byte) (n int, err error) {
 
 func (p *Packet) encodeNoHash() (b []byte, err error) {
 	b = make([]byte, maxPacketLen)
-	n, err := p.encodeNoHashTo(b)
+	n, err := p.encodeNoHashTo(b, false)
 	if err != nil {
 		return nil, err
 	}
 	return b[:n], nil
 }
 
-func (p *Packet) encodeNoHashTo(b []byte) (n int, err error) {
+// encodeNoHashTo writes the packet without hashing; withMA reserves a zeroed
+// Message-Authenticator as the first attribute.
+func (p *Packet) encodeNoHashTo(b []byte, withMA bool) (n int, err error) {
 	if len(b) < packetHeaderLen {
 		return 0, errors.New("buffer too small")
 	}
@@ -210,8 +209,18 @@ func (p *Packet) encodeNoHashTo(b []byte) (n int, err error) {
 	copy(b[4:packetHeaderLen], p.Authenticator[:])
 	written := packetHeaderLen
 
+	if withMA {
+		if len(b) < written+messageAuthenticatorLen {
+			return 0, errors.New("buffer too small")
+		}
+		b[written] = uint8(AttrMessageAuthenticator)
+		b[written+1] = messageAuthenticatorLen
+		clear(b[written+2 : written+messageAuthenticatorLen])
+		written += messageAuthenticatorLen
+	}
+
 	if len(p.AVPs) > 0 {
-		bb := b[packetHeaderLen:]
+		bb := b[written:]
 		for i := range p.AVPs {
 			n, err := p.AVPs[i].Encode(bb)
 			written += n
@@ -221,10 +230,10 @@ func (p *Packet) encodeNoHashTo(b []byte) (n int, err error) {
 			bb = bb[n:]
 		}
 	} else if len(p.RawAVPs) > 0 {
-		if len(b) < packetHeaderLen+len(p.RawAVPs) {
+		if len(b) < written+len(p.RawAVPs) {
 			return 0, errors.New("buffer too small")
 		}
-		copy(b[packetHeaderLen:], p.RawAVPs)
+		copy(b[written:], p.RawAVPs)
 		written += len(p.RawAVPs)
 	}
 
