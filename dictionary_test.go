@@ -72,6 +72,38 @@ $INCLUDE	dictionary.testvendor
 	}
 }
 
+func TestLoadFileIncludeAbsolutePath(t *testing.T) {
+	mainDir := t.TempDir()
+	otherDir := t.TempDir()
+
+	absPath := filepath.Join(otherDir, "dictionary.abs")
+	if err := os.WriteFile(absPath, []byte("ATTRIBUTE\tTest-Abs-Attr\t200\tstring\n"), 0644); err != nil {
+		t.Fatalf("Failed to write absolute include: %v", err)
+	}
+	relPath := filepath.Join(mainDir, "dictionary.rel")
+	if err := os.WriteFile(relPath, []byte("ATTRIBUTE\tTest-Rel-Attr\t201\tstring\n"), 0644); err != nil {
+		t.Fatalf("Failed to write relative include: %v", err)
+	}
+
+	mainDictContent := "$INCLUDE\t" + absPath + "\n$INCLUDE\tdictionary.rel\n"
+	mainDictPath := filepath.Join(mainDir, "dictionary")
+	if err := os.WriteFile(mainDictPath, []byte(mainDictContent), 0644); err != nil {
+		t.Fatalf("Failed to write main dictionary: %v", err)
+	}
+
+	d := NewDictionary()
+	if err := d.LoadFile(mainDictPath); err != nil {
+		t.Fatalf("LoadFile failed: %v", err)
+	}
+
+	if id := d.GetAttributeID("Test-Abs-Attr"); id != 200 {
+		t.Errorf("Expected Test-Abs-Attr ID 200, got %d", id)
+	}
+	if id := d.GetAttributeID("Test-Rel-Attr"); id != 201 {
+		t.Errorf("Expected Test-Rel-Attr ID 201, got %d", id)
+	}
+}
+
 func TestParseLineErrors(t *testing.T) {
 	d := NewDictionary()
 	tmpDir := t.TempDir()

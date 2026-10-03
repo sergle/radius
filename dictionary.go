@@ -355,8 +355,10 @@ func (d *Dictionary) parseInclude(fname string, incName string) error {
 	}
 
 	log.Printf("-- include file %s --\n", incName)
-	// included file locate in the same directory
-	fullName := filepath.Join(filepath.Dir(fname), incName)
+	fullName := incName
+	if !filepath.IsAbs(incName) {
+		fullName = filepath.Join(filepath.Dir(fname), incName)
+	}
 	// clear vendor
 	d.currentVendor = 0
 	return d.loadFileInternal(fullName)
