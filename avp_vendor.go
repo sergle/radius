@@ -10,7 +10,10 @@ type VendorID uint32
 // TODO some VSA has uint16 type (Lucent)
 type VendorAttr uint8
 
-const vsaHeaderSize = 6
+const (
+	vendorIDLen   = 4
+	vsaHeaderSize = vendorIDLen + 2 // vendor id + attr type + attr len
+)
 
 // Vendor
 type VSA struct {
@@ -29,7 +32,10 @@ func (s AvpVendor) Value(p *Packet, a AVP) interface{} {
 }
 
 func (s AvpVendor) String(p *Packet, a AVP) string {
-	vsa := ToVSA(a)
+	vsa, ok := decodeVSA(a)
+	if !ok {
+		return avpBinary.String(p, a)
+	}
 
 	return fmt.Sprintf("{Vendor: %d, Attr: %d, Value: %#v}", vsa.Vendor, vsa.Type, vsa.Value)
 }
@@ -58,19 +64,25 @@ func (vsa VSA) ToAVP() AVP {
 
 // decode AVP value to VSA
 func ToVSA(a AVP) *VSA {
+	vsa, _ := decodeVSA(a)
+	return vsa
+}
+
+// decodeVSA is like ToVSA but also reports whether the VSA is well-formed.
+func decodeVSA(a AVP) (*VSA, bool) {
 	vsa := new(VSA)
 	value := a.Value
 	if len(value) < vsaHeaderSize {
-		return vsa
+		return vsa, false
 	}
-	vsa.Vendor = VendorID(binary.BigEndian.Uint32(value[0:4]))
+	vsa.Vendor = VendorID(binary.BigEndian.Uint32(value[0:vendorIDLen]))
 	vsa.Type = VendorAttr(value[4])
 	vsaLen := int(value[5])
-	if vsaLen < 2 || 4+vsaLen > len(value) {
-		return vsa
+	if vsaLen < 2 || vendorIDLen+vsaLen > len(value) {
+		return vsa, false
 	}
 	vsa.Value = make([]byte, vsaLen-2)
-	copy(vsa.Value, value[vsaHeaderSize:4+vsaLen])
+	copy(vsa.Value, value[vsaHeaderSize:vendorIDLen+vsaLen])
 
-	return vsa
+	return vsa, true
 }

@@ -449,6 +449,15 @@ var attrTypeHandlers = map[string]avpDataType{
 	// "ipv6prefix"
 }
 
+// handlerForValue returns the handler for attrType, or avpBinary if value is too short for it.
+func handlerForValue(attrType string, value []byte) avpDataType {
+	handler := attrTypeHandlers[attrType]
+	if handler == nil || (handler == avpUint32 && len(value) < uint32Size) {
+		return avpBinary
+	}
+	return handler
+}
+
 // DecodeAVPValue returns a human-readable string for the given AVP.
 //
 // When possible, DecodeAVPValue uses dictionary type information and enum
@@ -457,19 +466,19 @@ func (d *Dictionary) DecodeAVPValue(p *Packet, a AVP) string {
 	if a.Type == AttrUserPassword {
 		return avpPassword.String(p, a)
 	} else if a.Type == AttrVendorSpecific {
-		vsa := ToVSA(a)
+		vsa, ok := decodeVSA(a)
+		if !ok {
+			return avpBinary.String(p, a)
+		}
 
 		vendorName := d.GetVendorName(vsa.Vendor)
 		attrName := d.GetVSAAttributeName(vsa.Vendor, vsa.Type)
 		attrType := d.GetVSAAttributeType(vsa.Vendor, attrName)
-		handler := attrTypeHandlers[attrType]
-		if handler == nil {
-			handler = avpBinary
-		}
+		handler := handlerForValue(attrType, vsa.Value)
 
 		valStr := handler.String(p, AVP{Value: vsa.Value})
 		// Try to lookup enum name for VSAs too
-		if attrType == "integer" {
+		if handler == avpUint32 {
 			vID := binary.BigEndian.Uint32(vsa.Value)
 			d.RLock()
 			if d.vsaConstName[vsa.Vendor] != nil && d.vsaConstName[vsa.Vendor][attrName] != nil {
@@ -487,13 +496,10 @@ func (d *Dictionary) DecodeAVPValue(p *Packet, a AVP) string {
 
 	attrName := d.GetAttributeName(a.Type)
 	attrType := d.GetAttributeType(attrName)
-	handler := attrTypeHandlers[attrType]
-	if handler == nil {
-		handler = avpBinary
-	}
+	handler := handlerForValue(attrType, a.Value)
 
 	// Try to lookup enum name for standard attributes
-	if attrType == "integer" {
+	if handler == avpUint32 {
 		vID := binary.BigEndian.Uint32(a.Value)
 		d.RLock()
 		if d.constName[attrName] != nil {

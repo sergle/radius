@@ -18,15 +18,11 @@ func (s AvpUint32EnumList) String(p *Packet, a AVP) string {
 	if len(a.Value) < 4 {
 		return "invalid"
 	}
-	number := int(binary.BigEndian.Uint32(a.Value))
-	if number > len(s) {
-		return "unknow " + strconv.Itoa(number)
+	number := binary.BigEndian.Uint32(a.Value)
+	if uint64(number) >= uint64(len(s)) || s[number] == "" {
+		return "unknow " + strconv.FormatUint(uint64(number), 10)
 	}
-	out := s[number]
-	if out == "" {
-		return "unknow " + strconv.Itoa(number)
-	}
-	return out
+	return s[number]
 }
 
 func (s AvpUint32EnumList) FromString(v string) []byte {

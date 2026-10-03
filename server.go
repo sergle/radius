@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"net"
+	"runtime/debug"
 	"sync"
 )
 
@@ -113,6 +114,12 @@ func (s *Server) ListenAndServe() error {
 
 		go func(ctx context.Context, buf []byte, n int, addr *net.UDPAddr) {
 			defer serverBufferPool.Put(buf)
+			// Runs after p.Release and before buf is returned to the pool.
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("panic handling packet from %s: %v\n%s", addr, r, debug.Stack())
+				}
+			}()
 			secret, ok := s.secretForAddr(addr)
 			if !ok {
 				log.Printf("unknown RADIUS client %s", addr.String())

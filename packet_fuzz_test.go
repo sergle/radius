@@ -85,10 +85,14 @@ func FuzzDecodeRequestLazy(f *testing.F) {
 
 func exercisePacket(p *Packet) {
 	_ = p.String()
+	d := GetDefaultDictionary()
 	p.EachAVP(func(a AVP) bool {
 		_ = a.Type
 		_ = a.Value
 		_ = a.String()
+		_ = a.StringWithPacket(p)
+		_ = a.Decode(p)
+		_ = d.DecodeAVPValue(p, a)
 		return true
 	})
 	_ = p.GetUsername()
@@ -103,4 +107,7 @@ func exercisePacket(p *Packet) {
 	_ = p.GetAcctTotalInputOctets()
 	_ = p.GetAcctTotalOutputOctets()
 	_ = p.GetEAPMessage()
+	_ = p.GetNASPortType()
+	_ = p.GetServiceType()
+	_, _ = p.GetVLAN()
 }
