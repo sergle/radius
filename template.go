@@ -2,6 +2,8 @@ package radius
 
 import (
 	"fmt"
+	"log"
+	"maps"
 	"strconv"
 )
 
@@ -14,18 +16,21 @@ type AVPTemplate interface {
 type AttributeTemplate struct {
 	attrType AttributeType
 	handler  avpDataType
+	names    map[string]uint32 // VALUE name -> number
 }
 
-// Add encodes the value and adds it to the provided packet.
+// Add encodes the value and adds it to the provided packet; invalid values are logged and skipped.
 func (t *AttributeTemplate) Add(p *Packet, value string) {
 	if t.attrType == AttrUserPassword {
 		p.AddPassword(value)
-	} else {
-		p.AddAVP(AVP{
-			Type:  t.attrType,
-			Value: t.handler.FromString(value),
-		})
+		return
 	}
+	v, err := encodeValue(t.handler, t.names, value)
+	if err != nil {
+		log.Printf("template: %v for attribute %s\n", err, t.attrType)
+		return
+	}
+	p.AddAVP(AVP{Type: t.attrType, Value: v})
 }
 
 // vsaTemplate stores a pre-resolved VSA definition for reuse.
@@ -33,16 +38,17 @@ type vsaTemplate struct {
 	vendorID VendorID
 	vsaType  VendorAttr
 	handler  avpDataType
+	names    map[string]uint32 // VALUE name -> number
 }
 
-// Add encodes the value and adds it as a VSA to the provided packet.
+// Add encodes the value and adds it as a VSA to the provided packet; invalid values are logged and skipped.
 func (t *vsaTemplate) Add(p *Packet, value string) {
-	vsa := VSA{
-		Vendor: t.vendorID,
-		Type:   t.vsaType,
-		Value:  t.handler.FromString(value),
+	v, err := encodeValue(t.handler, t.names, value)
+	if err != nil {
+		log.Printf("template: %v for VSA %d/%d\n", err, t.vendorID, t.vsaType)
+		return
 	}
-	p.AddVSA(vsa)
+	p.AddVSA(VSA{Vendor: t.vendorID, Type: t.vsaType, Value: v})
 }
 
 // RequestTemplate defines a reusable structure for RADIUS requests.
@@ -90,7 +96,15 @@ func (d *Dictionary) GetTemplate(name string) (*AttributeTemplate, error) {
 	return &AttributeTemplate{
 		attrType: id,
 		handler:  handler,
+		names:    maps.Clone(d.constID[name]),
 	}, nil
+}
+
+// valueNames returns a copy of the VALUE names of attribute attrName.
+func (d *Dictionary) valueNames(attrName string) map[string]uint32 {
+	d.RLock()
+	defer d.RUnlock()
+	return maps.Clone(d.constID[attrName])
 }
 
 func (d *Dictionary) getVSATemplate(vendorName, attrName string) (AVPTemplate, error) {
@@ -121,6 +135,7 @@ func (d *Dictionary) getVSATemplate(vendorName, attrName string) (AVPTemplate, e
 		vendorID: vID,
 		vsaType:  aID,
 		handler:  handler,
+		names:    maps.Clone(d.vsaConstID[vID][attrName]),
 	}, nil
 }
 
@@ -151,11 +166,15 @@ func (t *RequestTemplate) AddAttributes(d *Dictionary, names ...string) error {
 }
 
 // AddAttributeTypes appends one or more attributes by their AttributeType ID to the request template.
-// The handler is resolved from the default dictionary; unknown attributes fall back to binary encoding.
+// The handler and VALUE names are resolved from the default dictionary; unknown attributes fall back to binary encoding.
 func (t *RequestTemplate) AddAttributeTypes(attrTypes ...AttributeType) {
 	for _, at := range attrTypes {
 		desc := getAttributeTypeDesc(at)
-		t.templates = append(t.templates, &AttributeTemplate{attrType: at, handler: desc.dataType})
+		var names map[string]uint32
+		if d := GetDefaultDictionary(); d != nil {
+			names = d.valueNames(desc.name)
+		}
+		t.templates = append(t.templates, &AttributeTemplate{attrType: at, handler: desc.dataType, names: names})
 	}
 }
 

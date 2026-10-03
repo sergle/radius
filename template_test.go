@@ -215,3 +215,43 @@ func TestTemplate(t *testing.T) {
 		}
 	})
 }
+
+func TestTemplateValueName(t *testing.T) {
+	d := loadNewAVPTestDict(t)
+	if err := d.LoadBuiltin(); err != nil {
+		t.Fatal(err)
+	}
+	framed := []byte{0, 0, 0, byte(ServiceTypeEnumFramed)}
+	seven := []byte{0, 0, 0, 7}
+
+	rt, err := d.CreateRequestTemplate(AccessRequest, "Service-Type")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.AddVSAAttribute(d, "NewAVPVendor", "NewAVP-Int"); err != nil {
+		t.Fatal(err)
+	}
+	rt.AddAttributeTypes(AttrServiceType)
+
+	p := &Packet{Code: AccessRequest}
+	rt.Fill(p, "Framed", "NewAVP-Seven", "Framed")
+	if len(p.AVPs) != 3 {
+		t.Fatalf("got %d AVPs, want 3: %+v", len(p.AVPs), p.AVPs)
+	}
+	if !bytes.Equal(p.AVPs[0].Value, framed) {
+		t.Errorf("Service-Type = %v, want %v", p.AVPs[0].Value, framed)
+	}
+	if vsa, ok := decodeVSA(p.AVPs[1]); !ok || vsa.Type != newAVPTestVendorInt || !bytes.Equal(vsa.Value, seven) {
+		t.Errorf("VSA = %+v, want value %v", vsa, seven)
+	}
+	if !bytes.Equal(p.AVPs[2].Value, framed) {
+		t.Errorf("Service-Type by type = %v, want %v", p.AVPs[2].Value, framed)
+	}
+
+	// Invalid values are skipped rather than encoded as 0.
+	p = &Packet{Code: AccessRequest}
+	rt.Fill(p, "garbage", "garbage", "garbage")
+	if len(p.AVPs) != 0 {
+		t.Errorf("invalid values added AVPs: %+v", p.AVPs)
+	}
+}

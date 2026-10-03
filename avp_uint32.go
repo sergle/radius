@@ -26,8 +26,19 @@ func (s AvpUint32) String(p *Packet, a AVP) string {
 }
 
 func (s AvpUint32) FromString(value string) []byte {
+	buf, _ := parseUint32(value)
+	return buf
+}
+
+// parseUint32 encodes a number (decimal, or 0x/0o/0b prefixed) as 4 bytes big-endian.
+func parseUint32(value string) ([]byte, error) {
+	i, err := strconv.ParseUint(value, 0, 32)
+	return encodeUint32(uint32(i)), err
+}
+
+// encodeUint32 returns v as 4 bytes big-endian.
+func encodeUint32(v uint32) []byte {
 	buf := make([]byte, uint32Size)
-	i, _ := strconv.ParseUint(value, 0, 32)
-	binary.BigEndian.PutUint32(buf, uint32(i))
+	binary.BigEndian.PutUint32(buf, v)
 	return buf
 }

@@ -20,6 +20,7 @@ var (
 	ErrUnknownAttribute         = errors.New("unknown attribute")
 	ErrUnknownVendor            = errors.New("unknown vendor")
 	ErrUnsupportedAttributeType = errors.New("unsupported attribute type")
+	ErrInvalidValue             = errors.New("invalid attribute value")
 )
 
 //go:embed dictionary.builtin
@@ -617,30 +618,34 @@ func (d *Dictionary) NewVSA(vendorName string, attrName string, attrValue string
 }
 
 // ParseAVP constructs an AVP from the attribute name and a string value using
-// the attribute type defined in the dictionary.
+// the attribute type defined in the dictionary. Integer values may be VALUE names.
 func (d *Dictionary) ParseAVP(attrName string, attrValue string) (AVP, error) {
 	d.RLock()
+	defer d.RUnlock()
 	attrID, ok := d.attrID[attrName]
-	attrType := d.attrType[attrName]
-	d.RUnlock()
 	if !ok {
 		return AVP{}, fmt.Errorf("%w: %s", ErrUnknownAttribute, attrName)
 	}
+	attrType := d.attrType[attrName]
 	handler := attrTypeHandlers[attrType]
 	if handler == nil {
 		return AVP{}, fmt.Errorf("%w %q for attribute %s", ErrUnsupportedAttributeType, attrType, attrName)
 	}
-	return AVP{Type: attrID, Value: handler.FromString(attrValue)}, nil
+	value, err := encodeValue(handler, d.constID[attrName], attrValue)
+	if err != nil {
+		return AVP{}, fmt.Errorf("%w for attribute %s", err, attrName)
+	}
+	return AVP{Type: attrID, Value: value}, nil
 }
 
 // ParseVSA constructs a Vendor-Specific Attribute from the vendor name, attribute
 // name, and a string value using the VSA type defined in the dictionary.
 func (d *Dictionary) ParseVSA(vendorName string, attrName string, attrValue string) (VSA, error) {
 	d.RLock()
+	defer d.RUnlock()
 	vendorID, vendorOK := d.vendorID[vendorName]
 	attrID, attrOK := d.vsaAttrID[vendorID][attrName]
 	attrType := d.vsaAttrType[vendorID][attrName]
-	d.RUnlock()
 	if !vendorOK {
 		return VSA{}, fmt.Errorf("%w: %s", ErrUnknownVendor, vendorName)
 	}
@@ -651,5 +656,24 @@ func (d *Dictionary) ParseVSA(vendorName string, attrName string, attrValue stri
 	if handler == nil {
 		return VSA{}, fmt.Errorf("%w %q for attribute %s/%s", ErrUnsupportedAttributeType, attrType, vendorName, attrName)
 	}
-	return VSA{Vendor: vendorID, Type: attrID, Value: handler.FromString(attrValue)}, nil
+	value, err := encodeValue(handler, d.vsaConstID[vendorID][attrName], attrValue)
+	if err != nil {
+		return VSA{}, fmt.Errorf("%w for attribute %s/%s", err, vendorName, attrName)
+	}
+	return VSA{Vendor: vendorID, Type: attrID, Value: value}, nil
+}
+
+// encodeValue encodes value with handler; integers accept a VALUE name from names or a number.
+func encodeValue(handler avpDataType, names map[string]uint32, value string) ([]byte, error) {
+	if handler != avpUint32 {
+		return handler.FromString(value), nil
+	}
+	if v, ok := names[value]; ok {
+		return encodeUint32(v), nil
+	}
+	buf, err := parseUint32(value)
+	if err != nil {
+		return nil, fmt.Errorf("%w %q", ErrInvalidValue, value)
+	}
+	return buf, nil
 }
