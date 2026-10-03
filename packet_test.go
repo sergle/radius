@@ -22,7 +22,10 @@ func TestPacket(t *testing.T) {
 	pac.AVPs = append(pac.AVPs, AVP{Type: AttrCallingStationId, Value: []byte("2")})
 	pac.AVPs = append(pac.AVPs, AVP{Type: AttrNASIdentifier, Value: []byte("N")})
 
-	pac.Encode()
+	buf, err := pac.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if pac.GetNASPortType() != NASPortTypeEnumISDNSync {
 		t.Error("NASPortTypeEnum mismatch")
@@ -50,7 +53,12 @@ func TestPacket(t *testing.T) {
 	expectedHMAC := []byte{0x22, 0x9d, 0x20, 0x2f, 0xce, 0xf9, 0x60, 0x09,
 		0xbc, 0x8a, 0x2c, 0x2a, 0xdb, 0x8b, 0x88, 0xfa}
 
-	actualHMAC := pac.GetAVP(AttrMessageAuthenticator).Decode(pac).([]byte)
+	// Message-Authenticator is added to the output only, not to pac
+	decoded, err := DecodeRequest("secret", buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actualHMAC := decoded.GetAVP(AttrMessageAuthenticator).Decode(decoded).([]byte)
 	if !bytes.Equal(actualHMAC, expectedHMAC) {
 		t.Errorf("MessageAuthenticator mismatch:\nWant: %x\nGot : %x", expectedHMAC, actualHMAC)
 	}
@@ -63,9 +71,12 @@ func TestPacket(t *testing.T) {
 
 	// re-encode and check Message-Authenticator
 	pac.Secret = "secret"
-	pac.Encode()
-	if !bytes.Equal(pac.GetAVP(AttrMessageAuthenticator).Decode(pac).([]byte), expectedHMAC) {
-		t.Error("MessageAuthenticator mismatch after re-encode")
+	buf2, err := pac.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(buf2, buf) {
+		t.Error("re-encode mismatch")
 	}
 }
 

@@ -107,7 +107,9 @@ func (p *Packet) Copy() *Packet {
 // Encode serializes the packet into a new byte slice.
 //
 // If the packet Code requires it, Encode will compute and include
-// Message-Authenticator and/or update the packet Authenticator.
+// Message-Authenticator and the packet Authenticator in the output.
+// Replies are left unchanged; a request's Authenticator is set to the one
+// sent (random for an Access-Request if unset).
 func (p *Packet) Encode() (b []byte, err error) {
 	b = make([]byte, maxPacketLen)
 	n, err := p.EncodeTo(b)
@@ -122,20 +124,17 @@ func (p *Packet) Encode() (b []byte, err error) {
 // The provided buffer must be large enough for the full packet; this package
 // commonly uses 4096 bytes (the RADIUS maximum packet size).
 func (p *Packet) EncodeTo(b []byte) (n int, err error) {
-	if p.Code.IsAccess() {
-		// append Message-Authenticator AVP
-		p.SetAVP(AVP{
-			Type:  AttrMessageAuthenticator,
-			Value: make([]byte, md5.Size),
-		})
-
-		// generate only if not set yet
-		if p.Code == AccessRequest && p.Authenticator == [authenticatorLen]byte{} {
-			_, err := rand.Read(p.Authenticator[:])
-			if err != nil {
-				return 0, err
-			}
+	// generate only if not set yet; kept in p for User-Password and reply checks
+	if p.Code == AccessRequest && p.Authenticator == [authenticatorLen]byte{} {
+		_, err := rand.Read(p.Authenticator[:])
+		if err != nil {
+			return 0, err
 		}
+	}
+
+	n, err = p.encodeNoHashTo(b)
+	if err != nil {
+		return
 	}
 
 	// For non-Access requests (for example Accounting/CoA/Disconnect), the
@@ -143,23 +142,29 @@ func (p *Packet) EncodeTo(b []byte) (n int, err error) {
 	// hash input per RFC 2866/5176. Ensure we don't accidentally hash any
 	// caller-provided authenticator value.
 	if p.Code.IsRequest() && p.Code != AccessRequest {
-		p.Authenticator = [authenticatorLen]byte{}
-	}
-
-	// When the password request recalculation
-	n, err = p.encodeNoHashTo(b)
-	if err != nil {
-		return
+		clear(b[4:packetHeaderLen])
 	}
 
 	if p.Code.IsAccess() {
-		//Calculation Message-Authenticator it is placed in the rearmost
+		// fill an existing Message-Authenticator in place, or append one
+		off := findAttributeOffset(b[:n], AttrMessageAuthenticator)
+		if off < 0 {
+			if len(b) < n+messageAuthenticatorLen {
+				return 0, errors.New("buffer too small")
+			}
+			off = n
+			b[off] = uint8(AttrMessageAuthenticator)
+			b[off+1] = messageAuthenticatorLen
+			n += messageAuthenticatorLen
+			binary.BigEndian.PutUint16(b[2:4], uint16(n))
+		} else if b[off+1] != messageAuthenticatorLen {
+			return 0, errors.New("invalid Message-Authenticator length")
+		}
+		value := b[off+2 : off+messageAuthenticatorLen]
+		clear(value)
 		hasher := hmac.New(crypto.MD5.New, []byte(p.Secret))
 		hasher.Write(b[:n])
-		copy(b[n-md5.Size:n], hasher.Sum(nil))
-		// update value in packet structure
-		avp := p.GetAVP(AttrMessageAuthenticator)
-		copy(avp.Value, b[n-md5.Size:n])
+		copy(value, hasher.Sum(nil))
 	}
 
 	// fix up the authenticator
@@ -175,8 +180,11 @@ func (p *Packet) EncodeTo(b []byte) (n int, err error) {
 		hasher := crypto.Hash(crypto.MD5).New()
 		hasher.Write(b[:n])
 		hasher.Write([]byte(p.Secret))
-		copy(p.Authenticator[:], hasher.Sum(nil))
-		copy(b[4:packetHeaderLen], p.Authenticator[:])
+		copy(b[4:packetHeaderLen], hasher.Sum(nil))
+		// a request's Authenticator is an output: keep it for reply checks
+		if p.Code.IsRequest() {
+			copy(p.Authenticator[:], b[4:packetHeaderLen])
+		}
 	default:
 		return 0, fmt.Errorf("not handle p.Code %d", p.Code)
 	}
