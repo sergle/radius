@@ -139,3 +139,51 @@ func TestServerRequireMessageAuthenticator(t *testing.T) {
 		t.Errorf("Access-Request with Message-Authenticator: %v", err)
 	}
 }
+
+// A reply built without Reply() still gets the request's Identifier, Secret and Authenticator.
+func TestServerBareReply(t *testing.T) {
+	const secret = "testing123"
+	const msg = "welcome"
+	srv := NewServer("127.0.0.1:0", secret, HandlerFunc(func(ctx context.Context, request *Packet) *Packet {
+		return &Packet{Code: AccessAccept, AVPs: []AVP{{Type: AttrReplyMessage, Value: []byte(msg)}}}
+	}))
+	addr, _ := startTestServer(t, srv)
+
+	client := NewRadClient(addr, secret)
+	client.SetTimeout(noReplyTimeout)
+	reply, err := client.Send(client.NewAccessRequest())
+	if err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	if reply.Code != AccessAccept {
+		t.Errorf("Code = %v, want AccessAccept", reply.Code)
+	}
+	if a := reply.GetAVP(AttrReplyMessage); a == nil || string(a.Value) != msg {
+		t.Errorf("Reply-Message = %v, want %q", a, msg)
+	}
+}
+
+// Tunnel-Password added to a Reply() is encrypted with the request authenticator.
+func TestServerReplyTunnelPassword(t *testing.T) {
+	const secret = "testing123"
+	const pw = "vlan-secret"
+	const tag = 1
+	srv := NewServer("127.0.0.1:0", secret, HandlerFunc(func(ctx context.Context, request *Packet) *Packet {
+		reply := request.ReplyAccept()
+		if err := reply.AddTunnelPassword(tag, pw); err != nil {
+			t.Errorf("AddTunnelPassword: %v", err)
+		}
+		return reply
+	}))
+	addr, _ := startTestServer(t, srv)
+
+	client := NewRadClient(addr, secret)
+	client.SetTimeout(noReplyTimeout)
+	reply, err := client.Send(client.NewAccessRequest())
+	if err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	if gotTag, got, ok := reply.GetTunnelPassword(); !ok || gotTag != tag || got != pw {
+		t.Errorf("GetTunnelPassword = %d, %q, %v; want %d, %q, true", gotTag, got, ok, tag, pw)
+	}
+}

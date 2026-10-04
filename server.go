@@ -10,6 +10,8 @@ import (
 )
 
 // Service handles inbound RADIUS requests and returns a reply packet.
+// The server sets the reply's Identifier, Secret and Authenticator from the request.
+// Encrypted attributes (e.g. Tunnel-Password) need them when added, so use request.Reply().
 type Service interface {
 	RadiusHandle(ctx context.Context, request *Packet) *Packet
 }
@@ -195,6 +197,8 @@ func (s *Server) Serve() error {
 			}
 			npac.Identifier = p.Identifier
 			npac.Secret = secret
+			// the response authenticator is computed over the request authenticator
+			npac.Authenticator = p.Authenticator
 
 			// Reply AVPs may alias buf (values copied from the request),
 			// so encode into a separate buffer.
