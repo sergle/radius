@@ -29,6 +29,15 @@ func (t *AttributeTemplate) Add(p *Packet, value string) {
 		p.AddAVP(AVP{Type: t.attrType, Value: avpPassword.Encode(value, p.Secret, p.cryptAuthenticator())})
 		return
 	}
+	if t.handler == avpTunnelPassword {
+		v, err := avpTunnelPassword.Encode(0, value, p.Secret, p.cryptAuthenticator())
+		if err != nil {
+			log.Printf("template: %v for attribute %s\n", err, t.attrType)
+			return
+		}
+		p.AddAVP(AVP{Type: t.attrType, Value: v})
+		return
+	}
 	v, err := encodeValue(t.handler, t.names, value)
 	if err != nil {
 		log.Printf("template: %v for attribute %s\n", err, t.attrType)

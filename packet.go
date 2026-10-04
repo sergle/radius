@@ -747,6 +747,26 @@ func (p *Packet) GetPassword() (password string) {
 	return ""
 }
 
+// AddTunnelPassword adds a Tunnel-Password attribute (RFC 2868) encrypted
+// with the packet Secret and Request Authenticator.
+func (p *Packet) AddTunnelPassword(tag uint8, password string) error {
+	v, err := avpTunnelPassword.Encode(tag, password, p.Secret, p.cryptAuthenticator())
+	if err != nil {
+		return err
+	}
+	p.AddAVP(AVP{Type: AttrTunnelPassword, Value: v})
+	return nil
+}
+
+// GetTunnelPassword returns the tag and decrypted value of the first Tunnel-Password.
+func (p *Packet) GetTunnelPassword() (tag uint8, password string, ok bool) {
+	avp := p.GetAVP(AttrTunnelPassword)
+	if avp == nil {
+		return 0, "", false
+	}
+	return avpTunnelPassword.decrypt(p, avp.Value)
+}
+
 // AddPassword adds (or replaces) the User-Password attribute, encrypting it as
 // required by the RADIUS protocol using the packet Secret and Authenticator.
 func (p *Packet) AddPassword(password string) {

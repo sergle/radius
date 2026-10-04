@@ -151,7 +151,7 @@ ATTRIBUTE	Tunnel-Server-Endpoint	67	string
 ATTRIBUTE	Acct-Tunnel-Connection	68	string
 
 # RFC 2868 (continued)
-ATTRIBUTE	Tunnel-Password		69	octets
+ATTRIBUTE	Tunnel-Password		69	tunnel-password
 
 # RFC 2869 - RADIUS Extensions
 ATTRIBUTE	Prompt			76	integer

@@ -299,7 +299,9 @@ func (f attributeFlags) effectiveType(attrType string) string {
 	switch f.encrypt {
 	case encryptUserPassword:
 		return typePassword
-	case encryptTunnelPassword, encryptAscendSecret:
+	case encryptTunnelPassword:
+		return typeTunnelPassword
+	case encryptAscendSecret:
 		// Not decrypted yet; don't present ciphertext as text.
 		return typeOctets
 	}
@@ -507,26 +509,28 @@ func (d *Dictionary) parseEndTLV(attrName string) error {
 
 // dictionary attribute type names
 const (
-	typeInteger    = "integer"
-	typeIPAddr     = "ipaddr"
-	typeIPv6Addr   = "ipv6addr"
-	typeString     = "string"
-	typeOctets     = "octets"
-	typePassword   = "password"
-	typeVSA        = "vsa"
-	typeEAPMessage = "eapmessage"
+	typeInteger        = "integer"
+	typeIPAddr         = "ipaddr"
+	typeIPv6Addr       = "ipv6addr"
+	typeString         = "string"
+	typeOctets         = "octets"
+	typePassword       = "password"
+	typeTunnelPassword = "tunnel-password"
+	typeVSA            = "vsa"
+	typeEAPMessage     = "eapmessage"
 )
 
 // attribute type to handler mapping
 var attrTypeHandlers = map[string]avpDataType{
-	typeInteger:    avpUint32,
-	typeIPAddr:     avpIP,
-	typeIPv6Addr:   avpIP,
-	typeString:     avpString,
-	typeOctets:     avpBinary,
-	typePassword:   avpPassword,
-	typeVSA:        avpVendor,
-	typeEAPMessage: avpEapMessage,
+	typeInteger:        avpUint32,
+	typeIPAddr:         avpIP,
+	typeIPv6Addr:       avpIP,
+	typeString:         avpString,
+	typeOctets:         avpBinary,
+	typePassword:       avpPassword,
+	typeTunnelPassword: avpTunnelPassword,
+	typeVSA:            avpVendor,
+	typeEAPMessage:     avpEapMessage,
 	// "byte"
 	// "short"
 	// "date"
@@ -746,7 +750,7 @@ func (d *Dictionary) ParseVSA(vendorName string, attrName string, attrValue stri
 
 // encodeValue encodes value with handler; integers accept a VALUE name from names or a number.
 func encodeValue(handler avpDataType, names map[string]uint32, value string) ([]byte, error) {
-	if handler == avpPassword {
+	if handler == avpPassword || handler == avpTunnelPassword {
 		return nil, ErrEncryptedAttribute
 	}
 	if handler != avpUint32 {

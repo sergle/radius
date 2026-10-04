@@ -78,10 +78,10 @@ func TestFreeRADIUSOtherEncryptNotPlaintext(t *testing.T) {
 	d := useFreeRADIUSFlagsDict(t)
 	cipher := []byte{0x80, 0x01, 0xde, 0xad, 0xbe, 0xef}
 
-	// encrypt=2 (Tunnel-Password) must not decode its ciphertext as a string.
+	// a malformed encrypt=2 (Tunnel-Password) value must not decode its ciphertext as a string.
 	avp := AVP{Type: AttrTunnelPassword, Value: cipher}
-	if _, ok := avp.Decode(nil).([]byte); !ok {
-		t.Errorf("Tunnel-Password Decode = %#v, want []byte", avp.Decode(nil))
+	if got := avp.Decode(nil); got != "" {
+		t.Errorf("Tunnel-Password Decode = %#v, want empty", got)
 	}
 	if got := d.DecodeAVPValue(nil, avp); got != avpBinary.String(nil, avp) {
 		t.Errorf("Tunnel-Password DecodeAVPValue = %q, want binary form", got)
@@ -103,7 +103,7 @@ func TestFreeRADIUSFlagsParsed(t *testing.T) {
 		{"User-Name", "string", false},
 		{"User-Password", "password", false},
 		{"Tunnel-Type", "integer", true},
-		{"Tunnel-Password", "octets", true},
+		{"Tunnel-Password", "tunnel-password", true},
 		{"Class", "octets", false},
 		{"Unknown-Flagged", "string", false},
 	}
@@ -120,7 +120,7 @@ func TestFreeRADIUSFlagsParsed(t *testing.T) {
 	}
 }
 
-func TestBuiltinPasswordTypeUnchanged(t *testing.T) {
+func TestBuiltinPasswordTypes(t *testing.T) {
 	d := NewDictionary()
 	if err := d.LoadBuiltin(); err != nil {
 		t.Fatal(err)
@@ -128,8 +128,8 @@ func TestBuiltinPasswordTypeUnchanged(t *testing.T) {
 	if got := d.GetAttributeType("User-Password"); got != "password" {
 		t.Errorf("User-Password type = %q, want password", got)
 	}
-	if got := d.GetAttributeType("Tunnel-Password"); got != "octets" {
-		t.Errorf("Tunnel-Password type = %q, want octets", got)
+	if got := d.GetAttributeType("Tunnel-Password"); got != "tunnel-password" {
+		t.Errorf("Tunnel-Password type = %q, want tunnel-password", got)
 	}
 }
 
