@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"log"
 	"os"
@@ -85,7 +86,7 @@ func main() {
 	go func() {
 		log.Printf("Starting RADIUS server on %s ...", *addr)
 		err := s.ListenAndServe()
-		if err != nil {
+		if err != nil && !errors.Is(err, radius.ErrServerStopped) {
 			errChan <- err
 		}
 	}()

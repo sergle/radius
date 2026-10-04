@@ -9,6 +9,9 @@ import (
 	"sync"
 )
 
+// DefaultMaxConcurrent is the default limit of concurrently running handlers.
+const DefaultMaxConcurrent = 1024
+
 // Service handles inbound RADIUS requests and returns a reply packet.
 // The server sets the reply's Identifier, Secret and Authenticator from the request.
 // Encrypted attributes (e.g. Tunnel-Password) need them when added, so use request.Reply().
@@ -37,14 +40,15 @@ func (p *radiusService) RadiusHandle(ctx context.Context, request *Packet) *Pack
 
 // NewServer constructs a UDP RADIUS server bound to addr with the given shared secret.
 func NewServer(addr string, secret string, service Service) *Server {
-	s := &Server{
-		addr:    addr,
-		secret:  secret,
-		clients: nil,
-		service: service,
+	ctx, cancel := context.WithCancel(context.Background())
+	return &Server{
+		addr:          addr,
+		secret:        secret,
+		service:       service,
+		maxConcurrent: DefaultMaxConcurrent,
+		ctx:           ctx,
+		cancel:        cancel,
 	}
-	s.ctx, s.cancel = context.WithCancel(context.Background())
-	return s
 }
 
 // NewServerWithClientList constructs a UDP RADIUS server bound to addr that
@@ -52,13 +56,15 @@ func NewServer(addr string, secret string, service Service) *Server {
 //
 // If a request comes from a host not present in the list, it is dropped.
 func NewServerWithClientList(addr string, clients *ClientList, service Service) *Server {
-	s := &Server{
-		addr:    addr,
-		clients: clients,
-		service: service,
+	ctx, cancel := context.WithCancel(context.Background())
+	return &Server{
+		addr:          addr,
+		clients:       clients,
+		service:       service,
+		maxConcurrent: DefaultMaxConcurrent,
+		ctx:           ctx,
+		cancel:        cancel,
 	}
-	s.ctx, s.cancel = context.WithCancel(context.Background())
-	return s
 }
 
 // Server is a simple UDP RADIUS server.
@@ -70,17 +76,22 @@ type Server struct {
 
 	requireMA        bool // drop Access-Requests without Message-Authenticator
 	allowProxyNoAuth bool // accept Access-Requests with Proxy-State but no Message-Authenticator
+	maxConcurrent    int  // max in-flight handlers, <= 0 means unlimited
 
-	mu     sync.Mutex // guards conn
-	conn   *net.UDPConn
-	ctx    context.Context
-	cancel context.CancelFunc
+	mu       sync.Mutex // guards conn, serving, maxConcurrent and handlers.Add against Stop
+	conn     *net.UDPConn
+	serving  bool
+	ctx      context.Context
+	cancel   context.CancelFunc
+	handlers sync.WaitGroup // in-flight handlers
 }
 
 var (
+	// ErrServerStopped is returned by Listen, Serve and ListenAndServe after Stop.
 	ErrServerStopped    = errors.New("radius: server stopped")
 	errAlreadyListening = errors.New("radius: server already listening")
 	errNotListening     = errors.New("radius: Serve called before Listen")
+	errServerRunning    = errors.New("radius: server already serving")
 )
 
 var serverBufferPool = sync.Pool{
@@ -122,9 +133,10 @@ func (s *Server) Addr() net.Addr {
 }
 
 // ListenAndServe listens on UDP and processes RADIUS requests until stopped.
+// After Stop it returns ErrServerStopped.
 //
-// Each request is handled in its own goroutine; the server reuses internal
-// buffers to reduce allocations.
+// Each request is handled in its own goroutine (at most SetMaxConcurrent at
+// a time); the server reuses internal buffers to reduce allocations.
 func (s *Server) ListenAndServe() error {
 	if err := s.Listen(); err != nil {
 		return err
@@ -133,37 +145,66 @@ func (s *Server) ListenAndServe() error {
 }
 
 // Serve processes RADIUS requests on the socket bound by Listen until stopped.
+// After Stop it returns ErrServerStopped.
 func (s *Server) Serve() error {
 	s.mu.Lock()
-	conn, ctx := s.conn, s.ctx
+	conn, ctx, maxConcurrent := s.conn, s.ctx, s.maxConcurrent
+	if ctx.Err() == nil && conn != nil {
+		s.serving = true
+	}
 	s.mu.Unlock()
+	if ctx.Err() != nil {
+		return ErrServerStopped
+	}
 	if conn == nil {
 		return errNotListening
 	}
 	defer conn.Close()
 
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
+	var sem chan struct{}
+	if maxConcurrent > 0 {
+		sem = make(chan struct{}, maxConcurrent)
+	}
 
+	for {
 		b := serverBufferPool.Get().([]byte)
 		// Ensure full buffer length for reads, even if a shorter slice was pooled.
 		b = b[:cap(b)]
 		n, raddr, err := conn.ReadFromUDP(b)
 		if err != nil {
 			serverBufferPool.Put(b)
-			select {
-			case <-ctx.Done():
-				return nil
-			default:
-				return err
+			if ctx.Err() != nil {
+				return ErrServerStopped
 			}
+			return err
 		}
 
-		go func(ctx context.Context, buf []byte, n int, addr *net.UDPAddr) {
+		// Wait for a free slot; excess datagrams queue in the socket buffer.
+		if sem != nil {
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				serverBufferPool.Put(b)
+				return ErrServerStopped
+			}
+		}
+		// Register the handler under mu so Stop can't start waiting before Add.
+		s.mu.Lock()
+		stopped := ctx.Err() != nil
+		if !stopped {
+			s.handlers.Add(1)
+		}
+		s.mu.Unlock()
+		if stopped {
+			serverBufferPool.Put(b)
+			return ErrServerStopped
+		}
+
+		go func(buf []byte, n int, addr *net.UDPAddr) {
+			defer s.handlers.Done()
+			if sem != nil {
+				defer func() { <-sem }()
+			}
 			defer serverBufferPool.Put(buf)
 			// Runs after p.Release and before buf is returned to the pool.
 			defer func() {
@@ -191,7 +232,9 @@ func (s *Server) Serve() error {
 			}
 			p.ClientAddr = addr.String()
 
-			npac := s.service.RadiusHandle(ctx, p)
+			reqCtx, cancel := context.WithCancel(ctx)
+			defer cancel()
+			npac := s.service.RadiusHandle(reqCtx, p)
 			if npac == nil {
 				return
 			}
@@ -211,8 +254,20 @@ func (s *Server) Serve() error {
 				return
 			}
 			conn.WriteToUDP(out[:writtenN], addr)
-		}(ctx, b, n, raddr)
+		}(b, n, raddr)
 	}
+}
+
+// SetMaxConcurrent limits concurrently running handlers (default
+// DefaultMaxConcurrent, <= 0 means unlimited). It fails once Serve has started.
+func (s *Server) SetMaxConcurrent(n int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.serving {
+		return errServerRunning
+	}
+	s.maxConcurrent = n
+	return nil
 }
 
 // SetClientList sets the client list used to resolve per-client shared secrets.
@@ -265,13 +320,15 @@ func (s *Server) secretForAddr(addr *net.UDPAddr) (string, bool) {
 	return s.secret, true
 }
 
-// Stop cancels the server context and closes the UDP listener.
-// It is safe to call before Listen and more than once.
+// Stop cancels the server context, closes the UDP listener and waits for
+// in-flight handlers to return. It is safe to call before Listen and more
+// than once, but must not be called from a handler.
 func (s *Server) Stop() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.cancel()
 	if s.conn != nil {
 		s.conn.Close()
 	}
+	s.mu.Unlock()
+	s.handlers.Wait()
 }
