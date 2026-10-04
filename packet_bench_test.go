@@ -96,3 +96,23 @@ func BenchmarkEncodePacketTo(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkLazyAccessors(b *testing.B) {
+	p, err := DecodeRequestLazy("secret", getLargeRawPacket())
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if p.HasAVP(AttrNASIPAddress) || p.GetAVP(AttrNASIPAddress) != nil {
+			b.Fatal("unexpected attribute")
+		}
+		n := 0
+		p.EachAVP(func(AVP) bool { n++; return true })
+		if n != 20 {
+			b.Fatal(n)
+		}
+	}
+}

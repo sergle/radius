@@ -9,6 +9,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"iter"
 	"net"
 	"strconv"
 	"sync"
@@ -263,16 +264,10 @@ func (p *Packet) HasAVP(attrType AttributeType) bool {
 		}
 		return false
 	}
-	b := p.RawAVPs
-	for len(b) >= 2 {
-		length := uint8(b[1])
-		if int(length) > len(b) || length < 2 {
-			return false
-		}
-		if AttributeType(b[0]) == attrType {
+	for _, a := range rawAttrs(p.RawAVPs) {
+		if a.Type == attrType {
 			return true
 		}
-		b = b[length:]
 	}
 	return false
 }
@@ -289,16 +284,10 @@ func (p *Packet) GetAVP(attrType AttributeType) *AVP {
 		}
 		return nil
 	}
-	b := p.RawAVPs
-	for len(b) >= 2 {
-		length := uint8(b[1])
-		if int(length) > len(b) || length < 2 {
-			return nil
+	for _, a := range rawAttrs(p.RawAVPs) {
+		if a.Type == attrType {
+			return &AVP{Type: a.Type, Value: a.Value}
 		}
-		if AttributeType(b[0]) == attrType {
-			return &AVP{Type: attrType, Value: b[2:length]}
-		}
-		b = b[length:]
 	}
 	return nil
 }
@@ -316,16 +305,27 @@ func (p *Packet) EachAVP(fn func(a AVP) bool) {
 		return
 	}
 
-	b := p.RawAVPs
-	for len(b) >= 2 {
-		length := uint8(b[1])
-		if int(length) > len(b) || length < 2 {
+	for _, a := range rawAttrs(p.RawAVPs) {
+		if !fn(a) {
 			return
 		}
-		if !fn(AVP{Type: AttributeType(b[0]), Value: b[2:length]}) {
-			return
+	}
+}
+
+// rawAttrs iterates over encoded attributes in b, yielding each one's offset in b.
+// It stops at the end of b or at the first malformed attribute.
+func rawAttrs(b []byte) iter.Seq2[int, AVP] {
+	return func(yield func(int, AVP) bool) {
+		for off := 0; len(b)-off >= 2; {
+			length := int(b[off+1])
+			if length > len(b)-off || length < 2 {
+				return
+			}
+			if !yield(off, AVP{Type: AttributeType(b[off]), Value: b[off+2 : off+length]}) {
+				return
+			}
+			off += length
 		}
-		b = b[length:]
 	}
 }
 
@@ -654,17 +654,10 @@ func (p *Packet) checkAuthenticator(buf []byte, requestAuth []byte) (err error) 
 // findAttributeOffset returns the offset in buf of the first attribute of the
 // given type, or -1 if there is none before the end or a malformed attribute.
 func findAttributeOffset(buf []byte, attrType AttributeType) int {
-	b := buf[packetHeaderLen:]
-	for pos := packetHeaderLen; len(b) >= 2; {
-		length := int(b[1])
-		if length > len(b) || length < 2 {
-			return -1
+	for off, a := range rawAttrs(buf[packetHeaderLen:]) {
+		if a.Type == attrType {
+			return packetHeaderLen + off
 		}
-		if AttributeType(b[0]) == attrType {
-			return pos
-		}
-		pos += length
-		b = b[length:]
 	}
 	return -1
 }
