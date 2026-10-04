@@ -190,3 +190,48 @@ func TestTemplateEncryptsEncrypt1Attributes(t *testing.T) {
 		}
 	}
 }
+
+// An encrypt=1 attribute in a reply is hidden with the Request Authenticator.
+func TestDecodeReplyEncrypt1Attribute(t *testing.T) {
+	const secret = "testing123"
+	const plain = "reply-secret"
+	d := useFreeRADIUSFlagsDict(t)
+
+	req := Request(AccessRequest, secret)
+	rt, err := d.CreateRequestTemplate(AccessAccept, "Test-Secret")
+	if err != nil {
+		t.Fatalf("CreateRequestTemplate: %v", err)
+	}
+	reply := req.ReplyAccept()
+	rt.Fill(reply, plain)
+	b, err := reply.Encode()
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name   string
+		decode func(string, []byte, []byte) (*Packet, error)
+	}{
+		{"normal", DecodeReply},
+		{"pooled", DecodeReplyPooled},
+		{"lazy", DecodeReplyLazy},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p, err := tc.decode(secret, append([]byte(nil), b...), req.Authenticator[:])
+			if err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			a := p.GetAVP(AttributeType(241))
+			if a == nil {
+				t.Fatal("Test-Secret missing")
+			}
+			if got := a.Decode(p); got != plain {
+				t.Errorf("Decode = %q, want %q", got, plain)
+			}
+			if got := d.DecodeAVPValue(p, *a); got != plain {
+				t.Errorf("DecodeAVPValue = %q, want %q", got, plain)
+			}
+		})
+	}
+}

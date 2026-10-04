@@ -55,6 +55,16 @@ type Packet struct {
 	AVPs          []AVP
 	RawAVPs       []byte // Unparsed attributes for lazy decoding
 	ClientAddr    string
+
+	requestAuth [authenticatorLen]byte // set on decoded replies
+}
+
+// cryptAuthenticator returns the Request Authenticator that hides attribute values.
+func (p *Packet) cryptAuthenticator() []byte {
+	if p.requestAuth != [authenticatorLen]byte{} {
+		return p.requestAuth[:]
+	}
+	return p.Authenticator[:]
 }
 
 var packetPool = sync.Pool{
@@ -81,6 +91,7 @@ func (p *Packet) Reset() {
 	p.Code = 0
 	p.Identifier = 0
 	p.Authenticator = [authenticatorLen]byte{}
+	p.requestAuth = [authenticatorLen]byte{}
 	p.AVPs = p.AVPs[:0]
 	p.RawAVPs = nil
 	p.ClientAddr = ""
@@ -96,6 +107,7 @@ func (p *Packet) Copy() *Packet {
 		Code:          p.Code,
 		Identifier:    p.Identifier,
 		Authenticator: p.Authenticator, // This should be a copy
+		requestAuth:   p.requestAuth,
 	}
 	outP.AVPs = make([]AVP, len(p.AVPs))
 	for i := range p.AVPs {
@@ -604,6 +616,9 @@ func decodePacketHeaderTo(p *Packet, Secret string, buf []byte, requestAuth []by
 	p.Code = PacketCode(buf[0])
 	p.Identifier = buf[1]
 	copy(p.Authenticator[:], buf[4:packetHeaderLen])
+	if !p.Code.IsRequest() {
+		copy(p.requestAuth[:], requestAuth)
+	}
 
 	if err := p.checkAuthenticator(buf, requestAuth); err != nil {
 		return nil, err
@@ -737,7 +752,7 @@ func (p *Packet) GetPassword() (password string) {
 func (p *Packet) AddPassword(password string) {
 	p.SetAVP(AVP{
 		Type:  AttrUserPassword,
-		Value: avpPassword.Encode(password, p.Secret, p.Authenticator[:]),
+		Value: avpPassword.Encode(password, p.Secret, p.cryptAuthenticator()),
 	})
 }
 

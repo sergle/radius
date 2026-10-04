@@ -19,7 +19,7 @@ func (s AvpPassword) Value(p *Packet, a AVP) interface{} {
 	b := a.Value
 	password := make([]byte, len(b))
 	last := make([]byte, blockSize)
-	copy(last, p.Authenticator[:])
+	copy(last, p.cryptAuthenticator())
 	hash := crypto.Hash(crypto.MD5).New()
 	blocks := 0
 
