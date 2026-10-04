@@ -14,7 +14,7 @@ const (
 	AccountingRequest  PacketCode = 4
 	AccountingResponse PacketCode = 5
 	AccessChallenge    PacketCode = 11
-	StatusServer       PacketCode = 12 //(experimental)
+	StatusServer       PacketCode = 12 // RFC 5997
 	StatusClient       PacketCode = 13 //(experimental)
 	DisconnectRequest  PacketCode = 40
 	DisconnectAccept   PacketCode = 41
@@ -44,26 +44,43 @@ var packetCodeName = map[PacketCode]string{
 }
 
 // String returns the canonical name of the packet code.
-func (p PacketCode) String() string {
-	name, ok := packetCodeName[p]
+func (pc PacketCode) String() string {
+	name, ok := packetCodeName[pc]
 	if ok {
 		return name
 	}
 
-	return "unknown packet code " + strconv.Itoa(int(p))
+	return "unknown packet code " + strconv.Itoa(int(pc))
 }
 
 // IsRequest reports whether the code is a request (as opposed to a reply).
-func (p PacketCode) IsRequest() bool {
-	if p == AccessRequest || p == AccountingRequest || p == DisconnectRequest || p == CoARequest {
+// Requests and replies compute their Authenticator and Message-Authenticator differently.
+func (pc PacketCode) IsRequest() bool {
+	switch pc {
+	case AccessRequest, AccountingRequest, DisconnectRequest, CoARequest, StatusServer:
 		return true
 	}
 	return false
 }
 
+// hasRandomAuthenticator reports whether the code's Request Authenticator is random.
+func (pc PacketCode) hasRandomAuthenticator() bool {
+	switch pc {
+	case AccessRequest, StatusServer:
+		return true
+	}
+	return false
+}
+
+// hasMessageAuthenticator reports whether the code is signed with Message-Authenticator on encode.
+func (pc PacketCode) hasMessageAuthenticator() bool {
+	return pc.IsAccess() || pc == StatusServer
+}
+
 // IsAccess reports whether the code is in the Access-* family.
-func (p PacketCode) IsAccess() bool {
-	if p == AccessRequest || p == AccessAccept || p == AccessReject || p == AccessChallenge {
+func (pc PacketCode) IsAccess() bool {
+	switch pc {
+	case AccessRequest, AccessAccept, AccessReject, AccessChallenge:
 		return true
 	}
 	return false

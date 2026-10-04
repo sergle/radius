@@ -30,8 +30,13 @@ func startTestServer(t *testing.T, srv *Server) (addr string, done <-chan error)
 
 // rawAccessRequest builds an Access-Request by hand, without Message-Authenticator.
 func rawAccessRequest(id uint8, avps ...AVP) []byte {
+	return rawRequest(AccessRequest, id, avps...)
+}
+
+// rawRequest builds a request with a random authenticator by hand, without Message-Authenticator.
+func rawRequest(code PacketCode, id uint8, avps ...AVP) []byte {
 	b := make([]byte, packetHeaderLen, maxPacketLen)
-	b[0] = byte(AccessRequest)
+	b[0] = byte(code)
 	b[1] = id
 	rand.Read(b[4:packetHeaderLen])
 	for _, a := range avps {

@@ -123,7 +123,7 @@ func (p *Packet) Copy() *Packet {
 // Message-Authenticator and the packet Authenticator in the output.
 // A Message-Authenticator not already in the packet is added as the first attribute.
 // Replies are left unchanged; a request's Authenticator is set to the one
-// sent (random for an Access-Request if unset).
+// sent (random for an Access-Request or Status-Server if unset).
 func (p *Packet) Encode() (b []byte, err error) {
 	b = make([]byte, maxPacketLen)
 	n, err := p.EncodeTo(b)
@@ -139,7 +139,7 @@ func (p *Packet) Encode() (b []byte, err error) {
 // commonly uses 4096 bytes (the RADIUS maximum packet size).
 func (p *Packet) EncodeTo(b []byte) (n int, err error) {
 	// generate only if not set yet; kept in p for User-Password and reply checks
-	if p.Code == AccessRequest && p.Authenticator == [authenticatorLen]byte{} {
+	if p.Code.hasRandomAuthenticator() && p.Authenticator == [authenticatorLen]byte{} {
 		_, err := rand.Read(p.Authenticator[:])
 		if err != nil {
 			return 0, err
@@ -147,7 +147,7 @@ func (p *Packet) EncodeTo(b []byte) (n int, err error) {
 	}
 
 	// a new Message-Authenticator goes first (Blast-RADIUS, CVE-2024-3596)
-	addMA := p.Code.IsAccess() && !p.HasAVP(AttrMessageAuthenticator)
+	addMA := p.Code.hasMessageAuthenticator() && !p.HasAVP(AttrMessageAuthenticator)
 	n, err = p.encodeNoHashTo(b, addMA)
 	if err != nil {
 		return
@@ -157,11 +157,11 @@ func (p *Packet) EncodeTo(b []byte) (n int, err error) {
 	// Request Authenticator is computed using a 16-byte zero vector in the
 	// hash input per RFC 2866/5176. Ensure we don't accidentally hash any
 	// caller-provided authenticator value.
-	if p.Code.IsRequest() && p.Code != AccessRequest {
+	if p.Code.IsRequest() && !p.Code.hasRandomAuthenticator() {
 		clear(b[4:packetHeaderLen])
 	}
 
-	if p.Code.IsAccess() {
+	if p.Code.hasMessageAuthenticator() {
 		// an existing Message-Authenticator is filled in place
 		off := packetHeaderLen
 		if !addMA {
@@ -181,7 +181,7 @@ func (p *Packet) EncodeTo(b []byte) (n int, err error) {
 	// handle request and response stuff.
 	// here only handle response part.
 	switch p.Code {
-	case AccessRequest:
+	case AccessRequest, StatusServer:
 	case DisconnectRequest, DisconnectAccept, DisconnectReject:
 		fallthrough
 	case CoARequest, CoAAccept, CoAReject:
@@ -374,7 +374,7 @@ func (p *Packet) DeleteOneType(attrType AttributeType) {
 
 // Request constructs a new request packet with a random Identifier.
 //
-// For Access-Request packets, a new request Authenticator is also generated and
+// For Access-Request and Status-Server packets, a new request Authenticator is also generated and
 // is later used for User-Password encryption and reply validation.
 func Request(code PacketCode, secret string) *Packet {
 	packet := new(Packet)
@@ -386,7 +386,7 @@ func Request(code PacketCode, secret string) *Packet {
 		packet.Identifier = id[0]
 	}
 
-	if code == AccessRequest {
+	if code.hasRandomAuthenticator() {
 		// generate new - will be used to encode password
 		rand.Read(packet.Authenticator[:])
 	}
@@ -627,7 +627,7 @@ func decodePacketHeaderTo(p *Packet, Secret string, buf []byte, requestAuth []by
 }
 
 func (p *Packet) checkAuthenticator(buf []byte, requestAuth []byte) (err error) {
-	if p.Code == AccessRequest {
+	if p.Code.hasRandomAuthenticator() {
 		// it has random authenticator, do not verify
 		return nil
 	}
@@ -666,7 +666,8 @@ func findAttributeOffset(buf []byte, attrType AttributeType) int {
 // offset is the position of the attribute in buf, or -1 if it is absent
 func (p *Packet) checkMessageAuthenticator(buf []byte, offset int, requestAuth []byte, opts *DecodeOptions) (err error) {
 	if offset < 0 {
-		if opts != nil && opts.RequireMessageAuthenticator && p.Code.IsAccess() {
+		// Status-Server requires it (RFC 5997 section 3)
+		if p.Code == StatusServer || opts != nil && opts.RequireMessageAuthenticator && p.Code.IsAccess() {
 			return ErrMessageAuthenticatorMissing
 		}
 		return nil

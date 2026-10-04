@@ -118,3 +118,6 @@ func (c *RadClient) NewDisconnectRequest() *Packet { return c.NewRequest(Disconn
 
 // NewCoARequest constructs a Change-of-Authorization Request (RFC 3576) packet.
 func (c *RadClient) NewCoARequest() *Packet { return c.NewRequest(CoARequest) }
+
+// NewStatusServer constructs a Status-Server (RFC 5997) packet.
+func (c *RadClient) NewStatusServer() *Packet { return c.NewRequest(StatusServer) }
