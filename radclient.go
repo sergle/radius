@@ -1,24 +1,37 @@
 package radius
 
 import (
+	"cmp"
 	"context"
 	"net"
 	"time"
 )
 
+const (
+	// default when neither SetTimeout nor a ctx deadline is set
+	sendTimeout = 2 * time.Second
+
+	// backoff before retransmitting after a send/receive error, doubling up to retryBackoffMax
+	retryBackoff    = 100 * time.Millisecond
+	retryBackoffMax = time.Second
+)
+
 // RadClient is a simple UDP RADIUS client.
 //
 // It encodes requests, sends them to the configured server, reads a reply, and
-// validates the reply authenticator using the shared secret.
+// validates the reply authenticator using the shared secret. Replies with a
+// wrong Identifier or failing verification are skipped while waiting. With
+// SetRetries the unchanged request is retransmitted (RFC 5080 section 2.2.1).
 type RadClient struct {
 	secret  string
 	server  string
 	timeout time.Duration
 
+	retries       int           // retransmissions after the first send
+	retryInterval time.Duration // wait before each retransmission; 0: retransmit only on error
+
 	allowMissingMA bool // Access-* replies may omit Message-Authenticator
 }
-
-const sendTimeout time.Duration = 2 * time.Second
 
 // NewRadClient constructs a client for a server address (for example "host:1812")
 // and a shared secret.
@@ -27,9 +40,23 @@ func NewRadClient(server string, secret string) *RadClient {
 }
 
 // SetTimeout sets the fallback timeout used by Send/SendContext when the context
-// has no deadline.
+// has no deadline. It bounds the whole exchange, including retransmissions.
 func (c *RadClient) SetTimeout(t time.Duration) {
 	c.timeout = t
+}
+
+// SetRetries sets how many times a request is retransmitted (default 0): after
+// each retry interval without a reply, or after a send/receive error with
+// exponential backoff (100ms up to 1s). Retransmissions reuse the same
+// Identifier and Authenticator and stop at the context deadline or timeout.
+func (c *RadClient) SetRetries(n int) {
+	c.retries = max(n, 0)
+}
+
+// SetRetryInterval sets how long to wait for a reply before retransmitting.
+// Zero (default) waits until the deadline and retransmits only on error.
+func (c *RadClient) SetRetryInterval(d time.Duration) {
+	c.retryInterval = d
 }
 
 // SetRequireMessageAuthenticator controls whether Access-* replies must carry a
@@ -42,14 +69,16 @@ func (c *RadClient) SetRequireMessageAuthenticator(require bool) {
 // SendContext sends a RADIUS packet using the provided context, allowing callers
 // to control cancellation and deadlines. For most callers, use Send, which
 // wraps this with context.Background().
+//
+// If no valid reply arrives, the last verification error of a skipped reply is
+// returned, or else the timeout or context error.
 func (c *RadClient) SendContext(ctx context.Context, request *Packet) (*Packet, error) {
 	buf, err := request.Encode()
 	if err != nil {
 		return nil, err
 	}
 
-	requestAuth := make([]byte, 16)
-	copy(requestAuth, request.Authenticator[:])
+	requestAuth := request.Authenticator
 
 	dialer := &net.Dialer{}
 	conn, err := dialer.DialContext(ctx, "udp", c.server)
@@ -58,42 +87,66 @@ func (c *RadClient) SendContext(ctx context.Context, request *Packet) (*Packet, 
 	}
 	defer conn.Close()
 
-	if udpConn, ok := conn.(*net.UDPConn); ok {
-		udpConn.SetWriteBuffer(maxPacketLen)
-		udpConn.SetReadBuffer(maxPacketLen)
-	}
-
-	timeout := c.timeout
-	if timeout == 0 {
-		timeout = sendTimeout
-	}
+	// Unblock a pending read on cancellation.
+	stop := context.AfterFunc(ctx, func() { conn.Close() })
+	defer stop()
 
 	// Prefer context deadline if present; otherwise fall back to client timeout.
-	if deadline, ok := ctx.Deadline(); ok {
-		conn.SetDeadline(deadline)
-	} else {
-		conn.SetDeadline(time.Now().Add(timeout))
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		deadline = time.Now().Add(cmp.Or(c.timeout, sendTimeout))
 	}
-
-	_, err = conn.Write(buf)
-	if err != nil {
-		return nil, err
-	}
-
-	// read answer (n bytes)
-	b := make([]byte, maxPacketLen)
-	n, err := conn.Read(b)
-	if err != nil {
-		return nil, err
-	}
+	conn.SetWriteDeadline(deadline)
 
 	opts := DecodeOptions{RequireMessageAuthenticator: !c.allowMissingMA}
-	reply, err := DecodeReplyWithOptions(c.secret, b[:n], requestAuth, &opts)
-	if err != nil {
-		return nil, err
-	}
+	b := make([]byte, maxPacketLen)
+	var lastErr error // last reply that failed verification
+	backoff := retryBackoff
+	for attempt := 0; ; attempt++ {
+		// Without a retry interval, wait for the reply until the deadline and resend only on error.
+		readDeadline := deadline
+		if next := time.Now().Add(c.retryInterval); c.retryInterval > 0 && attempt < c.retries && next.Before(deadline) {
+			readDeadline = next
+		}
+		conn.SetReadDeadline(readDeadline)
 
-	return reply, nil
+		_, err := conn.Write(buf)
+		for err == nil {
+			var n int
+			if n, err = conn.Read(b); err != nil {
+				break
+			}
+			if n < packetHeaderLen || b[1] != request.Identifier {
+				continue
+			}
+			reply, derr := DecodeReplyWithOptions(c.secret, b[:n], requestAuth[:], &opts)
+			if derr != nil {
+				lastErr = derr
+				continue
+			}
+			return reply, nil
+		}
+
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if attempt >= c.retries || !time.Now().Before(deadline) {
+			return nil, cmp.Or(lastErr, err)
+		}
+		// a timed-out attempt has already waited; back off only after an error
+		if nerr, ok := err.(net.Error); ok && nerr.Timeout() {
+			continue
+		}
+		if time.Until(deadline) <= backoff {
+			return nil, cmp.Or(lastErr, err)
+		}
+		select {
+		case <-time.After(backoff):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		backoff = min(2*backoff, retryBackoffMax)
+	}
 }
 
 // Send is a convenience wrapper around SendContext that uses context.Background().

@@ -636,7 +636,7 @@ func (p *Packet) checkAuthenticator(buf []byte, requestAuth []byte) (err error) 
 	hasher.Write(buf[0:4])
 	if p.Code.IsRequest() {
 		// Accounting, PoD, CoA
-		hasher.Write(make([]byte, 16))
+		hasher.Write(make([]byte, authenticatorLen))
 	} else {
 		// value from request packet
 		hasher.Write(requestAuth)
