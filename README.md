@@ -159,6 +159,40 @@ func main() {
 }
 ```
 
+## Tagged Attributes (RFC 2868)
+Tunnel attributes (`Tunnel-Type`, `Tunnel-Medium-Type`, `Tunnel-Private-Group-ID`, ...) carry a tag (1–31) that groups attributes of the same tunnel. Dictionaries mark them with `has_tag`. Set the tag with the FreeRADIUS `Name:tag` syntax; without it the tag is 0:
+
+```go
+dict := radius.GetDefaultDictionary()
+reply := request.ReplyAccept()
+
+// Tunnel-Type:1 = VLAN, Tunnel-Medium-Type:1 = 802, Tunnel-Private-Group-ID:1 = "100"
+for _, a := range [][2]string{
+	{"Tunnel-Type:1", "VLAN"},
+	{"Tunnel-Medium-Type:1", "802"},
+	{"Tunnel-Private-Group-ID:1", "100"},
+} {
+	avp, err := dict.ParseAVP(a[0], a[1])
+	if err != nil {
+		log.Fatal(err) // unknown attribute, tag on an untagged attribute, bad value
+	}
+	reply.AddAVP(avp)
+}
+
+// Templates accept the same syntax
+tmpl, _ := dict.CreateRequestTemplate(radius.AccessAccept, "Tunnel-Type:2", "Tunnel-Private-Group-ID:2")
+tmpl.Fill(reply, "VLAN", "200")
+```
+
+Decoding strips the tag; tagged values are accepted with or without one:
+
+```go
+vlan, ok := reply.GetVLAN()                // 100, true
+tt := reply.GetAVP(radius.AttrTunnelType)
+log.Print(tt.Decode(reply))                // 13 (VLAN), tag removed
+log.Print(dict.DecodeAVPValue(reply, *tt)) // "VLAN (tag 1)"
+```
+
 ## High Performance: Lazy Decoding
 For high-load proxies or filters where performance is critical, use lazy decoding to avoid unnecessary allocations.
 

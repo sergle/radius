@@ -112,7 +112,7 @@ VALUE		NAS-Port-Type		FDDI			21
 ATTRIBUTE	Port-Limit		62	integer
 
 # RFC 2868 - RADIUS Attributes for Tunnel Protocol Support
-ATTRIBUTE	Tunnel-Type		64	integer
+ATTRIBUTE	Tunnel-Type		64	integer	has_tag
 VALUE		Tunnel-Type		PPTP			1
 VALUE		Tunnel-Type		L2F			2
 VALUE		Tunnel-Type		L2TP			3
@@ -127,7 +127,7 @@ VALUE		Tunnel-Type		DVS			11
 VALUE		Tunnel-Type		IP-in-IP		12
 VALUE		Tunnel-Type		VLAN			13
 
-ATTRIBUTE	Tunnel-Medium-Type	65	integer
+ATTRIBUTE	Tunnel-Medium-Type	65	integer	has_tag
 VALUE		Tunnel-Medium-Type	IPv4			1
 VALUE		Tunnel-Medium-Type	IPv6			2
 VALUE		Tunnel-Medium-Type	NSAP			3
@@ -144,8 +144,8 @@ VALUE		Tunnel-Medium-Type	Decnet-IV		13
 VALUE		Tunnel-Medium-Type	Banyan-Vines	        14
 VALUE		Tunnel-Medium-Type	E.164-NSAP		15
 
-ATTRIBUTE	Tunnel-Client-Endpoint	66	string
-ATTRIBUTE	Tunnel-Server-Endpoint	67	string
+ATTRIBUTE	Tunnel-Client-Endpoint	66	string	has_tag
+ATTRIBUTE	Tunnel-Server-Endpoint	67	string	has_tag
 
 # RFC 2867 - RADIUS Accounting Modifications for Tunnel Protocol Support
 ATTRIBUTE	Acct-Tunnel-Connection	68	string
@@ -163,9 +163,9 @@ ATTRIBUTE	EAP-Message		79	eapmessage
 ATTRIBUTE	Message-Authenticator	80	octets
 
 # RFC 2868 (continued)
-ATTRIBUTE	Tunnel-Private-Group-ID	81	string
-ATTRIBUTE	Tunnel-Assignment-ID	82	string
-ATTRIBUTE	Tunnel-Preference	83	integer
+ATTRIBUTE	Tunnel-Private-Group-ID	81	string	has_tag
+ATTRIBUTE	Tunnel-Assignment-ID	82	string	has_tag
+ATTRIBUTE	Tunnel-Preference	83	integer	has_tag
 
 # RFC 2867 (continued)
 ATTRIBUTE	Acct-Tunnel-Packets-Lost	86	integer
@@ -179,8 +179,8 @@ ATTRIBUTE	Framed-Pool		88	string
 ATTRIBUTE	Chargeable-User-Identity	89	octets
 
 # RFC 2868 (continued)
-ATTRIBUTE	Tunnel-Client-Auth-ID	90	string
-ATTRIBUTE	Tunnel-Server-Auth-ID	91	string
+ATTRIBUTE	Tunnel-Client-Auth-ID	90	string	has_tag
+ATTRIBUTE	Tunnel-Server-Auth-ID	91	string	has_tag
 
 # RFC 4849 - RADIUS Filter Rule Attribute
 ATTRIBUTE	NAS-Filter-Rule		92	string

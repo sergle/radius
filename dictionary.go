@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	_ "embed"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -22,6 +21,7 @@ var (
 	ErrUnsupportedAttributeType = errors.New("unsupported attribute type")
 	ErrInvalidValue             = errors.New("invalid attribute value")
 	ErrEncryptedAttribute       = errors.New("encrypted attribute needs a packet, use AddPassword")
+	ErrInvalidTag               = errors.New("invalid tag")
 )
 
 //go:embed dictionary.builtin
@@ -293,7 +293,18 @@ func parseAttributeFlags(attrName string, flags string) attributeFlags {
 
 // effectiveType returns the handler type for attrType given its encrypt method.
 func (f attributeFlags) effectiveType(attrType string) string {
-	if f.encrypt == encryptNone || (attrType != typeString && attrType != typeOctets) {
+	if f.encrypt == encryptNone {
+		if f.hasTag {
+			switch attrType {
+			case typeInteger:
+				return typeTaggedInteger
+			case typeString, typeOctets:
+				return typeTaggedString
+			}
+		}
+		return attrType
+	}
+	if attrType != typeString && attrType != typeOctets {
 		return attrType
 	}
 	switch f.encrypt {
@@ -516,6 +527,8 @@ const (
 	typeOctets         = "octets"
 	typePassword       = "password"
 	typeTunnelPassword = "tunnel-password"
+	typeTaggedInteger  = "tagged-integer"
+	typeTaggedString   = "tagged-string"
 	typeVSA            = "vsa"
 	typeEAPMessage     = "eapmessage"
 )
@@ -529,6 +542,8 @@ var attrTypeHandlers = map[string]avpDataType{
 	typeOctets:         avpBinary,
 	typePassword:       avpPassword,
 	typeTunnelPassword: avpTunnelPassword,
+	typeTaggedInteger:  avpTaggedUint32,
+	typeTaggedString:   avpTaggedString,
 	typeVSA:            avpVendor,
 	typeEAPMessage:     avpEapMessage,
 	// "byte"
@@ -546,7 +561,7 @@ var attrTypeHandlers = map[string]avpDataType{
 // handlerForValue returns the handler for attrType, or avpBinary if value is too short for it.
 func handlerForValue(attrType string, value []byte) avpDataType {
 	handler := attrTypeHandlers[attrType]
-	if handler == nil || (handler == avpUint32 && len(value) < uint32Size) {
+	if handler == nil || ((handler == avpUint32 || handler == avpTaggedUint32) && len(value) < uint32Size) {
 		return avpBinary
 	}
 	return handler
@@ -572,15 +587,8 @@ func (d *Dictionary) DecodeAVPValue(p *Packet, a AVP) string {
 
 		valStr := handler.String(p, AVP{Value: vsa.Value})
 		// Try to lookup enum name for VSAs too
-		if handler == avpUint32 {
-			vID := binary.BigEndian.Uint32(vsa.Value)
-			d.RLock()
-			if d.vsaConstName[vsa.Vendor] != nil && d.vsaConstName[vsa.Vendor][attrName] != nil {
-				if enumName, ok := d.vsaConstName[vsa.Vendor][attrName][vID]; ok {
-					valStr = enumName
-				}
-			}
-			d.RUnlock()
+		if name, ok := d.enumName(handler, vsa.Value, d.vsaConstName[vsa.Vendor][attrName]); ok {
+			valStr = name
 		}
 
 		return fmt.Sprintf("{Vendor:%s #%d, Attr: %s #%d, Value: %s}",
@@ -593,19 +601,26 @@ func (d *Dictionary) DecodeAVPValue(p *Packet, a AVP) string {
 	handler := handlerForValue(attrType, a.Value)
 
 	// Try to lookup enum name for standard attributes
-	if handler == avpUint32 {
-		vID := binary.BigEndian.Uint32(a.Value)
-		d.RLock()
-		if d.constName[attrName] != nil {
-			if enumName, ok := d.constName[attrName][vID]; ok {
-				d.RUnlock()
-				return enumName
-			}
-		}
-		d.RUnlock()
+	if name, ok := d.enumName(handler, a.Value, d.constName[attrName]); ok {
+		return name
 	}
 
 	return handler.String(p, a)
+}
+
+// enumName returns the VALUE name of an integer value, with its tag if any.
+func (d *Dictionary) enumName(handler avpDataType, value []byte, names map[uint32]string) (string, bool) {
+	if handler != avpUint32 && handler != avpTaggedUint32 {
+		return "", false
+	}
+	v := handler.Value(nil, AVP{Value: value}).(uint32)
+	d.RLock()
+	name, ok := names[v]
+	d.RUnlock()
+	if ok && handler == avpTaggedUint32 {
+		name = withTag(name, value[0])
+	}
+	return name, ok
 }
 
 // public
@@ -705,6 +720,10 @@ func (d *Dictionary) NewVSA(vendorName string, attrName string, attrValue string
 // ParseAVP constructs an AVP from the attribute name and a string value using
 // the attribute type defined in the dictionary. Integer values may be VALUE names.
 func (d *Dictionary) ParseAVP(attrName string, attrValue string) (AVP, error) {
+	attrName, tag, tagged, err := splitTagName(attrName)
+	if err != nil {
+		return AVP{}, fmt.Errorf("%w in attribute name", err)
+	}
 	d.RLock()
 	defer d.RUnlock()
 	attrID, ok := d.attrID[attrName]
@@ -716,7 +735,10 @@ func (d *Dictionary) ParseAVP(attrName string, attrValue string) (AVP, error) {
 	if handler == nil {
 		return AVP{}, fmt.Errorf("%w %q for attribute %s", ErrUnsupportedAttributeType, attrType, attrName)
 	}
-	value, err := encodeValue(handler, d.constID[attrName], attrValue)
+	if tagged && !isTagged(handler) {
+		return AVP{}, fmt.Errorf("%w: attribute %s has no tag", ErrInvalidTag, attrName)
+	}
+	value, err := encodeValue(handler, d.constID[attrName], tag, attrValue)
 	if err != nil {
 		return AVP{}, fmt.Errorf("%w for attribute %s", err, attrName)
 	}
@@ -726,6 +748,10 @@ func (d *Dictionary) ParseAVP(attrName string, attrValue string) (AVP, error) {
 // ParseVSA constructs a Vendor-Specific Attribute from the vendor name, attribute
 // name, and a string value using the VSA type defined in the dictionary.
 func (d *Dictionary) ParseVSA(vendorName string, attrName string, attrValue string) (VSA, error) {
+	attrName, tag, tagged, err := splitTagName(attrName)
+	if err != nil {
+		return VSA{}, fmt.Errorf("%w in attribute name", err)
+	}
 	d.RLock()
 	defer d.RUnlock()
 	vendorID, vendorOK := d.vendorID[vendorName]
@@ -741,7 +767,10 @@ func (d *Dictionary) ParseVSA(vendorName string, attrName string, attrValue stri
 	if handler == nil {
 		return VSA{}, fmt.Errorf("%w %q for attribute %s/%s", ErrUnsupportedAttributeType, attrType, vendorName, attrName)
 	}
-	value, err := encodeValue(handler, d.vsaConstID[vendorID][attrName], attrValue)
+	if tagged && !isTagged(handler) {
+		return VSA{}, fmt.Errorf("%w: attribute %s/%s has no tag", ErrInvalidTag, vendorName, attrName)
+	}
+	value, err := encodeValue(handler, d.vsaConstID[vendorID][attrName], tag, attrValue)
 	if err != nil {
 		return VSA{}, fmt.Errorf("%w for attribute %s/%s", err, vendorName, attrName)
 	}
@@ -749,19 +778,33 @@ func (d *Dictionary) ParseVSA(vendorName string, attrName string, attrValue stri
 }
 
 // encodeValue encodes value with handler; integers accept a VALUE name from names or a number.
-func encodeValue(handler avpDataType, names map[string]uint32, value string) ([]byte, error) {
-	if handler == avpPassword || handler == avpTunnelPassword {
+func encodeValue(handler avpDataType, names map[string]uint32, tag uint8, value string) ([]byte, error) {
+	switch handler {
+	case avpPassword, avpTunnelPassword:
 		return nil, ErrEncryptedAttribute
+	case avpTaggedString:
+		return encodeTaggedString(tag, value), nil
+	case avpUint32, avpTaggedUint32:
+		return encodeInteger(handler == avpTaggedUint32, names, tag, value)
 	}
-	if handler != avpUint32 {
-		return handler.FromString(value), nil
+	return handler.FromString(value), nil
+}
+
+// encodeInteger encodes a VALUE name from names or a number; tagged integers have 24 bits.
+func encodeInteger(tagged bool, names map[string]uint32, tag uint8, value string) ([]byte, error) {
+	v, known := names[value]
+	if !known {
+		n, err := strconv.ParseUint(value, 0, 32)
+		if err != nil {
+			return nil, fmt.Errorf("%w %q", ErrInvalidValue, value)
+		}
+		v = uint32(n)
 	}
-	if v, ok := names[value]; ok {
-		return encodeUint32(v), nil
+	if tagged {
+		if v > taggedIntMax {
+			return nil, fmt.Errorf("%w %q", ErrInvalidValue, value)
+		}
+		v |= uint32(tag) << 24
 	}
-	buf, err := parseUint32(value)
-	if err != nil {
-		return nil, fmt.Errorf("%w %q", ErrInvalidValue, value)
-	}
-	return buf, nil
+	return encodeUint32(v), nil
 }

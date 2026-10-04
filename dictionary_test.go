@@ -156,7 +156,7 @@ func TestLoadBuiltin(t *testing.T) {
 		{"EAP-Message", AttrEAPMessage, "eapmessage"},
 		{"Message-Authenticator", AttrMessageAuthenticator, "octets"},
 		{"Session-Timeout", AttrSessionTimeout, "integer"},
-		{"Tunnel-Type", AttrTunnelType, "integer"},
+		{"Tunnel-Type", AttrTunnelType, "tagged-integer"},
 		{"Acct-Terminate-Cause", AttrAcctTerminateCause, "integer"},
 	}
 	for _, c := range checks {

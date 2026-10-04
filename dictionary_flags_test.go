@@ -102,7 +102,7 @@ func TestFreeRADIUSFlagsParsed(t *testing.T) {
 	}{
 		{"User-Name", "string", false},
 		{"User-Password", "password", false},
-		{"Tunnel-Type", "integer", true},
+		{"Tunnel-Type", "tagged-integer", true},
 		{"Tunnel-Password", "tunnel-password", true},
 		{"Class", "octets", false},
 		{"Unknown-Flagged", "string", false},

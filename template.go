@@ -17,6 +17,7 @@ type AttributeTemplate struct {
 	attrType AttributeType
 	handler  avpDataType
 	names    map[string]uint32 // VALUE name -> number
+	tag      uint8
 }
 
 // Add encodes the value and adds it to the provided packet; invalid values are logged and skipped.
@@ -30,7 +31,7 @@ func (t *AttributeTemplate) Add(p *Packet, value string) {
 		return
 	}
 	if t.handler == avpTunnelPassword {
-		v, err := avpTunnelPassword.Encode(0, value, p.Secret, p.cryptAuthenticator())
+		v, err := avpTunnelPassword.Encode(t.tag, value, p.Secret, p.cryptAuthenticator())
 		if err != nil {
 			log.Printf("template: %v for attribute %s\n", err, t.attrType)
 			return
@@ -38,7 +39,7 @@ func (t *AttributeTemplate) Add(p *Packet, value string) {
 		p.AddAVP(AVP{Type: t.attrType, Value: v})
 		return
 	}
-	v, err := encodeValue(t.handler, t.names, value)
+	v, err := encodeValue(t.handler, t.names, t.tag, value)
 	if err != nil {
 		log.Printf("template: %v for attribute %s\n", err, t.attrType)
 		return
@@ -52,6 +53,7 @@ type vsaTemplate struct {
 	vsaType  VendorAttr
 	handler  avpDataType
 	names    map[string]uint32 // VALUE name -> number
+	tag      uint8
 }
 
 // Add encodes the value and adds it as a VSA to the provided packet; invalid values are logged and skipped.
@@ -60,7 +62,7 @@ func (t *vsaTemplate) Add(p *Packet, value string) {
 		p.AddVSA(VSA{Vendor: t.vendorID, Type: t.vsaType, Value: avpPassword.Encode(value, p.Secret, p.cryptAuthenticator())})
 		return
 	}
-	v, err := encodeValue(t.handler, t.names, value)
+	v, err := encodeValue(t.handler, t.names, t.tag, value)
 	if err != nil {
 		log.Printf("template: %v for VSA %d/%d\n", err, t.vendorID, t.vsaType)
 		return
@@ -92,6 +94,10 @@ func (t *RequestTemplate) Fill(p *Packet, values ...string) {
 
 // GetTemplate creates an AttributeTemplate for the given attribute name.
 func (d *Dictionary) GetTemplate(name string) (*AttributeTemplate, error) {
+	name, tag, tagged, err := splitTagName(name)
+	if err != nil {
+		return nil, fmt.Errorf("%w in attribute name", err)
+	}
 	d.RLock()
 	defer d.RUnlock()
 
@@ -110,10 +116,15 @@ func (d *Dictionary) GetTemplate(name string) (*AttributeTemplate, error) {
 		return nil, fmt.Errorf("no handler found for type %s", typeName)
 	}
 
+	if tagged && !isTagged(handler) {
+		return nil, fmt.Errorf("%w: attribute %s has no tag", ErrInvalidTag, name)
+	}
+
 	return &AttributeTemplate{
 		attrType: id,
 		handler:  handler,
 		names:    maps.Clone(d.constID[name]),
+		tag:      tag,
 	}, nil
 }
 
@@ -125,6 +136,10 @@ func (d *Dictionary) valueNames(attrName string) map[string]uint32 {
 }
 
 func (d *Dictionary) getVSATemplate(vendorName, attrName string) (AVPTemplate, error) {
+	attrName, tag, tagged, err := splitTagName(attrName)
+	if err != nil {
+		return nil, fmt.Errorf("%w in attribute name", err)
+	}
 	d.RLock()
 	defer d.RUnlock()
 
@@ -148,11 +163,16 @@ func (d *Dictionary) getVSATemplate(vendorName, attrName string) (AVPTemplate, e
 		return nil, fmt.Errorf("no handler found for type %s", typeName)
 	}
 
+	if tagged && !isTagged(handler) {
+		return nil, fmt.Errorf("%w: attribute %s/%s has no tag", ErrInvalidTag, vendorName, attrName)
+	}
+
 	return &vsaTemplate{
 		vendorID: vID,
 		vsaType:  aID,
 		handler:  handler,
 		names:    maps.Clone(d.vsaConstID[vID][attrName]),
+		tag:      tag,
 	}, nil
 }
 
