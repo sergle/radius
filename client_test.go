@@ -119,3 +119,15 @@ func TestClientListConcurrent(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// Locks must not leak into the public API.
+func TestNoExportedLocks(t *testing.T) {
+	for _, v := range []any{&Dictionary{}, &ClientList{}} {
+		typ := reflect.TypeOf(v)
+		for _, m := range []string{"Lock", "Unlock", "RLock", "RUnlock", "RLocker", "TryLock", "TryRLock"} {
+			if _, ok := typ.MethodByName(m); ok {
+				t.Errorf("%v exposes %s", typ, m)
+			}
+		}
+	}
+}

@@ -97,8 +97,8 @@ func (d *Dictionary) GetTemplate(name string) (*AttributeTemplate, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w in attribute name", err)
 	}
-	d.RLock()
-	defer d.RUnlock()
+	d.mu.RLock()
+	defer d.mu.RUnlock()
 
 	id, ok := d.attrID[name]
 	if !ok {
@@ -129,8 +129,8 @@ func (d *Dictionary) GetTemplate(name string) (*AttributeTemplate, error) {
 
 // valueNames returns a copy of the VALUE names of attribute attrName.
 func (d *Dictionary) valueNames(attrName string) map[string]uint32 {
-	d.RLock()
-	defer d.RUnlock()
+	d.mu.RLock()
+	defer d.mu.RUnlock()
 	return maps.Clone(d.constID[attrName])
 }
 
@@ -139,8 +139,8 @@ func (d *Dictionary) getVSATemplate(vendorName, attrName string) (AVPTemplate, e
 	if err != nil {
 		return nil, fmt.Errorf("%w in attribute name", err)
 	}
-	d.RLock()
-	defer d.RUnlock()
+	d.mu.RLock()
+	defer d.mu.RUnlock()
 
 	vID, ok := d.vendorID[vendorName]
 	if !ok {

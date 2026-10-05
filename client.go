@@ -13,21 +13,21 @@ func NewClientList(cs []Client) *ClientList {
 // The zero value is an empty list ready to use.
 type ClientList struct {
 	herd map[string]Client
-	sync.RWMutex
+	mu   sync.RWMutex
 }
 
 // Get returns a client by host, or nil if not present.
 func (cls *ClientList) Get(host string) Client {
-	cls.RLock()
-	defer cls.RUnlock()
+	cls.mu.RLock()
+	defer cls.mu.RUnlock()
 	cl, _ := cls.herd[host]
 	return cl
 }
 
 // AddOrUpdate adds a new client or replaces an existing client with the same host.
 func (cls *ClientList) AddOrUpdate(cl Client) {
-	cls.Lock()
-	defer cls.Unlock()
+	cls.mu.Lock()
+	defer cls.mu.Unlock()
 	if cls.herd == nil {
 		cls.herd = make(map[string]Client)
 	}
@@ -36,8 +36,8 @@ func (cls *ClientList) AddOrUpdate(cl Client) {
 
 // Remove deletes a client by host.
 func (cls *ClientList) Remove(host string) {
-	cls.Lock()
-	defer cls.Unlock()
+	cls.mu.Lock()
+	defer cls.mu.Unlock()
 	delete(cls.herd, host)
 }
 
@@ -47,15 +47,15 @@ func (cls *ClientList) SetHerd(herd []Client) {
 	for _, v := range herd {
 		m[v.GetHost()] = v
 	}
-	cls.Lock()
-	defer cls.Unlock()
+	cls.mu.Lock()
+	defer cls.mu.Unlock()
 	cls.herd = m
 }
 
 // GetHerd returns a snapshot of the current clients.
 func (cls *ClientList) GetHerd() []Client {
-	cls.RLock()
-	defer cls.RUnlock()
+	cls.mu.RLock()
+	defer cls.mu.RUnlock()
 	herd := make([]Client, len(cls.herd))
 	i := 0
 	for _, v := range cls.herd {

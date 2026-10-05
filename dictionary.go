@@ -79,7 +79,7 @@ func GetDefaultDictionary() *Dictionary {
 // A Dictionary provides name/type mappings for standard attributes and
 // Vendor-Specific Attributes (VSAs), and is used by AVP decoding/formatting.
 type Dictionary struct {
-	sync.RWMutex
+	mu sync.RWMutex
 	// map attribute name to id
 	attrID map[string]AttributeType
 	// map attribute it to name
@@ -142,8 +142,8 @@ func NewDictionary() *Dictionary {
 // The file format is compatible with FreeRADIUS dictionary files and supports
 // $INCLUDE recursion (with internal/unsupported files skipped).
 func (d *Dictionary) LoadFile(fname string) error {
-	d.Lock()
-	defer d.Unlock()
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	return d.loadFileInternal(fname)
 }
 
@@ -181,8 +181,8 @@ func (d *Dictionary) loadReader(name string, r io.Reader) error {
 
 // LoadBuiltin loads the embedded built-in dictionary into d.
 func (d *Dictionary) LoadBuiltin() error {
-	d.Lock()
-	defer d.Unlock()
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	return d.loadReader("dictionary.builtin", bytes.NewReader(builtinDictionaryData))
 }
 
@@ -602,9 +602,9 @@ func (d *Dictionary) enumName(handler avpDataType, value []byte, names map[uint3
 		return "", false
 	}
 	v := handler.Value(nil, AVP{Value: value}).(uint32)
-	d.RLock()
+	d.mu.RLock()
 	name, ok := names[v]
-	d.RUnlock()
+	d.mu.RUnlock()
 	if ok && handler == avpTaggedUint32 {
 		name = withTag(name, value[0])
 	}
@@ -615,75 +615,75 @@ func (d *Dictionary) enumName(handler avpDataType, value []byte, names map[uint3
 
 // GetAttributeID returns the AttributeType for an attribute name.
 func (d *Dictionary) GetAttributeID(attrName string) AttributeType {
-	d.RLock()
-	defer d.RUnlock()
+	d.mu.RLock()
+	defer d.mu.RUnlock()
 	return d.attrID[attrName]
 }
 
 // HasAttribute reports whether the dictionary defines the given attribute name.
 func (d *Dictionary) HasAttribute(attrName string) bool {
-	d.RLock()
-	defer d.RUnlock()
+	d.mu.RLock()
+	defer d.mu.RUnlock()
 	_, present := d.attrID[attrName]
 	return present
 }
 
 // GetAttributeName returns the attribute name for an AttributeType.
 func (d *Dictionary) GetAttributeName(attrID AttributeType) string {
-	d.RLock()
-	defer d.RUnlock()
+	d.mu.RLock()
+	defer d.mu.RUnlock()
 	return d.attrName[attrID]
 }
 
 // GetAttributeType returns the type name (for example "string" or "integer")
 // for an attribute name.
 func (d *Dictionary) GetAttributeType(attrName string) string {
-	d.RLock()
-	defer d.RUnlock()
+	d.mu.RLock()
+	defer d.mu.RUnlock()
 	return d.attrType[attrName]
 }
 
 // GetVSAAttributeID returns the vendor-specific attribute ID for a vendor and attribute name.
 func (d *Dictionary) GetVSAAttributeID(vendorID VendorID, attrName string) VendorAttr {
-	d.RLock()
-	defer d.RUnlock()
+	d.mu.RLock()
+	defer d.mu.RUnlock()
 	return d.vsaAttrID[vendorID][attrName]
 }
 
 // HasVSAAttribute reports whether the dictionary defines the given vendor-specific attribute.
 func (d *Dictionary) HasVSAAttribute(vendorID VendorID, attrName string) bool {
-	d.RLock()
-	defer d.RUnlock()
+	d.mu.RLock()
+	defer d.mu.RUnlock()
 	_, present := d.vsaAttrID[vendorID][attrName]
 	return present
 }
 
 // GetVSAAttributeName returns the attribute name for a vendor-specific attribute ID.
 func (d *Dictionary) GetVSAAttributeName(vendorID VendorID, attrID VendorAttr) string {
-	d.RLock()
-	defer d.RUnlock()
+	d.mu.RLock()
+	defer d.mu.RUnlock()
 	return d.vsaAttrName[vendorID][attrID]
 }
 
 // GetVSAAttributeType returns the type name (for example "string" or "integer")
 // for a vendor-specific attribute.
 func (d *Dictionary) GetVSAAttributeType(vendorID VendorID, attrName string) string {
-	d.RLock()
-	defer d.RUnlock()
+	d.mu.RLock()
+	defer d.mu.RUnlock()
 	return d.vsaAttrType[vendorID][attrName]
 }
 
 // GetVendorName returns the vendor name for a VendorID.
 func (d *Dictionary) GetVendorName(vendorID VendorID) string {
-	d.RLock()
-	defer d.RUnlock()
+	d.mu.RLock()
+	defer d.mu.RUnlock()
 	return d.vendorName[vendorID]
 }
 
 // GetVendorID returns the VendorID for a vendor name.
 func (d *Dictionary) GetVendorID(vendorName string) VendorID {
-	d.RLock()
-	defer d.RUnlock()
+	d.mu.RLock()
+	defer d.mu.RUnlock()
 	return d.vendorID[vendorName]
 }
 
@@ -712,8 +712,8 @@ func (d *Dictionary) ParseAVP(attrName string, attrValue string) (AVP, error) {
 	if err != nil {
 		return AVP{}, fmt.Errorf("%w in attribute name", err)
 	}
-	d.RLock()
-	defer d.RUnlock()
+	d.mu.RLock()
+	defer d.mu.RUnlock()
 	attrID, ok := d.attrID[attrName]
 	if !ok {
 		return AVP{}, fmt.Errorf("%w: %s", ErrUnknownAttribute, attrName)
@@ -740,8 +740,8 @@ func (d *Dictionary) ParseVSA(vendorName string, attrName string, attrValue stri
 	if err != nil {
 		return VSA{}, fmt.Errorf("%w in attribute name", err)
 	}
-	d.RLock()
-	defer d.RUnlock()
+	d.mu.RLock()
+	defer d.mu.RUnlock()
 	vendorID, vendorOK := d.vendorID[vendorName]
 	attrID, attrOK := d.vsaAttrID[vendorID][attrName]
 	attrType := d.vsaAttrType[vendorID][attrName]
