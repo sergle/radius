@@ -88,11 +88,9 @@ var (
 	errServerRunning    = errors.New("radius: server already serving")
 )
 
-var serverBufferPool = sync.Pool{
-	New: func() interface{} {
-		return make([]byte, maxPacketLen)
-	},
-}
+var serverBufferPool = newPool(func() []byte {
+	return make([]byte, maxPacketLen)
+})
 
 // Listen binds the UDP socket; after it returns, Addr reports the bound address.
 func (s *Server) Listen() error {
@@ -161,7 +159,7 @@ func (s *Server) Serve() error {
 	}
 
 	for {
-		b := serverBufferPool.Get().([]byte)
+		b := serverBufferPool.Get()
 		// Ensure full buffer length for reads, even if a shorter slice was pooled.
 		b = b[:cap(b)]
 		n, raddr, err := conn.ReadFromUDP(b)
@@ -239,7 +237,7 @@ func (s *Server) Serve() error {
 
 			// Reply AVPs may alias buf (values copied from the request),
 			// so encode into a separate buffer.
-			out := serverBufferPool.Get().([]byte)
+			out := serverBufferPool.Get()
 			out = out[:cap(out)]
 			defer serverBufferPool.Put(out)
 			writtenN, err := npac.EncodeTo(out)

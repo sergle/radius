@@ -11,7 +11,6 @@ import (
 	"iter"
 	"net"
 	"strconv"
-	"sync"
 )
 
 var ErrMessageAuthenticatorCheckFail = fmt.Errorf("RADIUS Message-Authenticator verification failed")
@@ -67,13 +66,11 @@ func (p *Packet) cryptAuthenticator() []byte {
 	return p.Authenticator[:]
 }
 
-var packetPool = sync.Pool{
-	New: func() interface{} {
-		return &Packet{
-			AVPs: make([]AVP, 0, 10),
-		}
-	},
-}
+var packetPool = newPool(func() *Packet {
+	return &Packet{
+		AVPs: make([]AVP, 0, 10),
+	}
+})
 
 // Release returns the packet to the pool.
 // The packet should not be used after being released.
@@ -482,7 +479,7 @@ func DecodeReplyWithOptions(secret string, buf []byte, requestAuth []byte, opts 
 // DecodeRequestPooled decodes a request packet and returns a packet from an
 // internal pool. The returned packet must be released with (*Packet).Release.
 func DecodeRequestPooled(secret string, buf []byte) (p *Packet, err error) {
-	p = packetPool.Get().(*Packet)
+	p = packetPool.Get()
 	err = decodePacketTo(p, secret, buf, nil, nil)
 	if err != nil {
 		p.Release()
@@ -493,7 +490,7 @@ func DecodeRequestPooled(secret string, buf []byte) (p *Packet, err error) {
 
 // DecodeRequestPooledWithOptions is like DecodeRequestPooled but allows options.
 func DecodeRequestPooledWithOptions(secret string, buf []byte, opts *DecodeOptions) (p *Packet, err error) {
-	p = packetPool.Get().(*Packet)
+	p = packetPool.Get()
 	err = decodePacketTo(p, secret, buf, nil, opts)
 	if err != nil {
 		p.Release()
@@ -505,7 +502,7 @@ func DecodeRequestPooledWithOptions(secret string, buf []byte, opts *DecodeOptio
 // DecodeReplyPooled decodes a reply packet and returns a packet from an
 // internal pool. The returned packet must be released with (*Packet).Release.
 func DecodeReplyPooled(secret string, buf []byte, requestAuth []byte) (p *Packet, err error) {
-	p = packetPool.Get().(*Packet)
+	p = packetPool.Get()
 	err = decodePacketTo(p, secret, buf, requestAuth, nil)
 	if err != nil {
 		p.Release()
@@ -516,7 +513,7 @@ func DecodeReplyPooled(secret string, buf []byte, requestAuth []byte) (p *Packet
 
 // DecodeReplyPooledWithOptions is like DecodeReplyPooled but allows options.
 func DecodeReplyPooledWithOptions(secret string, buf []byte, requestAuth []byte, opts *DecodeOptions) (p *Packet, err error) {
-	p = packetPool.Get().(*Packet)
+	p = packetPool.Get()
 	err = decodePacketTo(p, secret, buf, requestAuth, opts)
 	if err != nil {
 		p.Release()
