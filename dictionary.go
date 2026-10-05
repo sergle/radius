@@ -255,6 +255,23 @@ const (
 	encryptAscendSecret   = 3
 )
 
+// encryptNames maps FreeRADIUS v4 "encrypt=" names to methods.
+var encryptNames = map[string]int{
+	"User-Password":   encryptUserPassword,
+	"Tunnel-Password": encryptTunnelPassword,
+	"Ascend-Secret":   encryptAscendSecret,
+}
+
+// v4TypeAliases maps FreeRADIUS v4 type names to their v3 equivalents.
+var v4TypeAliases = map[string]string{
+	"uint8":    typeByte,
+	"uint16":   typeShort,
+	"uint32":   typeInteger,
+	"uint64":   "integer64",
+	"int32":    typeSigned,
+	"ipv4addr": typeIPAddr,
+}
+
 // attributeFlags holds the ATTRIBUTE flags column (e.g. "has_tag,encrypt=2").
 type attributeFlags struct {
 	encrypt int
@@ -273,10 +290,14 @@ func parseAttributeFlags(attrName string, flags string) attributeFlags {
 		case "has_tag":
 			f.hasTag = true
 		case "encrypt":
-			n, err := strconv.Atoi(value)
-			if err != nil {
-				logger().Warn("radius: ignoring invalid encrypt flag", "attribute", attrName, "value", value)
-				continue
+			n, ok := encryptNames[value]
+			if !ok {
+				var err error
+				n, err = strconv.Atoi(value)
+				if err != nil {
+					logger().Warn("radius: ignoring invalid encrypt flag", "attribute", attrName, "value", value)
+					continue
+				}
 			}
 			if n > encryptAscendSecret {
 				logger().Warn("radius: unknown encrypt method, treating as octets", "attribute", attrName, "encrypt", n)
@@ -338,6 +359,9 @@ func (d *Dictionary) parseAttribute(attrName string, attrID string, attrType str
 		return nil
 	}
 
+	if v3, ok := v4TypeAliases[attrType]; ok {
+		attrType = v3
+	}
 	f := parseAttributeFlags(attrName, flags)
 	attrType = f.effectiveType(attrType)
 
