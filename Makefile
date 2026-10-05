@@ -8,6 +8,7 @@ build:
 	go build -o examples/chap_client/chap_client ./examples/chap_client/
 	go build -o examples/server/server       ./examples/server/
 	go build -o examples/eap/eap             ./examples/eap/
+	go build -o examples/dictload/dictload   ./examples/dictload/
 
 test:
 	go test -v ./...
@@ -21,6 +22,7 @@ fuzz:
 	go test -fuzz=^FuzzDecodeRequestPooled$$ -fuzztime=$(FUZZTIME) .
 	go test -fuzz=^FuzzDecodeRequestLazy$$ -fuzztime=$(FUZZTIME) .
 	go test -fuzz=^FuzzEapDecode$$ -fuzztime=$(FUZZTIME) .
+	go test -fuzz=^FuzzTLVDecode$$ -fuzztime=$(FUZZTIME) .
 
 clean:
 	go clean

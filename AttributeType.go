@@ -127,8 +127,8 @@ func getAttributeTypeDesc(t AttributeType) attributeTypeDesc {
 	if d := GetDefaultDictionary(); d != nil {
 		name, typeName := d.attrDesc(t)
 		if name != "" {
-			handler := attrTypeHandlers[typeName]
-			if handler == nil {
+			handler, ok := templateHandler(typeName)
+			if !ok {
 				handler = avpBinary
 			}
 			return attributeTypeDesc{name: name, dataType: handler}

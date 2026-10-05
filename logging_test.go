@@ -16,9 +16,10 @@ import (
 
 // recordHandler collects slog messages and signals each one on ch.
 type recordHandler struct {
-	mu   sync.Mutex
-	msgs []string
-	ch   chan string
+	mu     sync.Mutex
+	msgs   []string
+	levels []slog.Level
+	ch     chan string
 }
 
 func newRecordHandler() *recordHandler {
@@ -37,6 +38,7 @@ func (h *recordHandler) Handle(_ context.Context, r slog.Record) error {
 	msg := sb.String()
 	h.mu.Lock()
 	h.msgs = append(h.msgs, msg)
+	h.levels = append(h.levels, r.Level)
 	h.mu.Unlock()
 	select {
 	case h.ch <- msg:
@@ -52,6 +54,19 @@ func (h *recordHandler) all() string {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return strings.Join(h.msgs, "\n")
+}
+
+// count returns the number of messages at level containing substr.
+func (h *recordHandler) count(level slog.Level, substr string) int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	n := 0
+	for i, msg := range h.msgs {
+		if h.levels[i] == level && strings.Contains(msg, substr) {
+			n++
+		}
+	}
+	return n
 }
 
 // useRecordLogger installs a recording logger for the duration of the test.

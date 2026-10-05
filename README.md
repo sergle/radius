@@ -24,7 +24,7 @@ go get github.com/sergle/radius/v2
 ```
 
 ## Dictionaries: Loading External Vendor Dictionaries (Cisco, Microsoft, ...)
-This library supports **FreeRADIUS-style** dictionary files, including `$INCLUDE`, `VENDOR`, `BEGIN-VENDOR`, and vendor-specific attributes (VSAs).
+This library supports **FreeRADIUS-style** dictionary files, including `$INCLUDE`, `VENDOR`, `BEGIN-VENDOR`, vendor-specific attributes (VSAs) and `tlv` attributes (`ParseTLV`, `GetTLV`).
 
 ### Recommended: Use a “root” dictionary with `$INCLUDE`
 Create a small top-level dictionary file that includes the base dictionary plus any vendor dictionaries you need.
@@ -194,6 +194,21 @@ tt := reply.GetAVP(radius.AttrTunnelType)
 log.Print(tt.Decode(reply))                // 13 (VLAN), tag removed
 log.Print(dict.DecodeAVPValue(reply, *tt)) // "VLAN (tag 1)"
 ```
+
+## TLV Attributes
+Attributes of type `tlv` (e.g. 3GPP2, FreeRADIUS EAP-FAST) hold sub-attributes, declared with dotted ids (`59.1`) or `BEGIN-TLV` blocks. Build them with `ParseTLV`/`NewTLV` (use keyed `TLVValue` fields) and read them with `GetTLV`/`GetTLVString`; `DecodeAVPValue` renders them:
+
+```go
+avp, err := dict.ParseTLV("3GPP2", "3GPP2-Remote-IP-Address",
+	radius.TLVValue{Name: "3GPP2-Remote-IP-Address-Value", Value: "10.1.2.3"},
+	radius.TLVValue{Name: "3GPP2-Remote-IP-Qualifier", Value: "1"},
+)
+req.AddAVP(avp)
+
+q, ok := dict.GetTLVString(p, "3GPP2", "3GPP2-Remote-IP-Qualifier") // "1", true
+```
+
+Consecutive sub-attributes of a nested TLV share one instance of it; pass the nested TLV's own name with an empty `Value` to start another. Sub-attributes of types without a handler (e.g. `ipv6prefix`) decode as raw bytes and can't be built with `ParseTLV`. Sub-attributes of RFC 6929 extended attributes and of vendors with a non-`1,1` VSA format (WiMAX) are not supported yet.
 
 ## High Performance: Lazy Decoding
 For high-load proxies or filters where performance is critical, use lazy decoding to avoid unnecessary allocations.

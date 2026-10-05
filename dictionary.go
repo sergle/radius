@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -96,8 +97,14 @@ type Dictionary struct {
 	vendorName map[VendorID]string
 	// current vendor (parser state)
 	currentVendor VendorID
-	// current TLV attribute (WiMAX Vendor), ignored
-	currentTLV VendorAttr
+	// open BEGIN-TLV blocks (parser state)
+	tlvStack []tlvBlock
+	// TLV attributes and sub-attributes: vendor (0 for standard) -> name -> definition
+	tlvAttrs map[VendorID]map[string]*tlvAttr
+	// vendors with a non-default VSA format, TLV sub-attributes are ignored
+	vendorNoTLV map[VendorID]bool
+	// names of ignored sub-attributes, their VALUEs are skipped quietly
+	skippedAttrs map[VendorID]map[string]bool
 
 	// vsa
 	// vendor -> attribute name -> attribute id
@@ -129,6 +136,9 @@ func NewDictionary() *Dictionary {
 	dict.vsaAttrFlags = make(map[VendorID]map[string]attributeFlags)
 	dict.vsaConstID = make(map[VendorID]map[string]map[string]uint32)
 	dict.vsaConstName = make(map[VendorID]map[string]map[uint32]string)
+	dict.tlvAttrs = make(map[VendorID]map[string]*tlvAttr)
+	dict.vendorNoTLV = make(map[VendorID]bool)
+	dict.skippedAttrs = make(map[VendorID]map[string]bool)
 
 	return dict
 }
@@ -166,12 +176,18 @@ func (d *Dictionary) loadReader(name string, r io.Reader) error {
 	scanner := bufio.NewScanner(r)
 	scanner.Split(bufio.ScanLines)
 
+	depth := len(d.tlvStack)
 	for scanner.Scan() {
 		if err := d.parseLine(name, scanner.Text()); err != nil {
+			d.tlvStack = d.tlvStack[:min(depth, len(d.tlvStack))]
 			return err
 		}
 	}
-
+	if len(d.tlvStack) > depth {
+		open := d.tlvStack[len(d.tlvStack)-1].name
+		d.tlvStack = d.tlvStack[:depth]
+		return fmt.Errorf("%s: missing END-TLV %s", name, open)
+	}
 	return nil
 }
 
@@ -220,7 +236,11 @@ func (d *Dictionary) parseLine(fname string, line string) error {
 		if len(parts) < 3 {
 			return errors.New("Invalid VENDOR line: " + line)
 		}
-		return d.parseVendor(parts[1], parts[2])
+		format := ""
+		if len(parts) > 3 && strings.HasPrefix(parts[3], "format=") {
+			format = parts[3]
+		}
+		return d.parseVendor(parts[1], parts[2], format)
 	case "BEGIN-VENDOR":
 		if len(parts) < 2 {
 			return errors.New("Invalid BEGIN-VENDOR line: " + line)
@@ -344,6 +364,10 @@ func (d *Dictionary) parseAttribute(attrName string, attrID string, attrType str
 	//     id_size = 16
 	// }
 
+	if len(d.tlvStack) > 0 || strings.Contains(attrID, ".") {
+		return d.parseTLVAttribute(attrName, attrID, attrType, flags)
+	}
+
 	// 0 - guess base (0x for hex)
 	aID, err := strconv.ParseUint(attrID, 0, 8)
 	if err != nil {
@@ -352,18 +376,37 @@ func (d *Dictionary) parseAttribute(attrName string, attrID string, attrType str
 		return nil
 	}
 
-	//TODO WiMAX
-	if d.currentTLV > 0 {
-		// ignore tlv sub-attributes
-		logger().Debug("radius: ignoring TLV sub-attribute", "attribute", attrName)
-		return nil
-	}
-
 	if v3, ok := v4TypeAliases[attrType]; ok {
 		attrType = v3
 	}
 	f := parseAttributeFlags(attrName, flags)
 	attrType = f.effectiveType(attrType)
+
+	if old := d.tlvAttrs[d.currentVendor][attrName]; old != nil && old.parent != nil {
+		return fmt.Errorf("duplicate attribute %s, already a sub-attribute of %s", attrName, old.parent.name)
+	}
+	if id, oldType, ok := d.topLevelDef(attrName); ok {
+		if id != uint8(aID) || wireType(oldType) != wireType(attrType) {
+			return fmt.Errorf("duplicate attribute %s with another definition", attrName)
+		}
+		// an equivalent redeclaration keeps the first definition, sub-attributes and VALUEs,
+		// and decodes the number again
+		if d.currentVendor > 0 {
+			d.vsaAttrName[d.currentVendor][VendorAttr(aID)] = attrName
+		} else {
+			d.attrName[AttributeType(aID)] = attrName
+		}
+		return nil
+	}
+	// another name for a number is an alias: both encode, the last one decodes
+	if attrType == typeTLV && !d.vendorNoTLV[d.currentVendor] {
+		if t := d.aliasedTLV(uint8(aID)); t != nil {
+			// a TLV alias shares the sub-attributes
+			d.addTLVAttr(t, attrName)
+		} else {
+			d.addTLVAttr(&tlvAttr{name: attrName, num: uint8(aID), attrType: attrType}, attrName)
+		}
+	}
 
 	if d.currentVendor > 0 {
 		if _, ok := d.vsaAttrID[d.currentVendor]; !ok {
@@ -387,11 +430,196 @@ func (d *Dictionary) parseAttribute(attrName string, attrID string, attrType str
 	return nil
 }
 
+// parseTLVAttribute adds a sub-attribute declared with a dotted OID or inside BEGIN-TLV.
+func (d *Dictionary) parseTLVAttribute(attrName string, attrID string, attrType string, flags string) error {
+	oid, err := parseOID(attrID)
+	if err != nil {
+		logger().Warn("radius: ignoring attribute with invalid id", "attribute", attrName, "id", attrID, "error", err)
+		return nil
+	}
+	parent, status := d.tlvParent(oid)
+	switch status {
+	case tlvParentUnknown:
+		d.skipAttr(attrName)
+		logger().Warn("radius: ignoring sub-attribute of unknown attribute", "attribute", attrName, "id", attrID)
+		return nil
+	case tlvParentNotTLV:
+		d.skipAttr(attrName)
+		logger().Warn("radius: ignoring sub-attribute, parent is not a TLV", "attribute", attrName, "id", attrID)
+		return nil
+	case tlvParentUnsupported:
+		// extended attributes, non-default vendor formats (WiMAX)
+		d.skipAttr(attrName)
+		logger().Debug("radius: ignoring unsupported sub-attribute", "attribute", attrName, "id", attrID)
+		return nil
+	}
+
+	if v3, ok := v4TypeAliases[attrType]; ok {
+		attrType = v3
+	}
+	if f := parseAttributeFlags(attrName, flags); f.encrypt != 0 || f.hasTag {
+		logger().Warn("radius: ignoring flags of sub-attribute", "attribute", attrName, "flags", flags)
+	}
+	num := oid[len(oid)-1]
+	if old := d.tlvAttrs[d.currentVendor][attrName]; old != nil {
+		if old.parent != parent || old.num != num || old.attrType != attrType {
+			return fmt.Errorf("duplicate attribute %s with another definition", attrName)
+		}
+		// an identical redeclaration
+		return nil
+	}
+	if _, _, ok := d.topLevelDef(attrName); ok {
+		return fmt.Errorf("duplicate attribute %s, already a top-level attribute", attrName)
+	}
+	child := &tlvAttr{name: attrName, num: num, attrType: attrType}
+	if !parent.addChild(child) {
+		d.skipAttr(attrName)
+		return nil
+	}
+	d.addTLVAttr(child, child.name)
+	return nil
+}
+
+// parseOID parses a dotted attribute number such as "59.1".
+func parseOID(attrID string) ([]uint8, error) {
+	var oid []uint8
+	for _, s := range strings.Split(attrID, ".") {
+		n, err := strconv.ParseUint(s, 0, 8)
+		if err != nil {
+			return nil, err
+		}
+		oid = append(oid, uint8(n))
+	}
+	return oid, nil
+}
+
+type tlvParentStatus int
+
+const (
+	tlvParentOK          tlvParentStatus = iota
+	tlvParentUnknown                     // parent isn't defined
+	tlvParentNotTLV                      // parent is a plain attribute
+	tlvParentUnsupported                 // extended attribute, non-default vendor format, ignored block
+)
+
+// extendedTypes are RFC 6929 attribute types whose sub-attributes aren't supported.
+var extendedTypes = map[string]bool{"extended": true, "long-extended": true, "evs": true}
+
+// tlvParent returns the TLV holding the last component of oid.
+func (d *Dictionary) tlvParent(oid []uint8) (*tlvAttr, tlvParentStatus) {
+	var parent *tlvAttr
+	if n := len(d.tlvStack); n > 0 {
+		if parent = d.tlvStack[n-1].attr; parent == nil {
+			return nil, tlvParentUnsupported
+		}
+	} else {
+		var name, attrType string
+		var ok bool
+		if d.currentVendor > 0 {
+			name, ok = d.vsaAttrName[d.currentVendor][VendorAttr(oid[0])]
+			attrType = d.vsaAttrType[d.currentVendor][name]
+		} else {
+			name, ok = d.attrName[AttributeType(oid[0])]
+			attrType = d.attrType[name]
+		}
+		if !ok {
+			return nil, tlvParentUnknown
+		}
+		if parent = d.rootTLV(d.currentVendor, name); parent == nil {
+			if d.vendorNoTLV[d.currentVendor] || extendedTypes[attrType] {
+				return nil, tlvParentUnsupported
+			}
+			return nil, tlvParentNotTLV
+		}
+		oid = oid[1:]
+	}
+	for _, n := range oid[:len(oid)-1] {
+		if parent.attrType != typeTLV {
+			return nil, tlvParentNotTLV
+		}
+		child, ok := parent.children[n]
+		if !ok {
+			// e.g. 241.26.x under an ignored Extended-Vendor-Specific
+			return nil, tlvParentUnknown
+		}
+		parent = child
+	}
+	if parent.attrType != typeTLV {
+		return nil, tlvParentNotTLV
+	}
+	return parent, tlvParentOK
+}
+
+// topLevelDef returns the number and type of top-level attribute attrName of the current vendor.
+func (d *Dictionary) topLevelDef(attrName string) (uint8, string, bool) {
+	if d.currentVendor > 0 {
+		id, ok := d.vsaAttrID[d.currentVendor][attrName]
+		return uint8(id), d.vsaAttrType[d.currentVendor][attrName], ok
+	}
+	id, ok := d.attrID[attrName]
+	return uint8(id), d.attrType[attrName], ok
+}
+
+// rawVSAString formats a VSA of an unknown attribute, naming the vendor if known.
+func rawVSAString(vsa *VSA, vendorName string, vendorOK bool) string {
+	// as AvpVendor without a dictionary
+	vendor := " " + strconv.FormatUint(uint64(vsa.Vendor), 10)
+	if vendorOK {
+		vendor = vendorName + " #" + vendor[1:]
+	}
+	return fmt.Sprintf("{Vendor:%s, Attr: %d, Value: %#v}", vendor, vsa.Type, vsa.Value)
+}
+
+// wireTypes maps types to a type with the same encoding, e.g. builtin vs FreeRADIUS definitions.
+var wireTypes = map[string]string{
+	"date":         typeInteger,
+	typeEAPMessage: typeOctets,
+	"ifid":         typeOctets,
+	"ipv6prefix":   typeOctets,
+}
+
+// wireType returns the type attrType is encoded as, for comparing redeclarations.
+func wireType(attrType string) string {
+	if t, ok := wireTypes[attrType]; ok {
+		return t
+	}
+	return attrType
+}
+
+// skipAttr records an ignored sub-attribute of the current vendor; its VALUEs are skipped quietly.
+func (d *Dictionary) skipAttr(attrName string) {
+	if _, ok := d.skippedAttrs[d.currentVendor]; !ok {
+		d.skippedAttrs[d.currentVendor] = make(map[string]bool)
+	}
+	d.skippedAttrs[d.currentVendor][attrName] = true
+}
+
+// addTLVAttr indexes t as name under the current vendor.
+func (d *Dictionary) addTLVAttr(t *tlvAttr, name string) {
+	if _, ok := d.tlvAttrs[d.currentVendor]; !ok {
+		d.tlvAttrs[d.currentVendor] = make(map[string]*tlvAttr)
+	}
+	d.tlvAttrs[d.currentVendor][name] = t
+}
+
+// aliasedTLV returns the TLV definition of top-level attribute number id of the current vendor, or nil.
+func (d *Dictionary) aliasedTLV(id uint8) *tlvAttr {
+	// the last name for id may be a non-TLV alias
+	for _, t := range d.tlvAttrs[d.currentVendor] {
+		if t.parent == nil && t.num == id {
+			return t
+		}
+	}
+	return nil
+}
+
 func (d *Dictionary) parseValue(attrName string, constName string, constValue string) error {
-	//TODO WiMAX
-	if d.currentTLV > 0 {
-		// ignore tlv sub-attributes
-		logger().Debug("radius: ignoring TLV sub-attribute", "attribute", attrName)
+	if t := d.tlvAttrs[d.currentVendor][attrName]; t != nil && t.parent != nil {
+		cID, err := parseInteger(attrTypeHandlers[t.attrType], constValue)
+		if err != nil {
+			return fmt.Errorf("value %s of attribute %s: %w", constName, attrName, err)
+		}
+		t.addValue(constName, cID)
 		return nil
 	}
 
@@ -406,6 +634,10 @@ func (d *Dictionary) parseValue(attrName string, constName string, constValue st
 	}
 
 	if !present {
+		if d.skippedAttrs[d.currentVendor][attrName] {
+			logger().Debug("radius: ignoring value for unsupported sub-attribute", "attribute", attrName, "value", constName)
+			return nil
+		}
 		logger().Warn("radius: ignoring value for unknown attribute", "attribute", attrName, "value", constName)
 		// ignore 'compat' errors
 		return nil
@@ -465,15 +697,24 @@ func (d *Dictionary) parseInclude(fname string, incName string) error {
 	if !filepath.IsAbs(incName) {
 		fullName = filepath.Join(filepath.Dir(fname), incName)
 	}
+	if err := d.checkNoTLVBlock("$INCLUDE " + incName); err != nil {
+		return err
+	}
 	// clear vendor
 	d.currentVendor = 0
 	return d.loadFileInternal(fullName)
 }
 
-func (d *Dictionary) parseVendor(vendorName string, vendorID string) error {
+func (d *Dictionary) parseVendor(vendorName string, vendorID string, format string) error {
 	vID, err := strconv.ParseUint(vendorID, 0, 32)
 	if err != nil {
 		return fmt.Errorf("vendor %s: %w", vendorName, err)
+	}
+	// TODO WiMAX continuation byte and other formats
+	if format != "" && format != defaultVendorFormat {
+		d.vendorNoTLV[VendorID(vID)] = true
+	} else {
+		delete(d.vendorNoTLV, VendorID(vID))
 	}
 
 	d.vendorID[vendorName] = VendorID(vID)
@@ -483,6 +724,9 @@ func (d *Dictionary) parseVendor(vendorName string, vendorID string) error {
 }
 
 func (d *Dictionary) parseBeginVendor(vendorName string) error {
+	if err := d.checkNoTLVBlock("BEGIN-VENDOR " + vendorName); err != nil {
+		return err
+	}
 	vID, ok := d.vendorID[vendorName]
 	if !ok {
 		return errors.New("unknown vendor " + vendorName)
@@ -492,6 +736,9 @@ func (d *Dictionary) parseBeginVendor(vendorName string) error {
 }
 
 func (d *Dictionary) parseEndVendor(vendorName string) error {
+	if err := d.checkNoTLVBlock("END-VENDOR " + vendorName); err != nil {
+		return err
+	}
 	vID, ok := d.vendorID[vendorName]
 	if !ok {
 		return errors.New("unknown vendor " + vendorName)
@@ -506,26 +753,41 @@ func (d *Dictionary) parseEndVendor(vendorName string) error {
 	return nil
 }
 
+// checkNoTLVBlock returns an error if a BEGIN-TLV block is open at line.
+func (d *Dictionary) checkNoTLVBlock(line string) error {
+	if n := len(d.tlvStack); n > 0 {
+		return fmt.Errorf("%s inside BEGIN-TLV %s", line, d.tlvStack[n-1].name)
+	}
+	return nil
+}
+
 func (d *Dictionary) parseBeginTLV(attrName string) error {
-	aID, ok := d.vsaAttrID[d.currentVendor][attrName]
-	if !ok {
+	t := d.tlvAttrs[d.currentVendor][attrName]
+	_, vsa := d.vsaAttrID[d.currentVendor][attrName]
+	_, std := d.attrID[attrName]
+	known := vsa || (d.currentVendor == 0 && std)
+	switch {
+	case t != nil && t.attrType != typeTLV:
+		return errors.New("Not a TLV attribute " + attrName)
+	case t != nil:
+		// a known TLV: open its block
+	case d.skippedAttrs[d.currentVendor][attrName] || (known && d.vendorNoTLV[d.currentVendor]):
+		logger().Debug("radius: ignoring TLV sub-attributes", "attribute", attrName)
+	case known:
+		return errors.New("Not a TLV attribute " + attrName)
+	default:
 		return errors.New("Unknown TLV attribute " + attrName)
 	}
-	d.currentTLV = aID
+	d.tlvStack = append(d.tlvStack, tlvBlock{name: attrName, attr: t})
 	return nil
 }
 
 func (d *Dictionary) parseEndTLV(attrName string) error {
-	aID, ok := d.vsaAttrID[d.currentVendor][attrName]
-	if !ok {
-		return errors.New("Unknown TLV attribute " + attrName)
+	n := len(d.tlvStack)
+	if n == 0 || d.tlvStack[n-1].name != attrName {
+		return fmt.Errorf("unexpected END-TLV %s", attrName)
 	}
-
-	if d.currentTLV == 0 || d.currentTLV != aID {
-		return fmt.Errorf("unexpected END-TLV %s: current TLV %d, expected %d", attrName, d.currentTLV, aID)
-	}
-
-	d.currentTLV = 0
+	d.tlvStack = d.tlvStack[:n-1]
 	return nil
 }
 
@@ -554,7 +816,7 @@ var attrTypeHandlers = map[string]avpDataType{
 	typeShort:          avpUint16,
 	typeSigned:         avpInt32,
 	typeIPAddr:         avpIP,
-	typeIPv6Addr:       avpIP,
+	typeIPv6Addr:       avpIPv6,
 	typeString:         avpString,
 	typeOctets:         avpBinary,
 	typePassword:       avpPassword,
@@ -564,7 +826,6 @@ var attrTypeHandlers = map[string]avpDataType{
 	typeVSA:            avpVendor,
 	typeEAPMessage:     avpEapMessage,
 	// "date"
-	// "tlv"
 	// "combo-ip"
 	// "ether"
 	// "abinary"
@@ -610,8 +871,18 @@ func (d *Dictionary) DecodeAVPValue(p *Packet, a AVP) string {
 		}
 
 		d.mu.RLock()
-		vendorName := d.vendorName[vsa.Vendor]
-		attrName := d.vsaAttrName[vsa.Vendor][vsa.Type]
+		vendorName, vendorOK := d.vendorName[vsa.Vendor]
+		attrName, attrOK := d.vsaAttrName[vsa.Vendor][vsa.Type]
+		if !attrOK {
+			d.mu.RUnlock()
+			return rawVSAString(vsa, vendorName, vendorOK)
+		}
+		if t := d.rootTLV(vsa.Vendor, attrName); t != nil {
+			valStr := t.format(p, vsa.Value)
+			d.mu.RUnlock()
+			return fmt.Sprintf("{Vendor:%s #%d, Attr: %s #%d, Value: %s}",
+				vendorName, vsa.Vendor, attrName, vsa.Type, valStr)
+		}
 		handler := handlerForValue(d.vsaAttrType[vsa.Vendor][attrName], vsa.Value)
 		// Try to lookup enum name for VSAs too
 		valStr, ok := enumName(handler, vsa.Value, d.vsaConstName[vsa.Vendor][attrName])
@@ -627,6 +898,11 @@ func (d *Dictionary) DecodeAVPValue(p *Packet, a AVP) string {
 
 	d.mu.RLock()
 	attrName := d.attrName[a.Type]
+	if t := d.rootTLV(0, attrName); t != nil {
+		s := t.format(p, a.Value)
+		d.mu.RUnlock()
+		return s
+	}
 	handler := handlerForValue(d.attrType[attrName], a.Value)
 	// Try to lookup enum name for standard attributes
 	name, ok := enumName(handler, a.Value, d.constName[attrName])
@@ -827,6 +1103,17 @@ func encodeValue(handler avpDataType, names map[string]uint32, tag uint8, value 
 		return encodeTaggedString(tag, value), nil
 	case avpUint32, avpTaggedUint32, avpUint8, avpUint16, avpInt32:
 		return encodeInteger(handler, names, tag, value)
+	case avpIP:
+		// AvpIP.FromString also parses IPv6
+		if b := handler.FromString(value); len(b) == net.IPv4len {
+			return b, nil
+		}
+		return nil, fmt.Errorf("%w %q", ErrInvalidValue, value)
+	case avpIPv6:
+		if b := handler.FromString(value); b != nil {
+			return b, nil
+		}
+		return nil, fmt.Errorf("%w %q", ErrInvalidValue, value)
 	}
 	return handler.FromString(value), nil
 }

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-`github.com/sergle/radius/v2` — a RADIUS client/server/codec library in Go (single package `radius` at the repo root; forked from bronze1man/radius). No external dependencies. Runnable examples live in `examples/{client,chap_client,server,eap}`.
+`github.com/sergle/radius/v2` — a RADIUS client/server/codec library in Go (single package `radius` at the repo root; forked from bronze1man/radius). No external dependencies. Runnable examples live in `examples/{client,chap_client,server,eap}`; `examples/dictload` loads dictionaries (e.g. a FreeRADIUS install, not kept in the repo) and reports warnings/errors.
 
 ## Commands
 
@@ -44,5 +44,6 @@ go test -fuzz=^FuzzDecodeRequest$ -fuzztime=30s .   # single fuzz target
 
 ## Notes
 
+- TLVs (`tlv.go`): `tlv` attributes and their children (dotted OIDs like `59.1` or `BEGIN-TLV` blocks) form a `tlvAttr` tree in `Dictionary.tlvAttrs` (vendor 0 = standard); children are not top-level attributes. `DecodeAVPValue` renders them, `ParseTLV`/`GetTLV` build/read them; templates treat `tlv` values as raw octets. Names are unique per vendor across top-level attributes and children: redeclaring a name with another number/type/parent is a load error. Types are compared after folding `encrypt=`/`has_tag` in, and same-wire-format types (`wireTypes`: `date`≈`integer`, `eapmessage`/`ifid`/`ipv6prefix`≈`octets`) are equal, so builtin + FreeRADIUS definitions mix; an equivalent redeclaration keeps the first definition. Numbers may have several top-level names (aliases, as in FreeRADIUS): each encodes with its own type, the last declared (or redeclared) one decodes, and all `tlv` aliases of a number share one set of children. A duplicate child number keeps the first (Warn). Children ignore `encrypt=`/`has_tag`. BEGIN-TLV blocks must close in the same file and can't contain `$INCLUDE` or vendor changes; only a `format=` argument on VENDOR sets the format. Children of `extended`/`long-extended`/`evs` attributes and of vendors with a non-`1,1` format (WiMAX) are skipped.
 - VSAs assume 1-byte vendor attribute type and length (see TODOs in `avp_vendor.go`); WiMAX/Lucent-style formats are not supported.
 - CI is GitHub Actions (`.github/workflows/ci.yml`): gofmt check, `go vet`, `make build`, `go test`, `go test -race`, and `make fuzz`.

@@ -2,6 +2,7 @@ package radius
 
 import (
 	"net"
+	"net/netip"
 )
 
 var avpIP AvpIP
@@ -23,4 +24,18 @@ func (s AvpIP) FromString(v string) []byte {
 		return ip4
 	}
 	return ip
+}
+
+var avpIPv6 AvpIPv6
+
+// AvpIPv6 is AvpIP for "ipv6addr" attributes; FromString accepts only IPv6 addresses.
+type AvpIPv6 struct{ AvpIP }
+
+func (s AvpIPv6) FromString(v string) []byte {
+	ip, err := netip.ParseAddr(v)
+	if err != nil || !ip.Is6() || ip.Zone() != "" {
+		return nil
+	}
+	b := ip.As16()
+	return b[:]
 }

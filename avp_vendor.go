@@ -2,7 +2,6 @@ package radius
 
 import (
 	"encoding/binary"
-	"fmt"
 )
 
 type VendorID uint32
@@ -31,13 +30,18 @@ func (s AvpVendor) Value(p *Packet, a AVP) interface{} {
 	return a.Value
 }
 
+// String formats a Vendor-Specific attribute with the default dictionary, otherwise raw.
 func (s AvpVendor) String(p *Packet, a AVP) string {
+	// DecodeAVPValue formats other "vsa" attributes with this method
+	if d := GetDefaultDictionary(); d != nil && a.Type == AttrVendorSpecific {
+		return d.DecodeAVPValue(p, a)
+	}
 	vsa, ok := decodeVSA(a)
 	if !ok {
 		return avpBinary.String(p, a)
 	}
 
-	return fmt.Sprintf("{Vendor: %d, Attr: %d, Value: %#v}", vsa.Vendor, vsa.Type, vsa.Value)
+	return rawVSAString(vsa, "", false)
 }
 
 func (s AvpVendor) FromString(v string) []byte {

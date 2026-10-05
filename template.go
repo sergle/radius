@@ -91,6 +91,15 @@ func (t *RequestTemplate) Fill(p *Packet, values ...string) {
 	}
 }
 
+// templateHandler returns the handler for typeName; tlv values are formatted via the dictionary and encoded as raw octets.
+func templateHandler(typeName string) (avpDataType, bool) {
+	if typeName == typeTLV {
+		return avpTLV, true
+	}
+	h, ok := attrTypeHandlers[typeName]
+	return h, ok
+}
+
 // GetTemplate creates an AttributeTemplate for the given attribute name.
 func (d *Dictionary) GetTemplate(name string) (*AttributeTemplate, error) {
 	name, tag, tagged, err := splitTagName(name)
@@ -110,7 +119,7 @@ func (d *Dictionary) GetTemplate(name string) (*AttributeTemplate, error) {
 		return nil, fmt.Errorf("attribute %s has no type defined", name)
 	}
 
-	handler, ok := attrTypeHandlers[typeName]
+	handler, ok := templateHandler(typeName)
 	if !ok {
 		return nil, fmt.Errorf("no handler found for type %s", typeName)
 	}
@@ -157,7 +166,7 @@ func (d *Dictionary) getVSATemplate(vendorName, attrName string) (AVPTemplate, e
 		return nil, fmt.Errorf("VSA attribute %s has no type defined", attrName)
 	}
 
-	handler, ok := attrTypeHandlers[typeName]
+	handler, ok := templateHandler(typeName)
 	if !ok {
 		return nil, fmt.Errorf("no handler found for type %s", typeName)
 	}
