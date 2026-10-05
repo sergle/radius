@@ -1,9 +1,5 @@
 package radius
 
-import (
-	"fmt"
-)
-
 var avpEapMessage AvpEapMessage
 
 type AvpEapMessage struct{}
@@ -11,8 +7,7 @@ type AvpEapMessage struct{}
 func (s AvpEapMessage) Value(p *Packet, a AVP) interface{} {
 	eap, err := EapDecode(a.Value)
 	if err != nil {
-		//TODO error handle
-		fmt.Println("EapDecode fail ", err)
+		logger().Debug("radius: EAP-Message decode", "error", err)
 		return nil
 	}
 	return eap

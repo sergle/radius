@@ -265,6 +265,13 @@ buf := make([]byte, 4096)
 n, err := packet.EncodeTo(buf)
 ```
 
+## Logging
+The library is silent by default. Diagnostics (skipped dictionary entries, dropped server packets, ...) go to an optional `log/slog` logger:
+
+```go
+radius.SetLogger(slog.Default())
+```
+
 ## Migration Guide (v1 to v2)
 1. **Import Path**: Change `github.com/sergle/radius` to `github.com/sergle/radius/v2`.
 2. **Attribute Names**: Standard attributes are now prefixed with `Attr` (e.g., `UserName` -> `AttrUserName`).

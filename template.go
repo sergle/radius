@@ -2,7 +2,6 @@ package radius
 
 import (
 	"fmt"
-	"log"
 	"maps"
 	"strconv"
 )
@@ -33,7 +32,7 @@ func (t *AttributeTemplate) Add(p *Packet, value string) {
 	if t.handler == avpTunnelPassword {
 		v, err := avpTunnelPassword.Encode(t.tag, value, p.Secret, p.cryptAuthenticator())
 		if err != nil {
-			log.Printf("template: %v for attribute %s\n", err, t.attrType)
+			logger().Warn("radius: template skipped attribute", "attribute", t.attrType, "error", err)
 			return
 		}
 		p.AddAVP(AVP{Type: t.attrType, Value: v})
@@ -41,7 +40,7 @@ func (t *AttributeTemplate) Add(p *Packet, value string) {
 	}
 	v, err := encodeValue(t.handler, t.names, t.tag, value)
 	if err != nil {
-		log.Printf("template: %v for attribute %s\n", err, t.attrType)
+		logger().Warn("radius: template skipped attribute", "attribute", t.attrType, "error", err)
 		return
 	}
 	p.AddAVP(AVP{Type: t.attrType, Value: v})
@@ -64,7 +63,7 @@ func (t *vsaTemplate) Add(p *Packet, value string) {
 	}
 	v, err := encodeValue(t.handler, t.names, t.tag, value)
 	if err != nil {
-		log.Printf("template: %v for VSA %d/%d\n", err, t.vendorID, t.vsaType)
+		logger().Warn("radius: template skipped VSA", "vendor", t.vendorID, "type", t.vsaType, "error", err)
 		return
 	}
 	p.AddVSA(VSA{Vendor: t.vendorID, Type: t.vsaType, Value: v})

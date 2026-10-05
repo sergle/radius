@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -149,10 +148,10 @@ func (d *Dictionary) LoadFile(fname string) error {
 }
 
 func (d *Dictionary) loadFileInternal(fname string) error {
-	log.Printf("Reading file %s\n", fname)
+	logger().Debug("radius: reading dictionary file", "file", fname)
 
 	if _, ok := d.fileList[fname]; ok {
-		log.Printf("File %s already read\n", fname)
+		logger().Debug("radius: dictionary file already read", "file", fname)
 		return nil
 	}
 
@@ -160,7 +159,6 @@ func (d *Dictionary) loadFileInternal(fname string) error {
 
 	file, err := os.Open(fname)
 	if err != nil {
-		log.Printf("Failed to open file %s, error %s\n", fname, err)
 		return err
 	}
 	defer file.Close()
@@ -248,7 +246,6 @@ func (d *Dictionary) parseLine(fname string, line string) error {
 		}
 		return d.parseEndTLV(parts[1])
 	default:
-		log.Printf("UNKNOWN cmd: %s\n", cmd)
 		return errors.New("Unsupported command " + cmd)
 	}
 
@@ -282,8 +279,11 @@ func parseAttributeFlags(attrName string, flags string) attributeFlags {
 		case "encrypt":
 			n, err := strconv.Atoi(value)
 			if err != nil {
-				log.Printf("Invalid encrypt flag %q for attr %s. Ignoring\n", value, attrName)
+				logger().Warn("radius: ignoring invalid encrypt flag", "attribute", attrName, "value", value)
 				continue
+			}
+			if n > encryptAscendSecret {
+				logger().Warn("radius: unknown encrypt method, treating as octets", "attribute", attrName, "encrypt", n)
 			}
 			f.encrypt = n
 		}
@@ -316,7 +316,7 @@ func (f attributeFlags) effectiveType(attrType string) string {
 		// Not decrypted yet; don't present ciphertext as text.
 		return typeOctets
 	}
-	log.Printf("Unknown encrypt method %d. Treating as octets\n", f.encrypt)
+	// unknown method, warned about in parseAttributeFlags
 	return typeOctets
 }
 
@@ -330,7 +330,7 @@ func (d *Dictionary) parseAttribute(attrName string, attrID string, attrType str
 	// 0 - guess base (0x for hex)
 	aID, err := strconv.ParseUint(attrID, 0, 8)
 	if err != nil {
-		log.Printf("Failed to convert attr %s id %s to uint: %s. Ignoring\n", attrName, attrID, err)
+		logger().Warn("radius: ignoring attribute with invalid id", "attribute", attrName, "id", attrID, "error", err)
 		// ignore errors
 		return nil
 	}
@@ -338,7 +338,7 @@ func (d *Dictionary) parseAttribute(attrName string, attrID string, attrType str
 	//TODO WiMAX
 	if d.currentTLV > 0 {
 		// ignore tlv sub-attributes
-		log.Printf("Ignore TVL attribute %s\n", attrName)
+		logger().Debug("radius: ignoring TLV sub-attribute", "attribute", attrName)
 		return nil
 	}
 
@@ -357,13 +357,11 @@ func (d *Dictionary) parseAttribute(attrName string, attrID string, attrType str
 		d.vsaAttrName[d.currentVendor][VendorAttr(aID)] = attrName
 		d.vsaAttrType[d.currentVendor][attrName] = attrType
 		d.vsaAttrFlags[d.currentVendor][attrName] = f
-		//fmt.Printf("Attr %s / %s has id %d and type %s\n", d.vendorName[ d.currentVendor ], attrName, aID, attrType)
 	} else {
 		d.attrID[attrName] = AttributeType(aID)
 		d.attrName[AttributeType(aID)] = attrName
 		d.attrType[attrName] = attrType
 		d.attrFlags[attrName] = f
-		//log.Printf("Attr %s has id %d and type %s\n", attrName, aID, attrType)
 	}
 
 	return nil
@@ -373,7 +371,7 @@ func (d *Dictionary) parseValue(attrName string, constName string, constValue st
 	//TODO WiMAX
 	if d.currentTLV > 0 {
 		// ignore tlv sub-attributes
-		log.Printf("Ignore TVL attribute %s\n", attrName)
+		logger().Debug("radius: ignoring TLV sub-attribute", "attribute", attrName)
 		return nil
 	}
 
@@ -385,7 +383,7 @@ func (d *Dictionary) parseValue(attrName string, constName string, constValue st
 	}
 
 	if !present {
-		log.Printf("Value %s for non-existing attribute %s\n", constName, attrName)
+		logger().Warn("radius: ignoring value for unknown attribute", "attribute", attrName, "value", constName)
 		// ignore 'compat' errors
 		return nil
 	}
@@ -393,8 +391,7 @@ func (d *Dictionary) parseValue(attrName string, constName string, constValue st
 	// some values defined as 0x.. - using '0' to auto-detect
 	cID, err := strconv.ParseUint(constValue, 0, 32)
 	if err != nil {
-		log.Printf("Failed to convert constant value to int: %s\n", err)
-		return err
+		return fmt.Errorf("value %s of attribute %s: %w", constName, attrName, err)
 	}
 
 	if d.currentVendor > 0 {
@@ -410,7 +407,6 @@ func (d *Dictionary) parseValue(attrName string, constName string, constValue st
 
 		d.vsaConstID[d.currentVendor][attrName][constName] = uint32(cID)
 		d.vsaConstName[d.currentVendor][attrName][uint32(cID)] = constName
-		//fmt.Printf("Attr %s / %s has value %s = %s\n", d.vendorName[ d.currentVendor ], attrName, constName, constValue)
 	} else {
 		if _, exist := d.constID[attrName]; !exist {
 			d.constID[attrName] = make(map[string]uint32)
@@ -419,7 +415,6 @@ func (d *Dictionary) parseValue(attrName string, constName string, constValue st
 
 		d.constID[attrName][constName] = uint32(cID)
 		d.constName[attrName][uint32(cID)] = constName
-		//log.Printf("Attr %s has value %s = %s\n", attrName, constName, constValue)
 	}
 
 	return nil
@@ -439,11 +434,10 @@ var blacklistDictionary = map[string]int{
 func (d *Dictionary) parseInclude(fname string, incName string) error {
 	// ignore files in unsupported format
 	if _, ok := blacklistDictionary[incName]; ok {
-		log.Printf("Skip internal/unsupported FreeRADIUS dictionary: %s\n", incName)
+		logger().Debug("radius: skipping unsupported dictionary", "file", incName)
 		return nil
 	}
 
-	log.Printf("-- include file %s --\n", incName)
 	fullName := incName
 	if !filepath.IsAbs(incName) {
 		fullName = filepath.Join(filepath.Dir(fname), incName)
@@ -456,8 +450,7 @@ func (d *Dictionary) parseInclude(fname string, incName string) error {
 func (d *Dictionary) parseVendor(vendorName string, vendorID string) error {
 	vID, err := strconv.ParseUint(vendorID, 0, 32)
 	if err != nil {
-		log.Printf("Failed to convert vendor id: %s\n", err)
-		return err
+		return fmt.Errorf("vendor %s: %w", vendorName, err)
 	}
 
 	d.vendorID[vendorName] = VendorID(vID)
@@ -469,7 +462,6 @@ func (d *Dictionary) parseVendor(vendorName string, vendorID string) error {
 func (d *Dictionary) parseBeginVendor(vendorName string) error {
 	vID, ok := d.vendorID[vendorName]
 	if !ok {
-		log.Printf("vendor %s not found", vendorName)
 		return errors.New("unknown vendor " + vendorName)
 	}
 	d.currentVendor = vID
@@ -479,7 +471,6 @@ func (d *Dictionary) parseBeginVendor(vendorName string) error {
 func (d *Dictionary) parseEndVendor(vendorName string) error {
 	vID, ok := d.vendorID[vendorName]
 	if !ok {
-		log.Printf("vendor %s not found", vendorName)
 		return errors.New("unknown vendor " + vendorName)
 	}
 
@@ -495,7 +486,6 @@ func (d *Dictionary) parseEndVendor(vendorName string) error {
 func (d *Dictionary) parseBeginTLV(attrName string) error {
 	aID, ok := d.vsaAttrID[d.currentVendor][attrName]
 	if !ok {
-		log.Printf("TLV attribute %s not found\n", attrName)
 		return errors.New("Unknown TLV attribute " + attrName)
 	}
 	d.currentTLV = aID
@@ -505,13 +495,11 @@ func (d *Dictionary) parseBeginTLV(attrName string) error {
 func (d *Dictionary) parseEndTLV(attrName string) error {
 	aID, ok := d.vsaAttrID[d.currentVendor][attrName]
 	if !ok {
-		log.Printf("TLV attribute %s not found\n", attrName)
 		return errors.New("Unknown TLV attribute " + attrName)
 	}
 
 	if d.currentTLV == 0 || d.currentTLV != aID {
-		log.Printf("Current TLV %d expected %d", d.currentTLV, aID)
-		return errors.New("unexpected END-TLV")
+		return fmt.Errorf("unexpected END-TLV %s: current TLV %d, expected %d", attrName, d.currentTLV, aID)
 	}
 
 	d.currentTLV = 0
@@ -703,7 +691,7 @@ func (d *Dictionary) GetVendorID(vendorName string) VendorID {
 func (d *Dictionary) NewAVP(attrName string, attrValue string) AVP {
 	avp, err := d.ParseAVP(attrName, attrValue)
 	if err != nil {
-		log.Printf("NewAVP: %v\n", err)
+		logger().Warn("radius: NewAVP", "error", err)
 	}
 	return avp
 }
@@ -712,7 +700,7 @@ func (d *Dictionary) NewAVP(attrName string, attrValue string) AVP {
 func (d *Dictionary) NewVSA(vendorName string, attrName string, attrValue string) VSA {
 	vsa, err := d.ParseVSA(vendorName, attrName, attrValue)
 	if err != nil {
-		log.Printf("NewVSA: %v\n", err)
+		logger().Warn("radius: NewVSA", "error", err)
 	}
 	return vsa
 }

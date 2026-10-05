@@ -3,7 +3,6 @@ package radius
 import (
 	"context"
 	"errors"
-	"log"
 	"net"
 	"runtime/debug"
 	"sync"
@@ -209,25 +208,25 @@ func (s *Server) Serve() error {
 			// Runs after p.Release and before buf is returned to the pool.
 			defer func() {
 				if r := recover(); r != nil {
-					log.Printf("panic handling packet from %s: %v\n%s", addr, r, debug.Stack())
+					logger().Error("radius: panic handling packet", "client", addr, "panic", r, "stack", string(debug.Stack()))
 				}
 			}()
 			secret, ok := s.secretForAddr(addr)
 			if !ok {
-				log.Printf("unknown RADIUS client %s", addr.String())
+				logger().Warn("radius: unknown client", "client", addr)
 				return
 			}
 
 			opts := DecodeOptions{RequireMessageAuthenticator: s.requireMA}
 			p, err := DecodeRequestPooledWithOptions(secret, buf[:n], &opts)
 			if err != nil {
-				log.Printf("decode packet error %v", err)
+				logger().Warn("radius: decode packet", "client", addr, "error", err)
 				return
 			}
 			defer p.Release()
 			if p.Code == AccessRequest && !s.allowProxyNoAuth &&
 				p.HasAVP(AttrProxyState) && !p.HasAVP(AttrMessageAuthenticator) {
-				log.Printf("dropping Access-Request from %s: Proxy-State without Message-Authenticator", addr)
+				logger().Warn("radius: dropping Access-Request with Proxy-State but no Message-Authenticator", "client", addr)
 				return
 			}
 			p.ClientAddr = addr.String()
@@ -250,7 +249,7 @@ func (s *Server) Serve() error {
 			defer serverBufferPool.Put(out)
 			writtenN, err := npac.EncodeTo(out)
 			if err != nil {
-				log.Printf("encode packet error %v", err)
+				logger().Error("radius: encode reply", "client", addr, "error", err)
 				return
 			}
 			conn.WriteToUDP(out[:writtenN], addr)
