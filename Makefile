@@ -19,6 +19,7 @@ fuzz:
 	go test -fuzz=^FuzzDecodeReply$$ -fuzztime=$(FUZZTIME) .
 	go test -fuzz=^FuzzDecodeRequestPooled$$ -fuzztime=$(FUZZTIME) .
 	go test -fuzz=^FuzzDecodeRequestLazy$$ -fuzztime=$(FUZZTIME) .
+	go test -fuzz=^FuzzEapDecode$$ -fuzztime=$(FUZZTIME) .
 
 clean:
 	go clean

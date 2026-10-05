@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"iter"
 	"net"
+	"slices"
 	"strconv"
 )
 
@@ -862,6 +863,13 @@ func (p *Packet) GetEAPMessage() *EapPacket {
 		return nil
 	}
 	return eap
+}
+
+// SetEAPMessage replaces any EAP-Message attributes with eap, split into
+// consecutive 253-byte fragments as needed (RFC 3579 §3.1).
+func (p *Packet) SetEAPMessage(eap *EapPacket) {
+	p.AVPs = slices.DeleteFunc(p.AVPs, func(a AVP) bool { return a.Type == AttrEAPMessage })
+	p.AddAVP(eap.ToEAPMessages()...)
 }
 
 // GetNASPortType returns NAS-Port-Type if present, or 0 otherwise.

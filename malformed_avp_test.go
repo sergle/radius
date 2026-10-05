@@ -51,7 +51,8 @@ var malformedAVPs = []struct {
 	{"Vendor-Specific short signed", AVP{AttrVendorSpecific, []byte{0, 0, 0x27, 0x0f, 4, 5, 0xff, 0xff, 0xff}},
 		"{Vendor:TestVendor #9999, Attr: Test-Signed #4, Value: []byte{0xff, 0xff, 0xff}}"},
 	{"User-Password 5 bytes", AVP{AttrUserPassword, []byte{1, 2, 3, 4, 5}}, ""},
-	{"EAP-Message 2 bytes", AVP{AttrEAPMessage, []byte{2, 0}}, ""},
+	{"EAP-Message 2 bytes", AVP{AttrEAPMessage, []byte{2, 0}}, "[]byte{0x2, 0x0}"},
+	{"EAP-Message fragment", AVP{AttrEAPMessage, []byte{2, 1, 1, 0, 1}}, "[]byte{0x2, 0x1, 0x1, 0x0, 0x1}"},
 	{"CHAP-Password 3 bytes", AVP{AttrCHAPPassword, []byte{1, 2, 3}}, ""},
 }
 

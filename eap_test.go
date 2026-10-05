@@ -1,6 +1,7 @@
 package radius
 
 import (
+	"bytes"
 	"testing"
 )
 
@@ -261,5 +262,107 @@ func TestEapDecodeRequestResponseTooShort(t *testing.T) {
 	_, err := EapDecode(b)
 	if err == nil {
 		t.Error("expected error for Request with Length=4, got nil")
+	}
+}
+
+func TestEapDecodeBadLength(t *testing.T) {
+	cases := map[string][]byte{
+		"length below header":     {0x02, 0x01, 0x00, 0x03, 0x01},
+		"length past buffer":      {0x02, 0x01, 0x00, 0x08, 0x01, 0xaa},
+		"success past buffer":     {0x03, 0x01, 0x00, 0x05},
+		"expanded type too short": {0x02, 0x01, 0x00, 0x08, 0xfe, 0x00, 0x00, 0x00},
+	}
+	for name, b := range cases {
+		if eap, err := EapDecode(b); err == nil {
+			t.Errorf("%s: expected error, got %+v", name, eap)
+		}
+	}
+}
+
+func TestEapDecodeExpandedType(t *testing.T) {
+	// Expanded Type: Type=254, Vendor-Id=0, Vendor-Type=1
+	b := []byte{0x02, 0x01, 0x00, 0x0c, 0xfe, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01}
+	eap, err := EapDecode(b)
+	if err != nil {
+		t.Fatalf("EapDecode error: %v", err)
+	}
+	if eap.Type != EapTypeExpandedTypes || len(eap.Data) != 7 {
+		t.Errorf("got %+v", eap)
+	}
+}
+
+func TestEapToEAPMessagesSplit(t *testing.T) {
+	data := bytes.Repeat([]byte{0xab}, 600)
+	eap := &EapPacket{Code: EapCodeRequest, Identifier: 3, Type: EapTypeMSCHAPV2, Data: data}
+	avps := eap.ToEAPMessages()
+	if len(avps) != 3 {
+		t.Fatalf("got %d AVPs, want 3", len(avps))
+	}
+	var joined []byte
+	for _, a := range avps {
+		if a.Type != AttrEAPMessage || len(a.Value) > maxAVPValueLen {
+			t.Errorf("bad fragment: type %d len %d", a.Type, len(a.Value))
+		}
+		joined = append(joined, a.Value...)
+	}
+	if !bytes.Equal(joined, eap.Encode()) {
+		t.Error("fragments do not reassemble to the encoded packet")
+	}
+}
+
+func TestSetEAPMessageRoundTrip(t *testing.T) {
+	data := bytes.Repeat([]byte{0x5a}, 1000)
+	eap := &EapPacket{Code: EapCodeResponse, Identifier: 9, Type: EapTypeMd5Challenge, Data: data}
+
+	req := Request(AccessRequest, "secret")
+	// stale two-fragment EAP-Message must be fully replaced
+	req.AddAVP(AVP{Type: AttrEAPMessage, Value: []byte{0x02, 0x00}})
+	req.AddAVP(AVP{Type: AttrUserName, Value: []byte("bob")})
+	req.AddAVP(AVP{Type: AttrEAPMessage, Value: []byte{0x00, 0x05, 0x01}})
+	req.SetEAPMessage(eap)
+
+	buf, err := req.Encode()
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	decoders := map[string]func() (*Packet, error){
+		"DecodeRequest":     func() (*Packet, error) { return DecodeRequest("secret", buf) },
+		"DecodeRequestLazy": func() (*Packet, error) { return DecodeRequestLazy("secret", buf) },
+	}
+	for name, decode := range decoders {
+		p, err := decode()
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		got := p.GetEAPMessage()
+		if got == nil {
+			t.Fatalf("%s: GetEAPMessage returned nil", name)
+		}
+		if got.Code != eap.Code || got.Identifier != eap.Identifier || got.Type != eap.Type || !bytes.Equal(got.Data, data) {
+			t.Errorf("%s: got code %v id %d type %v len %d", name, got.Code, got.Identifier, got.Type, len(got.Data))
+		}
+		if p.GetUsername() != "bob" {
+			t.Errorf("%s: User-Name lost", name)
+		}
+	}
+}
+
+func TestAvpEapMessageFragmentFallback(t *testing.T) {
+	frag := AVP{Type: AttrEAPMessage, Value: []byte{0x02, 0x01, 0x01, 0x00, 0x01, 0xaa}}
+	v, ok := frag.Decode(nil).([]byte)
+	if !ok || !bytes.Equal(v, frag.Value) {
+		t.Errorf("Decode = %#v, want raw bytes", frag.Decode(nil))
+	}
+	want := "AVP type: EAP-Message []byte{0x2, 0x1, 0x1, 0x0, 0x1, 0xaa}"
+	if s := frag.String(); s != want {
+		t.Errorf("String = %q, want %q", s, want)
+	}
+}
+
+func TestAvpEapMessageValue(t *testing.T) {
+	eap := &EapPacket{Code: EapCodeResponse, Identifier: 1, Type: EapTypeIdentity, Data: []byte("u")}
+	got, ok := eap.ToEAPMessage().Decode(nil).(*EapPacket)
+	if !ok || got.Type != EapTypeIdentity || string(got.Data) != "u" {
+		t.Errorf("Decode = %#v", got)
 	}
 }

@@ -1,6 +1,7 @@
 package radius
 
 import (
+	"bytes"
 	"testing"
 )
 
@@ -80,6 +81,34 @@ func FuzzDecodeRequestLazy(f *testing.F) {
 			return
 		}
 		exercisePacket(p)
+	})
+}
+
+func FuzzEapDecode(f *testing.F) {
+	f.Add([]byte{0x02, 0x01, 0x00, 0x09, 0x01, 'u', 's', 'e', 'r'})
+	f.Add([]byte{0x03, 0x01, 0x00, 0x04})
+	f.Add([]byte{0x01, 0x01, 0x00, 0x0a, 0x1a, 0x01, 0x01, 0x00, 0x05, 0x10})
+	f.Fuzz(func(t *testing.T, data []byte) {
+		eap, err := EapDecode(data)
+		if err != nil {
+			_ = AVP{Type: AttrEAPMessage, Value: data}.String()
+			return
+		}
+		_ = eap.String()
+		var joined []byte
+		for _, a := range eap.ToEAPMessages() {
+			if len(a.Value) > maxAVPValueLen {
+				t.Fatalf("fragment of %d bytes", len(a.Value))
+			}
+			joined = append(joined, a.Value...)
+		}
+		again, err := EapDecode(joined)
+		if err != nil {
+			t.Fatalf("re-decode: %v", err)
+		}
+		if again.Code != eap.Code || again.Identifier != eap.Identifier || again.Type != eap.Type || !bytes.Equal(again.Data, eap.Data) {
+			t.Fatalf("round trip: got %v, want %v", again, eap)
+		}
 	})
 }
 

@@ -6,6 +6,12 @@ import (
 	"strconv"
 )
 
+const (
+	eapHeaderLen         = 4                    // Code, Identifier, Length
+	eapTypeHeaderLen     = 5                    // header + Type
+	eapExpandedHeaderLen = eapTypeHeaderLen + 7 // + Vendor-Id(3) + Vendor-Type(4)
+)
+
 type EapCode uint8
 
 const (
@@ -105,21 +111,22 @@ func (a *EapPacket) Copy() *EapPacket {
 
 func (a *EapPacket) Encode() (b []byte) {
 	if a.Code == EapCodeSuccess || a.Code == EapCodeFailure {
-		b = make([]byte, 4)
+		b = make([]byte, eapHeaderLen)
 		b[0] = byte(a.Code)
 		b[1] = byte(a.Identifier)
-		binary.BigEndian.PutUint16(b[2:4], 4)
+		binary.BigEndian.PutUint16(b[2:4], eapHeaderLen)
 		return b
 	}
-	b = make([]byte, len(a.Data)+5)
+	b = make([]byte, len(a.Data)+eapTypeHeaderLen)
 	b[0] = byte(a.Code)
 	b[1] = byte(a.Identifier)
-	binary.BigEndian.PutUint16(b[2:4], uint16(len(a.Data)+5))
+	binary.BigEndian.PutUint16(b[2:4], uint16(len(b)))
 	b[4] = byte(a.Type)
-	copy(b[5:], a.Data)
+	copy(b[eapTypeHeaderLen:], a.Data)
 	return b
 }
 
+// ToEAPMessage returns a single EAP-Message AVP; packets over 253 bytes need ToEAPMessages.
 func (a *EapPacket) ToEAPMessage() *AVP {
 	return &AVP{
 		Type:  AttrEAPMessage,
@@ -127,13 +134,30 @@ func (a *EapPacket) ToEAPMessage() *AVP {
 	}
 }
 
-func EapDecode(b []byte) (eap *EapPacket, err error) {
-	if len(b) < 4 {
-		return nil, fmt.Errorf("[EapDecode] protocol error input too small")
+// ToEAPMessages splits the encoded packet into EAP-Message AVPs of at most 253 bytes (RFC 3579 §3.1).
+func (a *EapPacket) ToEAPMessages() []AVP {
+	b := a.Encode()
+	avps := make([]AVP, 0, (len(b)+maxAVPValueLen-1)/maxAVPValueLen)
+	for len(b) > 0 {
+		n := min(len(b), maxAVPValueLen)
+		avps = append(avps, AVP{Type: AttrEAPMessage, Value: b[:n:n]})
+		b = b[n:]
 	}
-	length := binary.BigEndian.Uint16(b[2:4])
-	if length < 4 || len(b) < int(length) {
-		return nil, fmt.Errorf("[EapDecode] protocol error input too small")
+	return avps
+}
+
+// EapDecode decodes an EAP packet; bytes past the Length field are ignored (RFC 3748 §4).
+// Data aliases b.
+func EapDecode(b []byte) (eap *EapPacket, err error) {
+	if len(b) < eapHeaderLen {
+		return nil, fmt.Errorf("[EapDecode] protocol error: %d bytes, need %d", len(b), eapHeaderLen)
+	}
+	length := int(binary.BigEndian.Uint16(b[2:4]))
+	if length < eapHeaderLen {
+		return nil, fmt.Errorf("[EapDecode] protocol error: Length %d below header size", length)
+	}
+	if len(b) < length {
+		return nil, fmt.Errorf("[EapDecode] protocol error: Length %d exceeds %d bytes", length, len(b))
 	}
 	code := EapCode(b[0])
 	eap = &EapPacket{
@@ -144,10 +168,13 @@ func EapDecode(b []byte) (eap *EapPacket, err error) {
 	if code == EapCodeSuccess || code == EapCodeFailure {
 		return eap, nil
 	}
-	if length < 5 || len(b) < 5 {
+	if length < eapTypeHeaderLen {
 		return nil, fmt.Errorf("[EapDecode] protocol error: Request/Response too small")
 	}
 	eap.Type = EapType(b[4])
-	eap.Data = b[5:length]
+	if eap.Type == EapTypeExpandedTypes && length < eapExpandedHeaderLen {
+		return nil, fmt.Errorf("[EapDecode] protocol error: Expanded Type too small")
+	}
+	eap.Data = b[eapTypeHeaderLen:length]
 	return eap, nil
 }

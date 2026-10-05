@@ -4,22 +4,23 @@ var avpEapMessage AvpEapMessage
 
 type AvpEapMessage struct{}
 
+// Value returns the decoded *EapPacket, or the raw []byte if the value is not
+// a complete EAP packet (e.g. one RFC 3579 fragment; use Packet.GetEAPMessage).
 func (s AvpEapMessage) Value(p *Packet, a AVP) interface{} {
 	eap, err := EapDecode(a.Value)
 	if err != nil {
-		logger().Debug("radius: EAP-Message decode", "error", err)
-		return nil
+		return a.Value
 	}
 	return eap
-
 }
 
+// String formats the EAP packet, falling back to the raw bytes.
 func (s AvpEapMessage) String(p *Packet, a AVP) string {
-	eap := s.Value(p, a)
-	if eap == nil {
-		return "nil"
+	eap, err := EapDecode(a.Value)
+	if err != nil {
+		return avpBinary.String(p, a)
 	}
-	return eap.(*EapPacket).String()
+	return eap.String()
 }
 
 func (s AvpEapMessage) FromString(v string) []byte {
