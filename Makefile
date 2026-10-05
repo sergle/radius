@@ -7,6 +7,7 @@ build:
 	go build -o examples/client/client       ./examples/client/
 	go build -o examples/chap_client/chap_client ./examples/chap_client/
 	go build -o examples/server/server       ./examples/server/
+	go build -o examples/eap/eap             ./examples/eap/
 
 test:
 	go test -v ./...

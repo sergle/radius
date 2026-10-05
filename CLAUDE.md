@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-`github.com/sergle/radius/v2` — a RADIUS client/server/codec library in Go (single package `radius` at the repo root; forked from bronze1man/radius). No external dependencies. Runnable examples live in `examples/{client,chap_client,server}`.
+`github.com/sergle/radius/v2` — a RADIUS client/server/codec library in Go (single package `radius` at the repo root; forked from bronze1man/radius). No external dependencies. Runnable examples live in `examples/{client,chap_client,server,eap}`.
 
 ## Commands
 
