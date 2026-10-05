@@ -88,21 +88,3 @@ func BenchmarkEnumString(b *testing.B) {
 		_ = AcctStatusTypeEnumInterimUpdate.String()
 	}
 }
-
-func BenchmarkAvpUint32EnumString(b *testing.B) {
-	enum := AvpUint32Enum{AcctStatusTypeEnum(0)}
-	a := AVP{Type: AttrAcctStatusType, Value: []byte{0, 0, 0, 3}}
-	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-		_ = enum.String(nil, a)
-	}
-}
-
-func BenchmarkAvpUint32EnumValue(b *testing.B) {
-	enum := AvpUint32Enum{AcctStatusTypeEnum(0)}
-	a := AVP{Type: AttrAcctStatusType, Value: []byte{0, 0, 0, 3}}
-	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-		_ = enum.Value(nil, a)
-	}
-}

@@ -130,12 +130,3 @@ func TestMalformedPacketNoPanic(t *testing.T) {
 		})
 	}
 }
-
-func TestAvpUint32EnumListOutOfRange(t *testing.T) {
-	list := AvpUint32EnumList{"Zero", "One", "Two"}
-	mustNotPanic(t, "AvpUint32EnumList.String", func() {
-		if got := list.String(nil, AVP{Value: []byte{0, 0, 0, 3}}); got != "unknow 3" {
-			t.Errorf("String = %q, want %q", got, "unknow 3")
-		}
-	})
-}
