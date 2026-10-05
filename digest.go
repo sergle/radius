@@ -16,6 +16,8 @@ package radius
 //  6. RADIUS verifies, returns Access-Accept with Digest-Response-Auth.
 
 import (
+	"crypto/subtle"
+	"encoding/hex"
 	"strings"
 )
 
@@ -137,7 +139,16 @@ func (r *DigestAuthRequest) Verify(ha1 string) bool {
 	}
 
 	expected := digestComputeResponse(ha1, r.Nonce(), r.NonceCount(), r.CNonce(), r.Qop(), ha2)
-	return strings.EqualFold(expected, r.Response())
+	// compare decoded bytes: case-insensitive hex, constant time
+	want, err := hex.DecodeString(expected)
+	if err != nil {
+		return false
+	}
+	got, err := hex.DecodeString(r.Response())
+	if err != nil {
+		return false
+	}
+	return subtle.ConstantTimeCompare(want, got) == 1
 }
 
 // digestComputeResponseAuth verifies the request against password and, if valid,

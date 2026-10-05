@@ -1,7 +1,6 @@
 package radius
 
 import (
-	"bytes"
 	"crypto"
 	"crypto/hmac"
 	"crypto/md5"
@@ -649,7 +648,7 @@ func (p *Packet) checkAuthenticator(buf []byte, requestAuth []byte) (err error) 
 	hasher.Write(buf[packetHeaderLen:])
 	hasher.Write([]byte(p.Secret))
 	expected := hasher.Sum(nil)
-	if !bytes.Equal(expected, p.Authenticator[:]) {
+	if !hmac.Equal(expected, p.Authenticator[:]) {
 		return ErrAuthenticatorCheckFail
 	}
 	// ok

@@ -15,6 +15,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -492,4 +493,50 @@ func TestDigestAuthIntegration(t *testing.T) {
 			t.Fatalf("expected 401, got %d", result.Code)
 		}
 	})
+}
+
+// Verify matches the response hex case-insensitively and rejects bad values.
+func TestDigestAuthRequest_VerifyResponseFormat(t *testing.T) {
+	ha1 := digestComputeHA1("alice", "example.com", "secret")
+	ha2 := digestComputeHA2Auth("INVITE", "sip:bob@example.com")
+	nonce, nc, cnonce, qop := "testnonce", "00000001", "clientnonce", "auth"
+	response := digestComputeResponse(ha1, nonce, nc, cnonce, qop, ha2)
+
+	wrong := []byte(response)
+	if wrong[0] == '0' {
+		wrong[0] = '1'
+	} else {
+		wrong[0] = '0'
+	}
+
+	cases := []struct {
+		name     string
+		response string
+		want     bool
+	}{
+		{"lowercase", response, true},
+		{"uppercase", strings.ToUpper(response), true},
+		{"wrong", string(wrong), false},
+		{"non-hex", "zz" + response[2:], false},
+		{"odd length", response[1:], false},
+		{"truncated", response[:len(response)-2], false},
+		{"extended", response + "00", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := &Packet{}
+			p.AddAVP(
+				AVP{Type: AttrDigestResponse, Value: []byte(tc.response)},
+				AVP{Type: AttrDigestNonce, Value: []byte(nonce)},
+				AVP{Type: AttrDigestMethod, Value: []byte("INVITE")},
+				AVP{Type: AttrDigestURI, Value: []byte("sip:bob@example.com")},
+				AVP{Type: AttrDigestQop, Value: []byte(qop)},
+				AVP{Type: AttrDigestNonceCount, Value: []byte(nc)},
+				AVP{Type: AttrDigestCNonce, Value: []byte(cnonce)},
+			)
+			if got := NewDigestAuthRequest(p).Verify(ha1); got != tc.want {
+				t.Fatalf("Verify(%q) = %v, want %v", tc.response, got, tc.want)
+			}
+		})
+	}
 }

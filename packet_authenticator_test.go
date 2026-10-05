@@ -151,3 +151,57 @@ func TestEncodeKeepsAuthenticatorWithLeadingZero(t *testing.T) {
 		t.Fatalf("GetPassword = %q, want %q", got, password)
 	}
 }
+
+// A tampered authenticator or body must fail the authenticator check.
+func TestAuthenticatorCheckRejectsTampering(t *testing.T) {
+	const secret = "testing123"
+
+	req := Request(AccountingRequest, secret)
+	req.Identifier = 7
+	req.AddAVP(AVP{Type: AttrUserName, Value: []byte("alice")})
+	reqBuf, err := req.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodeRequest(secret, reqBuf)
+	if err != nil {
+		t.Fatalf("valid request rejected: %v", err)
+	}
+
+	reply := decoded.Reply()
+	reply.Code = AccountingResponse
+	reply.AddAVP(AVP{Type: AttrReplyMessage, Value: []byte("ok")})
+	replyBuf, err := reply.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DecodeReply(secret, replyBuf, decoded.Authenticator[:]); err != nil {
+		t.Fatalf("valid reply rejected: %v", err)
+	}
+
+	cases := []struct {
+		name    string
+		buf     []byte
+		offset  int
+		isReply bool
+	}{
+		{"request authenticator", reqBuf, 4, false},
+		{"request body", reqBuf, len(reqBuf) - 1, false},
+		{"reply authenticator", replyBuf, 4 + authenticatorLen - 1, true},
+		{"reply body", replyBuf, len(replyBuf) - 1, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			buf := bytes.Clone(tc.buf)
+			buf[tc.offset] ^= 0x01
+			if tc.isReply {
+				_, err = DecodeReply(secret, buf, decoded.Authenticator[:])
+			} else {
+				_, err = DecodeRequest(secret, buf)
+			}
+			if err != ErrAuthenticatorCheckFail {
+				t.Fatalf("got %v, want ErrAuthenticatorCheckFail", err)
+			}
+		})
+	}
+}
