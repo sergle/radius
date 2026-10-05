@@ -107,3 +107,57 @@ func TestServerClientList(t *testing.T) {
 		t.Fatal("server did not stop in time")
 	}
 }
+
+func TestServerSetClientListWhileServing(t *testing.T) {
+	handler := HandlerFunc(func(ctx context.Context, request *Packet) *Packet {
+		reply := request.Reply()
+		reply.Code = AccessAccept
+		return reply
+	})
+	srv := NewServerWithClientList("127.0.0.1:0", NewClientList([]Client{NewClient("127.0.0.1", "old")}), handler)
+	addr, _ := startTestServer(t, srv)
+
+	// Swap lists concurrently with requests being served.
+	stop := make(chan struct{})
+	swapped := make(chan struct{})
+	go func() {
+		defer close(swapped)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				srv.SetClientList(NewClientList([]Client{NewClient("127.0.0.1", "old")}))
+			}
+		}
+	}()
+	old := NewRadClient(addr, "old")
+	old.SetTimeout(time.Second)
+	for i := 0; i < 20; i++ {
+		if _, err := old.Send(old.NewAccessRequest()); err != nil {
+			close(stop)
+			t.Fatalf("send %d: %v", i, err)
+		}
+	}
+	close(stop)
+	<-swapped
+
+	// The new list's secret takes effect.
+	srv.SetClientList(NewClientList([]Client{NewClient("127.0.0.1", "new")}))
+	c := NewRadClient(addr, "new")
+	c.SetTimeout(time.Second)
+	reply, err := c.Send(c.NewAccessRequest())
+	if err != nil {
+		t.Fatalf("send with new secret: %v", err)
+	}
+	if reply.Code != AccessAccept {
+		t.Fatalf("expected Access-Accept, got %v", reply.Code)
+	}
+
+	// A nil list falls back to the shared secret (empty here, so requests are dropped).
+	srv.SetClientList(nil)
+	c.SetTimeout(200 * time.Millisecond)
+	if _, err := c.Send(c.NewAccessRequest()); err == nil {
+		t.Fatal("expected no reply with nil client list and no shared secret")
+	}
+}

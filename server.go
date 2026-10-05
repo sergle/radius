@@ -6,6 +6,7 @@ import (
 	"net"
 	"runtime/debug"
 	"sync"
+	"sync/atomic"
 )
 
 // DefaultMaxConcurrent is the default limit of concurrently running handlers.
@@ -55,22 +56,16 @@ func NewServer(addr string, secret string, service Service) *Server {
 //
 // If a request comes from a host not present in the list, it is dropped.
 func NewServerWithClientList(addr string, clients *ClientList, service Service) *Server {
-	ctx, cancel := context.WithCancel(context.Background())
-	return &Server{
-		addr:          addr,
-		clients:       clients,
-		service:       service,
-		maxConcurrent: DefaultMaxConcurrent,
-		ctx:           ctx,
-		cancel:        cancel,
-	}
+	s := NewServer(addr, "", service)
+	s.clients.Store(clients)
+	return s
 }
 
 // Server is a simple UDP RADIUS server.
 type Server struct {
 	addr    string
 	secret  string
-	clients *ClientList
+	clients atomic.Pointer[ClientList] // nil: use secret
 	service Service
 
 	requireMA        bool // drop Access-Requests without Message-Authenticator
@@ -271,8 +266,9 @@ func (s *Server) SetMaxConcurrent(n int) error {
 
 // SetClientList sets the client list used to resolve per-client shared secrets.
 // When set, the server will prefer the list over the Server.secret field.
+// It is safe to call while the server is serving; nil reverts to the shared secret.
 func (s *Server) SetClientList(clients *ClientList) {
-	s.clients = clients
+	s.clients.Store(clients)
 }
 
 // SetRequireMessageAuthenticator makes the server drop Access-Requests without a
@@ -288,7 +284,7 @@ func (s *Server) SetLimitProxyState(limit bool) {
 }
 
 func (s *Server) secretForAddr(addr *net.UDPAddr) (string, bool) {
-	if s.clients != nil {
+	if clients := s.clients.Load(); clients != nil {
 		host := addr.IP.String()
 		if host == "" {
 			// Defensive: addr.IP should always be set, but fall back to parsing.
@@ -296,12 +292,12 @@ func (s *Server) secretForAddr(addr *net.UDPAddr) (string, bool) {
 				host = h
 			}
 		}
-		cl := s.clients.Get(host)
+		cl := clients.Get(host)
 		if cl == nil {
 			// Also allow indexing by the full remote address (host:port).
 			// This is useful when multiple clients share an IP but differ by port
 			// (for example, during local testing).
-			cl = s.clients.Get(addr.String())
+			cl = clients.Get(addr.String())
 		}
 		if cl == nil {
 			return "", false
