@@ -44,13 +44,14 @@ func (a AVP) Decode(p *Packet) interface{} {
 
 // String returns a human-readable representation of the AVP.
 func (a AVP) String() string {
-	return "AVP type: " + a.Type.String() + " " + getAttributeTypeDesc(a.Type).dataType.String(nil, a)
+	return a.StringWithPacket(nil)
 }
 
 // StringWithPacket returns a human-readable representation of the AVP that may
 // depend on packet context (for example User-Password decryption).
 func (a AVP) StringWithPacket(p *Packet) string {
-	return "AVP type: " + a.Type.String() + " " + getAttributeTypeDesc(a.Type).dataType.String(p, a)
+	desc := getAttributeTypeDesc(a.Type)
+	return "AVP type: " + desc.name + " " + desc.dataType.String(p, a)
 }
 
 type avpDataType interface {

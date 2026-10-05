@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 var (
@@ -51,27 +52,20 @@ func splitLine(line string) []string {
 	return fields
 }
 
-var (
-	defaultDictionary   *Dictionary
-	defaultDictionaryMu sync.RWMutex
-)
+var defaultDictionary atomic.Pointer[Dictionary]
 
 func init() {
-	defaultDictionary = NewDictionary()
+	defaultDictionary.Store(NewDictionary())
 }
 
 // SetDefaultDictionary sets the dictionary used for package-level lookups (like AVP.Decode)
 func SetDefaultDictionary(d *Dictionary) {
-	defaultDictionaryMu.Lock()
-	defer defaultDictionaryMu.Unlock()
-	defaultDictionary = d
+	defaultDictionary.Store(d)
 }
 
 // GetDefaultDictionary returns the current default dictionary
 func GetDefaultDictionary() *Dictionary {
-	defaultDictionaryMu.RLock()
-	defer defaultDictionaryMu.RUnlock()
-	return defaultDictionary
+	return defaultDictionary.Load()
 }
 
 // Dictionary parses and stores FreeRADIUS-style dictionary files.
@@ -568,15 +562,15 @@ func (d *Dictionary) DecodeAVPValue(p *Packet, a AVP) string {
 			return avpBinary.String(p, a)
 		}
 
-		vendorName := d.GetVendorName(vsa.Vendor)
-		attrName := d.GetVSAAttributeName(vsa.Vendor, vsa.Type)
-		attrType := d.GetVSAAttributeType(vsa.Vendor, attrName)
-		handler := handlerForValue(attrType, vsa.Value)
-
-		valStr := handler.String(p, AVP{Value: vsa.Value})
+		d.mu.RLock()
+		vendorName := d.vendorName[vsa.Vendor]
+		attrName := d.vsaAttrName[vsa.Vendor][vsa.Type]
+		handler := handlerForValue(d.vsaAttrType[vsa.Vendor][attrName], vsa.Value)
 		// Try to lookup enum name for VSAs too
-		if name, ok := d.enumName(handler, vsa.Value, d.vsaConstName[vsa.Vendor][attrName]); ok {
-			valStr = name
+		valStr, ok := enumName(handler, vsa.Value, d.vsaConstName[vsa.Vendor][attrName])
+		d.mu.RUnlock()
+		if !ok {
+			valStr = handler.String(p, AVP{Value: vsa.Value})
 		}
 
 		return fmt.Sprintf("{Vendor:%s #%d, Attr: %s #%d, Value: %s}",
@@ -584,31 +578,38 @@ func (d *Dictionary) DecodeAVPValue(p *Packet, a AVP) string {
 
 	}
 
-	attrName := d.GetAttributeName(a.Type)
-	attrType := d.GetAttributeType(attrName)
-	handler := handlerForValue(attrType, a.Value)
-
+	d.mu.RLock()
+	attrName := d.attrName[a.Type]
+	handler := handlerForValue(d.attrType[attrName], a.Value)
 	// Try to lookup enum name for standard attributes
-	if name, ok := d.enumName(handler, a.Value, d.constName[attrName]); ok {
+	name, ok := enumName(handler, a.Value, d.constName[attrName])
+	d.mu.RUnlock()
+	if ok {
 		return name
 	}
 
 	return handler.String(p, a)
 }
 
-// enumName returns the VALUE name of an integer value, with its tag if any.
-func (d *Dictionary) enumName(handler avpDataType, value []byte, names map[uint32]string) (string, bool) {
+// enumName returns the VALUE name of an integer value, with its tag if any; caller holds the lock.
+func enumName(handler avpDataType, value []byte, names map[uint32]string) (string, bool) {
 	if handler != avpUint32 && handler != avpTaggedUint32 {
 		return "", false
 	}
 	v := handler.Value(nil, AVP{Value: value}).(uint32)
-	d.mu.RLock()
 	name, ok := names[v]
-	d.mu.RUnlock()
 	if ok && handler == avpTaggedUint32 {
 		name = withTag(name, value[0])
 	}
 	return name, ok
+}
+
+// attrDesc returns the name and type name of attribute t under one read lock.
+func (d *Dictionary) attrDesc(t AttributeType) (name, attrType string) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	name = d.attrName[t]
+	return name, d.attrType[name]
 }
 
 // public

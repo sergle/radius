@@ -2,6 +2,9 @@ package radius
 
 import (
 	"bytes"
+	"encoding/binary"
+	"fmt"
+	"reflect"
 	"testing"
 )
 
@@ -78,4 +81,38 @@ func TestAvpUint32EnumDetailed(t *testing.T) {
 			t.Errorf("FromString(%s) = %v; want %v", input, res, []byte(input))
 		}
 	})
+}
+
+func TestAvpUint32EnumPackageTypes(t *testing.T) {
+	const unknown = 9999
+	enums := []fmt.Stringer{
+		AcctStatusTypeEnum(0), NASPortTypeEnum(0), ServiceTypeEnum(0), PromptEnum(0),
+		TunnelTypeEnum(0), TunnelMediumTypeEnum(0), AcctTerminateCauseEnum(0),
+	}
+	for _, e := range enums {
+		handler := AvpUint32Enum{e}
+		for _, n := range []uint32{1, unknown} {
+			avp := AVP{Value: binary.BigEndian.AppendUint32(nil, n)}
+			v := handler.Value(nil, avp)
+			if reflect.TypeOf(v) != reflect.TypeOf(e) || reflect.ValueOf(v).Uint() != uint64(n) {
+				t.Errorf("%T Value(%d) = %#v", e, n, v)
+			}
+			if got, want := handler.String(nil, avp), v.(fmt.Stringer).String(); got != want {
+				t.Errorf("%T String(%d) = %q; want %q", e, n, got, want)
+			}
+		}
+		if v := handler.Value(nil, AVP{}); reflect.TypeOf(v) != reflect.TypeOf(e) {
+			t.Errorf("%T Value(short) = %#v", e, v)
+		}
+	}
+}
+
+func TestAttributeTypeStringNilDictionary(t *testing.T) {
+	old := GetDefaultDictionary()
+	SetDefaultDictionary(nil)
+	defer SetDefaultDictionary(old)
+
+	if got := AttrUserName.String(); got != "Unknown 1" {
+		t.Errorf("String() = %q; want Unknown 1", got)
+	}
 }

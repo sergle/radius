@@ -124,14 +124,9 @@ const (
 )
 
 func getAttributeTypeDesc(t AttributeType) attributeTypeDesc {
-	defaultDictionaryMu.RLock()
-	d := defaultDictionary
-	defaultDictionaryMu.RUnlock()
-
-	if d != nil {
-		name := d.GetAttributeName(t)
+	if d := GetDefaultDictionary(); d != nil {
+		name, typeName := d.attrDesc(t)
 		if name != "" {
-			typeName := d.GetAttributeType(name)
 			handler := attrTypeHandlers[typeName]
 			if handler == nil {
 				handler = avpBinary

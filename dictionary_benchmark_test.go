@@ -40,3 +40,69 @@ func BenchmarkLoadFile(b *testing.B) {
 		}
 	}
 }
+
+var benchNASPortAVP = AVP{Type: AttrNASPort, Value: []byte{0, 0, 0, 7}}
+
+func BenchmarkAVPDecode(b *testing.B) {
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = benchNASPortAVP.Decode(nil)
+	}
+}
+
+func BenchmarkAVPDecodeParallel(b *testing.B) {
+	b.ReportAllocs()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			_ = benchNASPortAVP.Decode(nil)
+		}
+	})
+}
+
+func BenchmarkAVPString(b *testing.B) {
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = benchNASPortAVP.String()
+	}
+}
+
+func BenchmarkAttributeTypeString(b *testing.B) {
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = AttrNASPort.String()
+	}
+}
+
+func BenchmarkDecodeAVPValue(b *testing.B) {
+	d := GetDefaultDictionary()
+	a := AVP{Type: AttrServiceType, Value: []byte{0, 0, 0, 2}}
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = d.DecodeAVPValue(nil, a)
+	}
+}
+
+func BenchmarkEnumString(b *testing.B) {
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = AcctStatusTypeEnumInterimUpdate.String()
+	}
+}
+
+func BenchmarkAvpUint32EnumString(b *testing.B) {
+	enum := AvpUint32Enum{AcctStatusTypeEnum(0)}
+	a := AVP{Type: AttrAcctStatusType, Value: []byte{0, 0, 0, 3}}
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = enum.String(nil, a)
+	}
+}
+
+func BenchmarkAvpUint32EnumValue(b *testing.B) {
+	enum := AvpUint32Enum{AcctStatusTypeEnum(0)}
+	a := AVP{Type: AttrAcctStatusType, Value: []byte{0, 0, 0, 3}}
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = enum.Value(nil, a)
+	}
+}

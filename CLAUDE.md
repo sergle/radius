@@ -21,7 +21,7 @@ go test -fuzz=^FuzzDecodeRequest$ -fuzztime=30s .   # single fuzz target
 
 ## Architecture
 
-**Dictionary drives AVP typing.** `AVP` is just `{Type, Value []byte}`. Decoding/stringifying a value (`AVP.Decode`, `AVP.String`, `AttributeType.String`) looks up the attribute's name and type string in the package-level *default dictionary* (`GetDefaultDictionary`/`SetDefaultDictionary`, guarded by `defaultDictionaryMu`), then maps the type string to an `avpDataType` handler via `attrTypeHandlers` in `dictionary.go` (`integer`→`avp_uint32.go`, `password`→`avp_password.go`, `vsa`→`avp_vendor.go`, etc.). Unknown types fall back to `avpBinary`.
+**Dictionary drives AVP typing.** `AVP` is just `{Type, Value []byte}`. Decoding/stringifying a value (`AVP.Decode`, `AVP.String`, `AttributeType.String`) looks up the attribute's name and type string in the package-level *default dictionary* (`GetDefaultDictionary`/`SetDefaultDictionary`, an `atomic.Pointer`; each lookup takes one `Dictionary.mu` read lock), then maps the type string to an `avpDataType` handler via `attrTypeHandlers` in `dictionary.go` (`integer`→`avp_uint32.go`, `password`→`avp_password.go`, `vsa`→`avp_vendor.go`, etc.). Unknown types fall back to `avpBinary`.
 
 - In production the default dictionary starts **empty**; users must load one (`LoadFile` for FreeRADIUS-style files with `$INCLUDE`/`VENDOR`/`BEGIN-VENDOR`, or `LoadBuiltin`).
 - `init_test.go` loads the builtin dictionary into the default dictionary for all tests — tests implicitly depend on it.
