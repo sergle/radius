@@ -62,6 +62,14 @@ type avpDataType interface {
 
 // enums:
 
+// enumString returns the name of e, or "unknown code N" if it has none.
+func enumString[E ~uint32](names map[E]string, e E) string {
+	if name, ok := names[e]; ok {
+		return name
+	}
+	return "unknown code " + strconv.FormatUint(uint64(e), 10)
+}
+
 // AcctStatusTypeEnum is the decoded form of Acct-Status-Type.
 type AcctStatusTypeEnum uint32
 
@@ -80,34 +88,22 @@ const (
 	AcctStatusTypeEnumTunnelLinkReject AcctStatusTypeEnum = 14
 )
 
-// String returns the standard name for the accounting status value.
-func (e AcctStatusTypeEnum) String() string {
-	switch e {
-	case AcctStatusTypeEnumStart:
-		return "Start"
-	case AcctStatusTypeEnumStop:
-		return "Stop"
-	case AcctStatusTypeEnumInterimUpdate:
-		return "InterimUpdate"
-	case AcctStatusTypeEnumAccountingOn:
-		return "AccountingOn"
-	case AcctStatusTypeEnumAccountingOff:
-		return "AccountingOff"
-	case AcctStatusTypeEnumTunnelStart:
-		return "Tunnel-Start"
-	case AcctStatusTypeEnumTunnelStop:
-		return "Tunnel-Stop"
-	case AcctStatusTypeEnumTunnelReject:
-		return "Tunnel-Reject"
-	case AcctStatusTypeEnumTunnelLinkStart:
-		return "Tunnel-Link-Start"
-	case AcctStatusTypeEnumTunnelLinkStop:
-		return "Tunnel-Link-Stop"
-	case AcctStatusTypeEnumTunnelLinkReject:
-		return "Tunnel-Link-Reject"
-	}
-	return "unknow code " + strconv.Itoa(int(e))
+var acctStatusTypeNames = map[AcctStatusTypeEnum]string{
+	AcctStatusTypeEnumStart:            "Start",
+	AcctStatusTypeEnumStop:             "Stop",
+	AcctStatusTypeEnumInterimUpdate:    "InterimUpdate",
+	AcctStatusTypeEnumAccountingOn:     "AccountingOn",
+	AcctStatusTypeEnumAccountingOff:    "AccountingOff",
+	AcctStatusTypeEnumTunnelStart:      "Tunnel-Start",
+	AcctStatusTypeEnumTunnelStop:       "Tunnel-Stop",
+	AcctStatusTypeEnumTunnelReject:     "Tunnel-Reject",
+	AcctStatusTypeEnumTunnelLinkStart:  "Tunnel-Link-Start",
+	AcctStatusTypeEnumTunnelLinkStop:   "Tunnel-Link-Stop",
+	AcctStatusTypeEnumTunnelLinkReject: "Tunnel-Link-Reject",
 }
+
+// String returns the standard name for the accounting status value.
+func (e AcctStatusTypeEnum) String() string { return enumString(acctStatusTypeNames, e) }
 
 // NASPortTypeEnum is the decoded form of NAS-Port-Type.
 type NASPortTypeEnum uint32
@@ -130,40 +126,25 @@ const (
 	NASPortTypeEnumFDDI             NASPortTypeEnum = 21
 )
 
-// String returns the standard name for the NAS port type value.
-func (e NASPortTypeEnum) String() string {
-	switch e {
-	case NASPortTypeEnumAsync:
-		return "Async"
-	case NASPortTypeEnumSync:
-		return "Sync"
-	case NASPortTypeEnumISDNSync:
-		return "ISDNSync"
-	case NASPortTypeEnumISDNSyncV120:
-		return "ISDNSyncV120"
-	case NASPortTypeEnumISDNSyncV110:
-		return "ISDNSyncV110"
-	case NASPortTypeEnumVirtual:
-		return "Virtual"
-	case NASPortTypeEnumPIAFS:
-		return "PIAFS"
-	case NASPortTypeEnumHDLCClearChannel:
-		return "HDLCClearChannel"
-	case NASPortTypeEnumEthernet:
-		return "Ethernet"
-	case NASPortTypeEnumCable:
-		return "Cable"
-	case NASPortTypeEnumWirelessOther:
-		return "Wireless-Other"
-	case NASPortTypeEnumWireless80211:
-		return "Wireless-IEEE-802.11"
-	case NASPortTypeEnumTokenRing:
-		return "Token-Ring"
-	case NASPortTypeEnumFDDI:
-		return "FDDI"
-	}
-	return "unknow code " + strconv.Itoa(int(e))
+var nasPortTypeNames = map[NASPortTypeEnum]string{
+	NASPortTypeEnumAsync:            "Async",
+	NASPortTypeEnumSync:             "Sync",
+	NASPortTypeEnumISDNSync:         "ISDNSync",
+	NASPortTypeEnumISDNSyncV120:     "ISDNSyncV120",
+	NASPortTypeEnumISDNSyncV110:     "ISDNSyncV110",
+	NASPortTypeEnumVirtual:          "Virtual",
+	NASPortTypeEnumPIAFS:            "PIAFS",
+	NASPortTypeEnumHDLCClearChannel: "HDLCClearChannel",
+	NASPortTypeEnumEthernet:         "Ethernet",
+	NASPortTypeEnumCable:            "Cable",
+	NASPortTypeEnumWirelessOther:    "Wireless-Other",
+	NASPortTypeEnumWireless80211:    "Wireless-IEEE-802.11",
+	NASPortTypeEnumTokenRing:        "Token-Ring",
+	NASPortTypeEnumFDDI:             "FDDI",
 }
+
+// String returns the standard name for the NAS port type value.
+func (e NASPortTypeEnum) String() string { return enumString(nasPortTypeNames, e) }
 
 // ServiceTypeEnum is the decoded form of Service-Type.
 type ServiceTypeEnum uint32
@@ -180,30 +161,20 @@ const (
 	ServiceTypeEnumCallCheck        ServiceTypeEnum = 10
 )
 
-// String returns the standard name for the service type value.
-func (e ServiceTypeEnum) String() string {
-	switch e {
-	case ServiceTypeEnumLogin:
-		return "Login"
-	case ServiceTypeEnumFramed:
-		return "Framed"
-	case ServiceTypeEnumCallbackLogin:
-		return "CallbackLogin"
-	case ServiceTypeEnumCallbackFramed:
-		return "CallbackFramed"
-	case ServiceTypeEnumOutbound:
-		return "Outbound"
-	case ServiceTypeEnumAdministrative:
-		return "Administrative"
-	case ServiceTypeEnumNASPrompt:
-		return "NAS-Prompt"
-	case ServiceTypeEnumAuthenticateOnly:
-		return "Authenticate-Only"
-	case ServiceTypeEnumCallCheck:
-		return "Call-Check"
-	}
-	return "unknow code " + strconv.Itoa(int(e))
+var serviceTypeNames = map[ServiceTypeEnum]string{
+	ServiceTypeEnumLogin:            "Login",
+	ServiceTypeEnumFramed:           "Framed",
+	ServiceTypeEnumCallbackLogin:    "CallbackLogin",
+	ServiceTypeEnumCallbackFramed:   "CallbackFramed",
+	ServiceTypeEnumOutbound:         "Outbound",
+	ServiceTypeEnumAdministrative:   "Administrative",
+	ServiceTypeEnumNASPrompt:        "NAS-Prompt",
+	ServiceTypeEnumAuthenticateOnly: "Authenticate-Only",
+	ServiceTypeEnumCallCheck:        "Call-Check",
 }
+
+// String returns the standard name for the service type value.
+func (e ServiceTypeEnum) String() string { return enumString(serviceTypeNames, e) }
 
 // PromptEnum is the decoded form of Prompt (RFC 2869).
 type PromptEnum uint32
@@ -213,16 +184,13 @@ const (
 	PromptEnumEcho   PromptEnum = 1
 )
 
-// String returns the standard name for the prompt value.
-func (e PromptEnum) String() string {
-	switch e {
-	case PromptEnumNoEcho:
-		return "No-Echo"
-	case PromptEnumEcho:
-		return "Echo"
-	}
-	return "unknow code " + strconv.Itoa(int(e))
+var promptNames = map[PromptEnum]string{
+	PromptEnumNoEcho: "No-Echo",
+	PromptEnumEcho:   "Echo",
 }
+
+// String returns the standard name for the prompt value.
+func (e PromptEnum) String() string { return enumString(promptNames, e) }
 
 // TunnelTypeEnum is the decoded form of Tunnel-Type (RFC 2868).
 type TunnelTypeEnum uint32
@@ -243,38 +211,24 @@ const (
 	TunnelTypeEnumVLAN    TunnelTypeEnum = 13
 )
 
-// String returns the standard name for the tunnel type value.
-func (e TunnelTypeEnum) String() string {
-	switch e {
-	case TunnelTypeEnumPPTP:
-		return "PPTP"
-	case TunnelTypeEnumL2F:
-		return "L2F"
-	case TunnelTypeEnumL2TP:
-		return "L2TP"
-	case TunnelTypeEnumATMP:
-		return "ATMP"
-	case TunnelTypeEnumVTP:
-		return "VTP"
-	case TunnelTypeEnumAH:
-		return "AH"
-	case TunnelTypeEnumIPIP:
-		return "IP-IP"
-	case TunnelTypeEnumMinIPIP:
-		return "MIN-IP-IP"
-	case TunnelTypeEnumESP:
-		return "ESP"
-	case TunnelTypeEnumGRE:
-		return "GRE"
-	case TunnelTypeEnumDVS:
-		return "DVS"
-	case TunnelTypeEnumIPInIP:
-		return "IP-in-IP"
-	case TunnelTypeEnumVLAN:
-		return "VLAN"
-	}
-	return "unknow code " + strconv.Itoa(int(e))
+var tunnelTypeNames = map[TunnelTypeEnum]string{
+	TunnelTypeEnumPPTP:    "PPTP",
+	TunnelTypeEnumL2F:     "L2F",
+	TunnelTypeEnumL2TP:    "L2TP",
+	TunnelTypeEnumATMP:    "ATMP",
+	TunnelTypeEnumVTP:     "VTP",
+	TunnelTypeEnumAH:      "AH",
+	TunnelTypeEnumIPIP:    "IP-IP",
+	TunnelTypeEnumMinIPIP: "MIN-IP-IP",
+	TunnelTypeEnumESP:     "ESP",
+	TunnelTypeEnumGRE:     "GRE",
+	TunnelTypeEnumDVS:     "DVS",
+	TunnelTypeEnumIPInIP:  "IP-in-IP",
+	TunnelTypeEnumVLAN:    "VLAN",
 }
+
+// String returns the standard name for the tunnel type value.
+func (e TunnelTypeEnum) String() string { return enumString(tunnelTypeNames, e) }
 
 // TunnelMediumTypeEnum is the decoded form of Tunnel-Medium-Type (RFC 2868).
 type TunnelMediumTypeEnum uint32
@@ -297,42 +251,26 @@ const (
 	TunnelMediumTypeEnumE164NSAP    TunnelMediumTypeEnum = 15
 )
 
-// String returns the standard name for the tunnel medium type value.
-func (e TunnelMediumTypeEnum) String() string {
-	switch e {
-	case TunnelMediumTypeEnumIPv4:
-		return "IPv4"
-	case TunnelMediumTypeEnumIPv6:
-		return "IPv6"
-	case TunnelMediumTypeEnumNSAP:
-		return "NSAP"
-	case TunnelMediumTypeEnumHDLC:
-		return "HDLC"
-	case TunnelMediumTypeEnumBBN1822:
-		return "BBN-1822"
-	case TunnelMediumTypeEnum802:
-		return "802"
-	case TunnelMediumTypeEnumE163:
-		return "E.163"
-	case TunnelMediumTypeEnumE164:
-		return "E.164"
-	case TunnelMediumTypeEnumF69:
-		return "F.69"
-	case TunnelMediumTypeEnumX121:
-		return "X.121"
-	case TunnelMediumTypeEnumIPX:
-		return "IPX"
-	case TunnelMediumTypeEnumAppletalk:
-		return "Appletalk"
-	case TunnelMediumTypeEnumDecnetIV:
-		return "Decnet-IV"
-	case TunnelMediumTypeEnumBanyanVines:
-		return "Banyan-Vines"
-	case TunnelMediumTypeEnumE164NSAP:
-		return "E.164-NSAP"
-	}
-	return "unknow code " + strconv.Itoa(int(e))
+var tunnelMediumTypeNames = map[TunnelMediumTypeEnum]string{
+	TunnelMediumTypeEnumIPv4:        "IPv4",
+	TunnelMediumTypeEnumIPv6:        "IPv6",
+	TunnelMediumTypeEnumNSAP:        "NSAP",
+	TunnelMediumTypeEnumHDLC:        "HDLC",
+	TunnelMediumTypeEnumBBN1822:     "BBN-1822",
+	TunnelMediumTypeEnum802:         "802",
+	TunnelMediumTypeEnumE163:        "E.163",
+	TunnelMediumTypeEnumE164:        "E.164",
+	TunnelMediumTypeEnumF69:         "F.69",
+	TunnelMediumTypeEnumX121:        "X.121",
+	TunnelMediumTypeEnumIPX:         "IPX",
+	TunnelMediumTypeEnumAppletalk:   "Appletalk",
+	TunnelMediumTypeEnumDecnetIV:    "Decnet-IV",
+	TunnelMediumTypeEnumBanyanVines: "Banyan-Vines",
+	TunnelMediumTypeEnumE164NSAP:    "E.164-NSAP",
 }
+
+// String returns the standard name for the tunnel medium type value.
+func (e TunnelMediumTypeEnum) String() string { return enumString(tunnelMediumTypeNames, e) }
 
 // AcctTerminateCauseEnum is the decoded form of Acct-Terminate-Cause.
 type AcctTerminateCauseEnum uint32
@@ -362,53 +300,30 @@ const (
 	AcctTerminateCauseEnumPortAdminDisabled       AcctTerminateCauseEnum = 22
 )
 
-// String returns the standard name for the accounting terminate cause value.
-func (e AcctTerminateCauseEnum) String() string {
-	switch e {
-	case AcctTerminateCauseEnumUserRequest:
-		return "UserRequest"
-	case AcctTerminateCauseEnumLostCarrier:
-		return "LostCarrier"
-	case AcctTerminateCauseEnumLostService:
-		return "LostService"
-	case AcctTerminateCauseEnumIdleTimeout:
-		return "IdleTimeout"
-	case AcctTerminateCauseEnumSessionTimeout:
-		return "SessionTimeout"
-	case AcctTerminateCauseEnumAdminReset:
-		return "AdminReset"
-	case AcctTerminateCauseEnumAdminReboot:
-		return "AdminReboot"
-	case AcctTerminateCauseEnumPortError:
-		return "PortError"
-	case AcctTerminateCauseEnumNASError:
-		return "NAS-Error"
-	case AcctTerminateCauseEnumNASRequest:
-		return "NAS-Request"
-	case AcctTerminateCauseEnumNASReboot:
-		return "NAS-Reboot"
-	case AcctTerminateCauseEnumPortUnneeded:
-		return "PortUnneeded"
-	case AcctTerminateCauseEnumPortPreempted:
-		return "PortPreempted"
-	case AcctTerminateCauseEnumPortSuspended:
-		return "PortSuspended"
-	case AcctTerminateCauseEnumServiceUnavailable:
-		return "ServiceUnavailable"
-	case AcctTerminateCauseEnumCallback:
-		return "Callback"
-	case AcctTerminateCauseEnumUserError:
-		return "UserError"
-	case AcctTerminateCauseEnumHostRequest:
-		return "HostRequest"
-	case AcctTerminateCauseEnumSupplicantRestart:
-		return "SupplicantRestart"
-	case AcctTerminateCauseEnumReauthenticationFailure:
-		return "ReauthenticationFailure"
-	case AcctTerminateCauseEnumPortReinitialized:
-		return "PortReinitialized"
-	case AcctTerminateCauseEnumPortAdminDisabled:
-		return "PortAdminDisabled"
-	}
-	return "unknow code " + strconv.Itoa(int(e))
+var acctTerminateCauseNames = map[AcctTerminateCauseEnum]string{
+	AcctTerminateCauseEnumUserRequest:             "UserRequest",
+	AcctTerminateCauseEnumLostCarrier:             "LostCarrier",
+	AcctTerminateCauseEnumLostService:             "LostService",
+	AcctTerminateCauseEnumIdleTimeout:             "IdleTimeout",
+	AcctTerminateCauseEnumSessionTimeout:          "SessionTimeout",
+	AcctTerminateCauseEnumAdminReset:              "AdminReset",
+	AcctTerminateCauseEnumAdminReboot:             "AdminReboot",
+	AcctTerminateCauseEnumPortError:               "PortError",
+	AcctTerminateCauseEnumNASError:                "NAS-Error",
+	AcctTerminateCauseEnumNASRequest:              "NAS-Request",
+	AcctTerminateCauseEnumNASReboot:               "NAS-Reboot",
+	AcctTerminateCauseEnumPortUnneeded:            "PortUnneeded",
+	AcctTerminateCauseEnumPortPreempted:           "PortPreempted",
+	AcctTerminateCauseEnumPortSuspended:           "PortSuspended",
+	AcctTerminateCauseEnumServiceUnavailable:      "ServiceUnavailable",
+	AcctTerminateCauseEnumCallback:                "Callback",
+	AcctTerminateCauseEnumUserError:               "UserError",
+	AcctTerminateCauseEnumHostRequest:             "HostRequest",
+	AcctTerminateCauseEnumSupplicantRestart:       "SupplicantRestart",
+	AcctTerminateCauseEnumReauthenticationFailure: "ReauthenticationFailure",
+	AcctTerminateCauseEnumPortReinitialized:       "PortReinitialized",
+	AcctTerminateCauseEnumPortAdminDisabled:       "PortAdminDisabled",
 }
+
+// String returns the standard name for the accounting terminate cause value.
+func (e AcctTerminateCauseEnum) String() string { return enumString(acctTerminateCauseNames, e) }
