@@ -11,6 +11,10 @@ VENDOR		TestVendor	9999
 BEGIN-VENDOR	TestVendor
 ATTRIBUTE	Test-Int	1	integer
 VALUE		Test-Int	One	1
+ATTRIBUTE	Test-Byte	2	byte
+VALUE		Test-Byte	One	1
+ATTRIBUTE	Test-Short	3	short
+ATTRIBUTE	Test-Signed	4	signed
 END-VENDOR	TestVendor
 `
 
@@ -38,6 +42,14 @@ var malformedAVPs = []struct {
 	{"Vendor-Specific sub-length 1", AVP{AttrVendorSpecific, []byte{0, 0, 0x27, 0x0f, 1, 1}}, "[]byte{0x0, 0x0, 0x27, 0xf, 0x1, 0x1}"},
 	{"Vendor-Specific short integer", AVP{AttrVendorSpecific, []byte{0, 0, 0x27, 0x0f, 1, 4, 0, 1}},
 		"{Vendor:TestVendor #9999, Attr: Test-Int #1, Value: []byte{0x0, 0x1}}"},
+	{"Vendor-Specific empty byte", AVP{AttrVendorSpecific, []byte{0, 0, 0x27, 0x0f, 2, 2}},
+		"{Vendor:TestVendor #9999, Attr: Test-Byte #2, Value: []byte{}}"},
+	{"Vendor-Specific long byte", AVP{AttrVendorSpecific, []byte{0, 0, 0x27, 0x0f, 2, 4, 0, 1}},
+		"{Vendor:TestVendor #9999, Attr: Test-Byte #2, Value: []byte{0x0, 0x1}}"},
+	{"Vendor-Specific short short", AVP{AttrVendorSpecific, []byte{0, 0, 0x27, 0x0f, 3, 3, 1}},
+		"{Vendor:TestVendor #9999, Attr: Test-Short #3, Value: []byte{0x1}}"},
+	{"Vendor-Specific short signed", AVP{AttrVendorSpecific, []byte{0, 0, 0x27, 0x0f, 4, 5, 0xff, 0xff, 0xff}},
+		"{Vendor:TestVendor #9999, Attr: Test-Signed #4, Value: []byte{0xff, 0xff, 0xff}}"},
 	{"User-Password 5 bytes", AVP{AttrUserPassword, []byte{1, 2, 3, 4, 5}}, ""},
 	{"EAP-Message 2 bytes", AVP{AttrEAPMessage, []byte{2, 0}}, ""},
 	{"CHAP-Password 3 bytes", AVP{AttrCHAPPassword, []byte{1, 2, 3}}, ""},

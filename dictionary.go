@@ -4,9 +4,11 @@ import (
 	"bufio"
 	"bytes"
 	_ "embed"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -370,10 +372,13 @@ func (d *Dictionary) parseValue(attrName string, constName string, constValue st
 	}
 
 	var present bool
+	var attrType string
 	if d.currentVendor > 0 {
 		_, present = d.vsaAttrID[d.currentVendor][attrName]
+		attrType = d.vsaAttrType[d.currentVendor][attrName]
 	} else {
 		_, present = d.attrID[attrName]
+		attrType = d.attrType[attrName]
 	}
 
 	if !present {
@@ -383,7 +388,7 @@ func (d *Dictionary) parseValue(attrName string, constName string, constValue st
 	}
 
 	// some values defined as 0x.. - using '0' to auto-detect
-	cID, err := strconv.ParseUint(constValue, 0, 32)
+	cID, err := parseInteger(attrTypeHandlers[attrType], constValue)
 	if err != nil {
 		return fmt.Errorf("value %s of attribute %s: %w", constName, attrName, err)
 	}
@@ -399,16 +404,16 @@ func (d *Dictionary) parseValue(attrName string, constName string, constValue st
 			d.vsaConstName[d.currentVendor][attrName] = make(map[uint32]string)
 		}
 
-		d.vsaConstID[d.currentVendor][attrName][constName] = uint32(cID)
-		d.vsaConstName[d.currentVendor][attrName][uint32(cID)] = constName
+		d.vsaConstID[d.currentVendor][attrName][constName] = cID
+		d.vsaConstName[d.currentVendor][attrName][cID] = constName
 	} else {
 		if _, exist := d.constID[attrName]; !exist {
 			d.constID[attrName] = make(map[string]uint32)
 			d.constName[attrName] = make(map[uint32]string)
 		}
 
-		d.constID[attrName][constName] = uint32(cID)
-		d.constName[attrName][uint32(cID)] = constName
+		d.constID[attrName][constName] = cID
+		d.constName[attrName][cID] = constName
 	}
 
 	return nil
@@ -503,6 +508,9 @@ func (d *Dictionary) parseEndTLV(attrName string) error {
 // dictionary attribute type names
 const (
 	typeInteger        = "integer"
+	typeByte           = "byte"
+	typeShort          = "short"
+	typeSigned         = "signed"
 	typeIPAddr         = "ipaddr"
 	typeIPv6Addr       = "ipv6addr"
 	typeString         = "string"
@@ -518,6 +526,9 @@ const (
 // attribute type to handler mapping
 var attrTypeHandlers = map[string]avpDataType{
 	typeInteger:        avpUint32,
+	typeByte:           avpUint8,
+	typeShort:          avpUint16,
+	typeSigned:         avpInt32,
 	typeIPAddr:         avpIP,
 	typeIPv6Addr:       avpIP,
 	typeString:         avpString,
@@ -528,25 +539,37 @@ var attrTypeHandlers = map[string]avpDataType{
 	typeTaggedString:   avpTaggedString,
 	typeVSA:            avpVendor,
 	typeEAPMessage:     avpEapMessage,
-	// "byte"
-	// "short"
 	// "date"
 	// "tlv"
 	// "combo-ip"
 	// "ether"
 	// "abinary"
 	// "ifid"
-	// "signed"
 	// "ipv6prefix"
 }
 
-// handlerForValue returns the handler for attrType, or avpBinary if value is too short for it.
+// handlerForValue returns the handler for attrType, or avpBinary if value has the wrong length for it.
 func handlerForValue(attrType string, value []byte) avpDataType {
 	handler := attrTypeHandlers[attrType]
-	if handler == nil || ((handler == avpUint32 || handler == avpTaggedUint32) && len(value) < uint32Size) {
+	if handler == nil || !validLength(handler, len(value)) {
 		return avpBinary
 	}
 	return handler
+}
+
+// validLength reports whether n bytes fit handler; "integer" keeps accepting trailing bytes.
+func validLength(handler avpDataType, n int) bool {
+	switch handler {
+	case avpUint32, avpTaggedUint32:
+		return n >= uint32Size
+	case avpUint8:
+		return n == uint8Size
+	case avpUint16:
+		return n == uint16Size
+	case avpInt32:
+		return n == int32Size
+	}
+	return true
 }
 
 // DecodeAVPValue returns a human-readable string for the given AVP.
@@ -593,10 +616,15 @@ func (d *Dictionary) DecodeAVPValue(p *Packet, a AVP) string {
 
 // enumName returns the VALUE name of an integer value, with its tag if any; caller holds the lock.
 func enumName(handler avpDataType, value []byte, names map[uint32]string) (string, bool) {
-	if handler != avpUint32 && handler != avpTaggedUint32 {
+	var v uint32
+	switch handler {
+	case avpUint32, avpTaggedUint32, avpUint8, avpUint16:
+		v = handler.Value(nil, AVP{Value: value}).(uint32)
+	case avpInt32:
+		v = uint32(handler.Value(nil, AVP{Value: value}).(int32))
+	default:
 		return "", false
 	}
-	v := handler.Value(nil, AVP{Value: value}).(uint32)
 	name, ok := names[v]
 	if ok && handler == avpTaggedUint32 {
 		name = withTag(name, value[0])
@@ -773,27 +801,48 @@ func encodeValue(handler avpDataType, names map[string]uint32, tag uint8, value 
 		return nil, ErrEncryptedAttribute
 	case avpTaggedString:
 		return encodeTaggedString(tag, value), nil
-	case avpUint32, avpTaggedUint32:
-		return encodeInteger(handler == avpTaggedUint32, names, tag, value)
+	case avpUint32, avpTaggedUint32, avpUint8, avpUint16, avpInt32:
+		return encodeInteger(handler, names, tag, value)
 	}
 	return handler.FromString(value), nil
 }
 
-// encodeInteger encodes a VALUE name from names or a number; tagged integers have 24 bits.
-func encodeInteger(tagged bool, names map[string]uint32, tag uint8, value string) ([]byte, error) {
+// encodeInteger encodes a VALUE name from names or a number, range-checked for handler.
+func encodeInteger(handler avpDataType, names map[string]uint32, tag uint8, value string) ([]byte, error) {
 	v, known := names[value]
 	if !known {
-		n, err := strconv.ParseUint(value, 0, 32)
+		n, err := parseInteger(handler, value)
 		if err != nil {
 			return nil, fmt.Errorf("%w %q", ErrInvalidValue, value)
 		}
-		v = uint32(n)
+		v = n
 	}
-	if tagged {
+	switch handler {
+	case avpUint8:
+		if v > math.MaxUint8 {
+			return nil, fmt.Errorf("%w %q", ErrInvalidValue, value)
+		}
+		return []byte{uint8(v)}, nil
+	case avpUint16:
+		if v > math.MaxUint16 {
+			return nil, fmt.Errorf("%w %q", ErrInvalidValue, value)
+		}
+		return binary.BigEndian.AppendUint16(nil, uint16(v)), nil
+	case avpTaggedUint32:
 		if v > taggedIntMax {
 			return nil, fmt.Errorf("%w %q", ErrInvalidValue, value)
 		}
 		v |= uint32(tag) << 24
 	}
 	return encodeUint32(v), nil
+}
+
+// parseInteger parses a 32-bit number; "signed" accepts negatives, stored as two's complement.
+func parseInteger(handler avpDataType, value string) (uint32, error) {
+	if handler == avpInt32 {
+		n, err := strconv.ParseInt(value, 0, 32)
+		return uint32(n), err
+	}
+	n, err := strconv.ParseUint(value, 0, 32)
+	return uint32(n), err
 }
