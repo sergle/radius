@@ -98,21 +98,26 @@ func (p *Packet) Reset() {
 	p.ClientAddr = ""
 }
 
-// Copy returns a deep copy of the packet and all currently decoded AVPs.
-//
-// Note: when the packet was decoded lazily (RawAVPs is set and AVPs is empty),
-// Copy copies only the header fields; RawAVPs is not currently copied.
+// Copy returns a deep copy of the packet, including AVPs, RawAVPs and ClientAddr.
+// The copy shares no memory with p, so it stays valid after p is released
+// or its decode buffer is reused.
 func (p *Packet) Copy() *Packet {
 	outP := &Packet{
 		Secret:        p.Secret,
 		Code:          p.Code,
 		Identifier:    p.Identifier,
-		Authenticator: p.Authenticator, // This should be a copy
+		Authenticator: p.Authenticator,
+		ClientAddr:    p.ClientAddr,
 		requestAuth:   p.requestAuth,
 	}
-	outP.AVPs = make([]AVP, len(p.AVPs))
-	for i := range p.AVPs {
-		outP.AVPs[i] = p.AVPs[i].Copy()
+	if p.AVPs != nil {
+		outP.AVPs = make([]AVP, len(p.AVPs))
+		for i := range p.AVPs {
+			outP.AVPs[i] = p.AVPs[i].Copy()
+		}
+	}
+	if p.RawAVPs != nil {
+		outP.RawAVPs = append([]byte{}, p.RawAVPs...)
 	}
 	return outP
 }
