@@ -184,3 +184,43 @@ func TestParseVSAValueName(t *testing.T) {
 		t.Errorf("NewVSA VALUE name = %+v, want %v", vsa, seven)
 	}
 }
+
+// TestBuiltinNASPortTypeValues pins NAS-Port-Type VALUEs to RFC 2865 and the IANA registry.
+func TestBuiltinNASPortTypeValues(t *testing.T) {
+	d := NewDictionary()
+	if err := d.LoadBuiltin(); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"Async", "Sync", "ISDN-Sync", "ISDN-Async-V120", "ISDN-Async-V110", "Virtual",
+		"PIAFS", "HDLC-Clear-Channel", "X.25", "X.75", "G.3-Fax", "SDSL", "ADSL-CAP",
+		"ADSL-DMT", "IDSL", "Ethernet", "xDSL", "Cable", "Wireless-Other", "Wireless-802.11",
+		"Token-Ring", "FDDI", "Wireless-CDMA2000", "Wireless-UMTS", "Wireless-1X-EV", "IAPP",
+		"FTTP", "Wireless-802.16", "Wireless-802.20", "Wireless-802.22", "PPPoA", "PPPoEoA",
+		"PPPoEoE", "PPPoEoVLAN", "PPPoEoQinQ", "xPON", "Wireless-XGP",
+	}
+	for n, name := range want {
+		enc := []byte{0, 0, 0, byte(n)}
+		if avp := d.NewAVP("NAS-Port-Type", name); !bytes.Equal(avp.Value, enc) {
+			t.Errorf("NewAVP(%q) = %v, want %v", name, avp.Value, enc)
+		}
+		if got := d.DecodeAVPValue(nil, AVP{Type: AttrNASPortType, Value: enc}); got != name {
+			t.Errorf("DecodeAVPValue(%d) = %q, want %q", n, got, name)
+		}
+	}
+	consts := map[NASPortTypeEnum]string{
+		NASPortTypeEnumAsync: "Async", NASPortTypeEnumSync: "Sync", NASPortTypeEnumISDNSync: "ISDN-Sync",
+		NASPortTypeEnumISDNSyncV120: "ISDN-Async-V120", NASPortTypeEnumISDNSyncV110: "ISDN-Async-V110",
+		NASPortTypeEnumVirtual: "Virtual", NASPortTypeEnumPIAFS: "PIAFS",
+		NASPortTypeEnumHDLCClearChannel: "HDLC-Clear-Channel", NASPortTypeEnumEthernet: "Ethernet",
+		NASPortTypeEnumxDSL: "xDSL", NASPortTypeEnumCable: "Cable",
+		NASPortTypeEnumWirelessOther: "Wireless-Other", NASPortTypeEnumWireless80211: "Wireless-802.11",
+		NASPortTypeEnumTokenRing: "Token-Ring", NASPortTypeEnumFDDI: "FDDI",
+	}
+	for e, name := range consts {
+		avp := AVP{Type: AttrNASPortType, Value: []byte{0, 0, 0, byte(e)}}
+		if got := d.DecodeAVPValue(nil, avp); got != name {
+			t.Errorf("NASPortTypeEnum %d decodes to %q, want %q", uint32(e), got, name)
+		}
+	}
+}

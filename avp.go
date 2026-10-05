@@ -136,6 +136,7 @@ var nasPortTypeNames = map[NASPortTypeEnum]string{
 	NASPortTypeEnumPIAFS:            "PIAFS",
 	NASPortTypeEnumHDLCClearChannel: "HDLCClearChannel",
 	NASPortTypeEnumEthernet:         "Ethernet",
+	NASPortTypeEnumxDSL:             "xDSL",
 	NASPortTypeEnumCable:            "Cable",
 	NASPortTypeEnumWirelessOther:    "Wireless-Other",
 	NASPortTypeEnumWireless80211:    "Wireless-IEEE-802.11",

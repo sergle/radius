@@ -37,7 +37,7 @@ func TestEnumString(t *testing.T) {
 		{NASPortTypeEnumPIAFS, "PIAFS"},
 		{NASPortTypeEnumHDLCClearChannel, "HDLCClearChannel"},
 		{NASPortTypeEnumEthernet, "Ethernet"},
-		{NASPortTypeEnumxDSL, unknownEnumPrefix + "16"}, // no name defined
+		{NASPortTypeEnumxDSL, "xDSL"},
 		{NASPortTypeEnumCable, "Cable"},
 		{NASPortTypeEnumWirelessOther, "Wireless-Other"},
 		{NASPortTypeEnumWireless80211, "Wireless-IEEE-802.11"},
