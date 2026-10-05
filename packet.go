@@ -712,20 +712,44 @@ func (p *Packet) String() string {
 	return s
 }
 
-// GetUsername returns the value of User-Name as a string, if present.
-func (p *Packet) GetUsername() (username string) {
-	avp := p.GetAVP(AttrUserName)
+// decodeAVP decodes the first attribute of type t, or returns nil if absent.
+func (p *Packet) decodeAVP(t AttributeType) any {
+	avp := p.GetAVP(t)
 	if avp == nil {
-		return ""
+		return nil
 	}
-	val := avp.Decode(p)
-	if s, ok := val.(string); ok {
-		return s
-	}
-	if b, ok := val.([]byte); ok {
-		return string(b)
+	return avp.Decode(p)
+}
+
+// getString returns attribute t as a string, accepting raw []byte.
+func (p *Packet) getString(t AttributeType) string {
+	switch v := p.decodeAVP(t).(type) {
+	case string:
+		return v
+	case []byte:
+		return string(v)
 	}
 	return ""
+}
+
+// getUint32 returns attribute t as E, accepting uint32 or 4-byte raw values.
+func getUint32[E ~uint32](p *Packet, t AttributeType) E {
+	switch v := p.decodeAVP(t).(type) {
+	case E:
+		return v
+	case uint32:
+		return E(v)
+	case []byte:
+		if len(v) == uint32Size {
+			return E(binary.BigEndian.Uint32(v))
+		}
+	}
+	return 0
+}
+
+// GetUsername returns the value of User-Name as a string, if present.
+func (p *Packet) GetUsername() (username string) {
+	return p.getString(AttrUserName)
 }
 
 // GetPassword returns the decrypted User-Password, if present.
@@ -777,137 +801,49 @@ func (p *Packet) AddPassword(password string) {
 
 // GetNasIpAddress returns NAS-IP-Address as a net.IP, if present.
 func (p *Packet) GetNasIpAddress() (ip net.IP) {
-	avp := p.GetAVP(AttrNASIPAddress)
-	if avp == nil {
-		return nil
-	}
-	val := avp.Decode(p)
-	if ip, ok := val.(net.IP); ok {
-		return ip
-	}
-	if b, ok := val.([]byte); ok {
-		return net.IP(b)
+	switch v := p.decodeAVP(AttrNASIPAddress).(type) {
+	case net.IP:
+		return v
+	case []byte:
+		return net.IP(v)
 	}
 	return nil
 }
 
 // GetAcctStatusType returns Acct-Status-Type if present, or 0 otherwise.
 func (p *Packet) GetAcctStatusType() AcctStatusTypeEnum {
-	avp := p.GetAVP(AttrAcctStatusType)
-	if avp == nil {
-		return AcctStatusTypeEnum(0)
-	}
-	val := avp.Decode(p)
-	if v, ok := val.(AcctStatusTypeEnum); ok {
-		return v
-	}
-	if i, ok := val.(uint32); ok {
-		return AcctStatusTypeEnum(i)
-	}
-	if b, ok := val.([]byte); ok && len(b) == 4 {
-		return AcctStatusTypeEnum(binary.BigEndian.Uint32(b))
-	}
-	return AcctStatusTypeEnum(0)
+	return getUint32[AcctStatusTypeEnum](p, AttrAcctStatusType)
 }
 
 // GetAcctSessionId returns Acct-Session-Id as a string, if present.
 func (p *Packet) GetAcctSessionId() string {
-	avp := p.GetAVP(AttrAcctSessionId)
-	if avp == nil {
-		return ""
-	}
-	val := avp.Decode(p)
-	if s, ok := val.(string); ok {
-		return s
-	}
-	if b, ok := val.([]byte); ok {
-		return string(b)
-	}
-	return ""
+	return p.getString(AttrAcctSessionId)
 }
 
 // GetAcctTotalOutputOctets returns the total output octets by combining
 // Acct-Output-Octets and Acct-Output-Gigawords when present.
 func (p *Packet) GetAcctTotalOutputOctets() uint64 {
-	out := uint64(0)
-	avp := p.GetAVP(AttrAcctOutputOctets)
-	if avp != nil {
-		val := avp.Decode(p)
-		if i, ok := val.(uint32); ok {
-			out += uint64(i)
-		} else if b, ok := val.([]byte); ok && len(b) == 4 {
-			out += uint64(binary.BigEndian.Uint32(b))
-		}
-	}
-	avp = p.GetAVP(AttrAcctOutputGigawords)
-	if avp != nil {
-		val := avp.Decode(p)
-		if i, ok := val.(uint32); ok {
-			out += uint64(i) << 32
-		} else if b, ok := val.([]byte); ok && len(b) == 4 {
-			out += uint64(binary.BigEndian.Uint32(b)) << 32
-		}
-	}
-	return out
+	return uint64(getUint32[uint32](p, AttrAcctOutputOctets)) +
+		uint64(getUint32[uint32](p, AttrAcctOutputGigawords))<<32
 }
 
 // GetAcctTotalInputOctets returns the total input octets by combining
 // Acct-Input-Octets and Acct-Input-Gigawords when present.
 func (p *Packet) GetAcctTotalInputOctets() uint64 {
-	out := uint64(0)
-	avp := p.GetAVP(AttrAcctInputOctets)
-	if avp != nil {
-		val := avp.Decode(p)
-		if i, ok := val.(uint32); ok {
-			out += uint64(i)
-		} else if b, ok := val.([]byte); ok && len(b) == 4 {
-			out += uint64(binary.BigEndian.Uint32(b))
-		}
-	}
-	avp = p.GetAVP(AttrAcctInputGigawords)
-	if avp != nil {
-		val := avp.Decode(p)
-		if i, ok := val.(uint32); ok {
-			out += uint64(i) << 32
-		} else if b, ok := val.([]byte); ok && len(b) == 4 {
-			out += uint64(binary.BigEndian.Uint32(b)) << 32
-		}
-	}
-	return out
+	return uint64(getUint32[uint32](p, AttrAcctInputOctets)) +
+		uint64(getUint32[uint32](p, AttrAcctInputGigawords))<<32
 }
 
 // GetNASPort returns NAS-Port, if present.
 //
 // Note: some clients (for example strongSwan) use this to carry an IKE identity.
 func (p *Packet) GetNASPort() uint32 {
-	avp := p.GetAVP(AttrNASPort)
-	if avp == nil {
-		return 0
-	}
-	val := avp.Decode(p)
-	if i, ok := val.(uint32); ok {
-		return i
-	}
-	if b, ok := val.([]byte); ok && len(b) == 4 {
-		return binary.BigEndian.Uint32(b)
-	}
-	return 0
+	return getUint32[uint32](p, AttrNASPort)
 }
 
 // GetNASIdentifier returns NAS-Identifier, if present.
 func (p *Packet) GetNASIdentifier() string {
-	avp := p.GetAVP(AttrNASIdentifier)
-	if avp == nil {
-		return ""
-	}
-	val := avp.Decode(p)
-	if s, ok := val.(string); ok {
-		return s
-	}
-	if b, ok := val.([]byte); ok {
-		return string(b)
-	}
-	return ""
+	return p.getString(AttrNASIdentifier)
 }
 
 // GetEAPMessage reassembles and decodes the EAP-Message from the packet.
@@ -934,40 +870,12 @@ func (p *Packet) GetEAPMessage() *EapPacket {
 
 // GetNASPortType returns NAS-Port-Type if present, or 0 otherwise.
 func (p *Packet) GetNASPortType() NASPortTypeEnum {
-	avp := p.GetAVP(AttrNASPortType)
-	if avp == nil {
-		return NASPortTypeEnum(0)
-	}
-	val := avp.Decode(p)
-	if v, ok := val.(NASPortTypeEnum); ok {
-		return v
-	}
-	if i, ok := val.(uint32); ok {
-		return NASPortTypeEnum(i)
-	}
-	if b, ok := val.([]byte); ok && len(b) == 4 {
-		return NASPortTypeEnum(binary.BigEndian.Uint32(b))
-	}
-	return NASPortTypeEnum(0)
+	return getUint32[NASPortTypeEnum](p, AttrNASPortType)
 }
 
 // GetServiceType returns Service-Type if present, or 0 otherwise.
 func (p *Packet) GetServiceType() ServiceTypeEnum {
-	avp := p.GetAVP(AttrServiceType)
-	if avp == nil {
-		return ServiceTypeEnum(0)
-	}
-	val := avp.Decode(p)
-	if v, ok := val.(ServiceTypeEnum); ok {
-		return v
-	}
-	if i, ok := val.(uint32); ok {
-		return ServiceTypeEnum(i)
-	}
-	if b, ok := val.([]byte); ok && len(b) == 4 {
-		return ServiceTypeEnum(binary.BigEndian.Uint32(b))
-	}
-	return ServiceTypeEnum(0)
+	return getUint32[ServiceTypeEnum](p, AttrServiceType)
 }
 
 // SetVLAN adds the three-attribute combination required for dynamic VLAN assignment
