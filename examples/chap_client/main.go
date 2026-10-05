@@ -34,7 +34,7 @@ func main() {
 	req.AddAVP(radius.AVP{Type: radius.AttrUserName, Value: []byte(*user)})
 
 	chapID := uint8(1)
-	challenge := []byte("1234567890abcdef") // 16 bytes (RFC2865: 1..16)
+	challenge := []byte("1234567890abcdef") // RFC 2865: 1..253 bytes
 	if err := req.SetCHAPPasswordFromSecret(chapID, *pass, challenge); err != nil {
 		log.Fatalf("Failed to set CHAP attributes: %v", err)
 	}

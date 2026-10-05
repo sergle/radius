@@ -2,8 +2,17 @@ package radius
 
 import (
 	"crypto"
-	_ "crypto/md5"
+	"crypto/md5"
+	"crypto/subtle"
 	"errors"
+)
+
+const (
+	chapIDLen       = 1
+	chapResponseLen = md5.Size
+	chapPasswordLen = chapIDLen + chapResponseLen
+	// RFC 2865 bounds the challenge only by the attribute value size
+	maxCHAPChallengeLen = maxAVPValueLen
 )
 
 // CHAPPassword is the decoded form of the CHAP-Password attribute (RFC 2865).
@@ -11,12 +20,13 @@ import (
 // The on-the-wire value is 17 bytes: 1 byte CHAP ID followed by 16 bytes response.
 type CHAPPassword struct {
 	ID       uint8
-	Response [16]byte
+	Response [chapResponseLen]byte
 }
 
 var (
-	ErrInvalidCHAPChallengeLength = errors.New("invalid CHAP-Challenge length (must be 1..16 bytes)")
+	ErrInvalidCHAPChallengeLength = errors.New("invalid CHAP-Challenge length (must be 1..253 bytes)")
 	ErrInvalidCHAPPasswordLength  = errors.New("invalid CHAP-Password length (must be 17 bytes)")
+	ErrCHAPPasswordMissing        = errors.New("CHAP-Password missing")
 )
 
 // GetCHAPChallenge returns CHAP-Challenge value bytes, if present.
@@ -34,7 +44,7 @@ func (p *Packet) GetCHAPChallenge() []byte {
 
 // SetCHAPChallenge adds or replaces the CHAP-Challenge attribute.
 func (p *Packet) SetCHAPChallenge(challenge []byte) error {
-	if len(challenge) < 1 || len(challenge) > 16 {
+	if len(challenge) < 1 || len(challenge) > maxCHAPChallengeLen {
 		return ErrInvalidCHAPChallengeLength
 	}
 	value := make([]byte, len(challenge))
@@ -49,28 +59,28 @@ func (p *Packet) GetCHAPPassword() (CHAPPassword, bool) {
 	if avp == nil {
 		return CHAPPassword{}, false
 	}
-	if len(avp.Value) != 17 {
+	if len(avp.Value) != chapPasswordLen {
 		return CHAPPassword{}, false
 	}
 	var out CHAPPassword
 	out.ID = avp.Value[0]
-	copy(out.Response[:], avp.Value[1:17])
+	copy(out.Response[:], avp.Value[chapIDLen:])
 	return out, true
 }
 
 // SetCHAPPassword adds or replaces the CHAP-Password attribute using the provided
 // CHAP ID and 16-byte response.
-func (p *Packet) SetCHAPPassword(chapID uint8, response16 [16]byte) {
-	value := make([]byte, 17)
+func (p *Packet) SetCHAPPassword(chapID uint8, response [chapResponseLen]byte) {
+	value := make([]byte, chapPasswordLen)
 	value[0] = chapID
-	copy(value[1:], response16[:])
+	copy(value[chapIDLen:], response[:])
 	p.SetAVP(AVP{Type: AttrCHAPPassword, Value: value})
 }
 
 // ComputeCHAPResponse computes the CHAP response as MD5(chapID || password || challenge).
-func ComputeCHAPResponse(chapID uint8, password string, challenge []byte) ([16]byte, error) {
-	if len(challenge) < 1 || len(challenge) > 16 {
-		return [16]byte{}, ErrInvalidCHAPChallengeLength
+func ComputeCHAPResponse(chapID uint8, password string, challenge []byte) ([chapResponseLen]byte, error) {
+	if len(challenge) < 1 || len(challenge) > maxCHAPChallengeLen {
+		return [chapResponseLen]byte{}, ErrInvalidCHAPChallengeLength
 	}
 
 	h := crypto.MD5.New()
@@ -78,13 +88,8 @@ func ComputeCHAPResponse(chapID uint8, password string, challenge []byte) ([16]b
 	h.Write([]byte(password))
 	h.Write(challenge)
 
-	sum := h.Sum(nil)
-	if len(sum) != 16 {
-		// Should never happen for MD5.
-		return [16]byte{}, errors.New("unexpected CHAP response length")
-	}
-	var out [16]byte
-	copy(out[:], sum)
+	var out [chapResponseLen]byte
+	h.Sum(out[:0])
 	return out, nil
 }
 
@@ -99,4 +104,27 @@ func (p *Packet) SetCHAPPasswordFromSecret(chapID uint8, password string, challe
 	}
 	p.SetCHAPPassword(chapID, resp)
 	return nil
+}
+
+// VerifyCHAP checks CHAP-Password against password (RFC 2865 section 2.2).
+//
+// The challenge is CHAP-Challenge if present, otherwise the Request Authenticator.
+// An error is returned for a missing or malformed CHAP-Password or CHAP-Challenge.
+func (p *Packet) VerifyCHAP(password string) (bool, error) {
+	avp := p.GetAVP(AttrCHAPPassword)
+	if avp == nil {
+		return false, ErrCHAPPasswordMissing
+	}
+	if len(avp.Value) != chapPasswordLen {
+		return false, ErrInvalidCHAPPasswordLength
+	}
+	challenge := p.Authenticator[:]
+	if c := p.GetAVP(AttrCHAPChallenge); c != nil {
+		challenge = c.Value
+	}
+	want, err := ComputeCHAPResponse(avp.Value[0], password, challenge)
+	if err != nil {
+		return false, err
+	}
+	return subtle.ConstantTimeCompare(want[:], avp.Value[chapIDLen:]) == 1, nil
 }

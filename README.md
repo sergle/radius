@@ -143,7 +143,7 @@ func main() {
 	req.AddAVP(radius.AVP{Type: radius.AttrUserName, Value: []byte("admin")})
 
 	chapID := uint8(1)
-	challenge := []byte("1234567890abcdef") // 16 bytes (RFC2865: 1..16)
+	challenge := []byte("1234567890abcdef") // RFC 2865: 1..253 bytes
 	if err := req.SetCHAPPasswordFromSecret(chapID, "secret", challenge); err != nil {
 		log.Fatal(err)
 	}
@@ -158,6 +158,8 @@ func main() {
 	log.Printf("Reply: %s", reply.Code)
 }
 ```
+
+On the server, `request.VerifyCHAP(password)` checks the response; without `CHAP-Challenge` the Request Authenticator is used as the challenge.
 
 ## Tagged Attributes (RFC 2868)
 Tunnel attributes (`Tunnel-Type`, `Tunnel-Medium-Type`, `Tunnel-Private-Group-ID`, ...) carry a tag (1–31) that groups attributes of the same tunnel. Dictionaries mark them with `has_tag`. Set the tag with the FreeRADIUS `Name:tag` syntax; without it the tag is 0:
