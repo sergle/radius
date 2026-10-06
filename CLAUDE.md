@@ -47,7 +47,7 @@ go test -fuzz=^FuzzDecodeRequest$ -fuzztime=30s .   # single fuzz target
 ### Attribute names and numbers
 
 - A name is unique per vendor, across top-level attributes and TLV children. Redeclaring it with another number, type or parent is a load error; an equivalent redeclaration is fine and keeps the first definition.
-- Types are compared after folding in `encrypt=`/`has_tag`, and types with the same wire format count as equal (`wireTypes`: `date`≈`integer`, `eapmessage`/`ifid`≈`octets`). This lets builtin and FreeRADIUS definitions be loaded together.
+- Types are compared after folding in `encrypt=`/`has_tag`, and types with the same wire format count as equal (`wireTypes`: `eapmessage`≈`octets`). This lets builtin and FreeRADIUS definitions be loaded together.
 - A number may have several names (aliases, as in FreeRADIUS). Each name encodes with its own type; the last declared or redeclared name is used for decoding. All `tlv` aliases of a number share one set of children.
 
 ### TLVs (`tlv.go`)

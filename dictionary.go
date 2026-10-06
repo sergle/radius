@@ -575,9 +575,7 @@ func rawVSAString(vsa *VSA, vendorName string, vendorOK bool) string {
 
 // wireTypes maps types to a type with the same encoding, e.g. builtin vs FreeRADIUS definitions.
 var wireTypes = map[string]string{
-	"date":         typeInteger,
 	typeEAPMessage: typeOctets,
-	"ifid":         typeOctets,
 }
 
 // wireType returns the type attrType is encoded as, for comparing redeclarations.
@@ -823,6 +821,10 @@ const (
 	typeIPAddr         = "ipaddr"
 	typeIPv6Addr       = "ipv6addr"
 	typeIPv6Prefix     = "ipv6prefix"
+	typeIfid           = "ifid"
+	typeEther          = "ether"
+	typeDate           = "date"
+	typeComboIP        = "combo-ip"
 	typeString         = "string"
 	typeOctets         = "octets"
 	typePassword       = "password"
@@ -850,11 +852,11 @@ var attrTypeHandlers = map[string]avpDataType{
 	typeTaggedString:   avpTaggedString,
 	typeVSA:            avpVendor,
 	typeEAPMessage:     avpEapMessage,
-	// "date"
-	// "combo-ip"
-	// "ether"
+	typeIfid:           avpIfid,
+	typeEther:          avpEther,
+	typeDate:           avpDate,
+	typeComboIP:        avpComboIP,
 	// "abinary"
-	// "ifid"
 }
 
 // handlerForValue returns the handler for attrType, or avpBinary if value is malformed for it.
@@ -881,6 +883,14 @@ func validValue(handler avpDataType, value []byte) bool {
 	case avpIPv6Prefix:
 		_, ok := decodeIPv6Prefix(value)
 		return ok
+	case avpIfid:
+		return n == ifidLen
+	case avpEther:
+		return n == etherLen
+	case avpDate:
+		return n == dateLen
+	case avpComboIP:
+		return n == net.IPv4len || n == net.IPv6len
 	}
 	return true
 }
@@ -1171,7 +1181,7 @@ func encodeValue(handler avpDataType, names map[string]uint32, tag uint8, value 
 			return b, nil
 		}
 		return nil, fmt.Errorf("%w %q", ErrInvalidValue, value)
-	case avpIPv6, avpIPv6Prefix:
+	case avpIPv6, avpIPv6Prefix, avpIfid, avpEther, avpDate, avpComboIP:
 		if b := handler.FromString(value); b != nil {
 			return b, nil
 		}

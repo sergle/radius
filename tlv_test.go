@@ -555,6 +555,8 @@ func TestDictionaryNameConflict(t *testing.T) {
 		{"top-level number", "ATTRIBUTE A 200 integer\nATTRIBUTE A 201 integer\n"},
 		{"top-level type", "ATTRIBUTE A 200 integer\nATTRIBUTE A 200 string\n"},
 		{"octets vs ipv6prefix", "ATTRIBUTE A 200 octets\nATTRIBUTE A 200 ipv6prefix\n"},
+		{"octets vs ifid", "ATTRIBUTE A 200 octets\nATTRIBUTE A 200 ifid\n"},
+		{"integer vs date", "ATTRIBUTE A 200 integer\nATTRIBUTE A 200 date\n"},
 		{"top-level flags", "ATTRIBUTE A 200 string\nATTRIBUTE A 200 string encrypt=1\n"},
 		{"TLV number", "ATTRIBUTE A 200 tlv\nATTRIBUTE A-1 200.1 integer\nATTRIBUTE A 201 tlv\n"},
 		{"TLV to plain", "ATTRIBUTE A 200 tlv\nATTRIBUTE A-1 200.1 integer\nATTRIBUTE A 200 integer\n"},
@@ -973,9 +975,7 @@ func TestDictionaryEquivalentRedeclaration(t *testing.T) {
 		{"ATTRIBUTE User-Password 2 password", "ATTRIBUTE User-Password 2 string encrypt=1"},
 		{"ATTRIBUTE Tunnel-Password 69 tunnel-password", "ATTRIBUTE Tunnel-Password 69 string has_tag,encrypt=2"},
 		{"ATTRIBUTE Tunnel-Type 64 integer has_tag", "ATTRIBUTE Tunnel-Type 64 tagged-integer"},
-		{"ATTRIBUTE Event-Timestamp 55 integer", "ATTRIBUTE Event-Timestamp 55 date"},
 		{"ATTRIBUTE EAP-Message 79 eapmessage", "ATTRIBUTE EAP-Message 79 octets concat"},
-		{"ATTRIBUTE Framed-Interface-Id 96 octets", "ATTRIBUTE Framed-Interface-Id 96 ifid"},
 	}
 	for _, p := range pairs {
 		for _, dict := range []string{p[0] + "\n" + p[1], p[1] + "\n" + p[0]} {
@@ -985,9 +985,9 @@ func TestDictionaryEquivalentRedeclaration(t *testing.T) {
 		}
 	}
 	// the first definition is kept
-	d := loadTLVDict(t, "ATTRIBUTE Event-Timestamp 55 integer\nATTRIBUTE Event-Timestamp 55 date\n")
-	if got := d.DecodeAVPValue(nil, AVP{Type: 55, Value: []byte{0, 0, 0, 7}}); got != "7" {
-		t.Errorf("DecodeAVPValue = %q", got)
+	d := loadTLVDict(t, "ATTRIBUTE EAP-Message 79 eapmessage\nATTRIBUTE EAP-Message 79 octets concat\n")
+	if got := d.attrType["EAP-Message"]; got != typeEAPMessage {
+		t.Errorf("type = %q, want %q", got, typeEAPMessage)
 	}
 }
 

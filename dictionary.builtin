@@ -86,7 +86,7 @@ ATTRIBUTE	Acct-Link-Count		51	integer
 
 ATTRIBUTE	Acct-Input-Gigawords	52	integer
 ATTRIBUTE	Acct-Output-Gigawords	53	integer
-ATTRIBUTE	Event-Timestamp		55	integer
+ATTRIBUTE	Event-Timestamp		55	date
 
 ATTRIBUTE	CHAP-Challenge		60	octets
 
@@ -207,7 +207,7 @@ ATTRIBUTE	NAS-Filter-Rule		92	string
 
 # RFC 3162 - RADIUS and IPv6
 ATTRIBUTE	NAS-IPv6-Address	95	ipv6addr
-ATTRIBUTE	Framed-Interface-Id	96	octets
+ATTRIBUTE	Framed-Interface-Id	96	ifid
 ATTRIBUTE	Framed-IPv6-Prefix	97	ipv6prefix
 ATTRIBUTE	Login-IPv6-Host		98	ipv6addr
 ATTRIBUTE	Framed-IPv6-Route	99	string

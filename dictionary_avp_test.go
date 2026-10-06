@@ -9,13 +9,13 @@ import (
 
 const newAVPTestDict = `
 ATTRIBUTE	Test-Str	200	string
-ATTRIBUTE	Test-Date	201	date
+ATTRIBUTE	Test-Abinary	201	abinary
 ATTRIBUTE	Test-Int	202	integer
 VALUE		Test-Int	Test-Hex	0x01020304
 VENDOR		NewAVPVendor	4242
 BEGIN-VENDOR	NewAVPVendor
 ATTRIBUTE	NewAVP-Str	1	string
-ATTRIBUTE	NewAVP-Date	2	date
+ATTRIBUTE	NewAVP-Abinary	2	abinary
 ATTRIBUTE	NewAVP-Int	3	integer
 VALUE		NewAVP-Int	NewAVP-Seven	7
 END-VENDOR	NewAVPVendor
@@ -63,7 +63,7 @@ func TestParseAVP(t *testing.T) {
 	if _, err := d.ParseAVP("No-Such-Attr", "x"); !errors.Is(err, ErrUnknownAttribute) {
 		t.Errorf("unknown attribute: err = %v, want ErrUnknownAttribute", err)
 	}
-	if _, err := d.ParseAVP("Test-Date", "x"); !errors.Is(err, ErrUnsupportedAttributeType) {
+	if _, err := d.ParseAVP("Test-Abinary", "x"); !errors.Is(err, ErrUnsupportedAttributeType) {
 		t.Errorf("unsupported type: err = %v, want ErrUnsupportedAttributeType", err)
 	}
 }
@@ -85,7 +85,7 @@ func TestParseVSA(t *testing.T) {
 	if _, err := d.ParseVSA("NewAVPVendor", "No-Such-Attr", "x"); !errors.Is(err, ErrUnknownAttribute) {
 		t.Errorf("unknown VSA attribute: err = %v, want ErrUnknownAttribute", err)
 	}
-	if _, err := d.ParseVSA("NewAVPVendor", "NewAVP-Date", "x"); !errors.Is(err, ErrUnsupportedAttributeType) {
+	if _, err := d.ParseVSA("NewAVPVendor", "NewAVP-Abinary", "x"); !errors.Is(err, ErrUnsupportedAttributeType) {
 		t.Errorf("unsupported VSA type: err = %v, want ErrUnsupportedAttributeType", err)
 	}
 }
@@ -96,7 +96,7 @@ func TestNewAVPUnknown(t *testing.T) {
 	if avp := d.NewAVP("Test-Str", "hello"); avp.Type != newAVPTestAttr || !bytes.Equal(avp.Value, []byte("hello")) {
 		t.Errorf("NewAVP known = %+v", avp)
 	}
-	for _, name := range []string{"No-Such-Attr", "Test-Date"} {
+	for _, name := range []string{"No-Such-Attr", "Test-Abinary"} {
 		if avp := d.NewAVP(name, "x"); avp.Type != 0 || avp.Value != nil {
 			t.Errorf("NewAVP(%q) = %+v, want zero AVP", name, avp)
 		}
@@ -112,7 +112,7 @@ func TestNewVSAUnknown(t *testing.T) {
 	cases := [][2]string{
 		{"No-Such-Vendor", "NewAVP-Str"},
 		{"NewAVPVendor", "No-Such-Attr"},
-		{"NewAVPVendor", "NewAVP-Date"},
+		{"NewAVPVendor", "NewAVP-Abinary"},
 	}
 	for _, c := range cases {
 		noPanic(t, func() {
