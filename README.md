@@ -208,7 +208,36 @@ req.AddAVP(avp)
 q, ok := dict.GetTLVString(p, "3GPP2", "3GPP2-Remote-IP-Qualifier") // "1", true
 ```
 
-Consecutive sub-attributes of a nested TLV share one instance of it; pass the nested TLV's own name with an empty `Value` to start another. Sub-attributes of types without a handler (e.g. `ipv6prefix`) decode as raw bytes and can't be built with `ParseTLV`. Sub-attributes of RFC 6929 extended attributes and of vendors with a non-`1,1` VSA format (WiMAX) are not supported yet.
+Notes:
+- Sub-attributes listed one after another go into the same nested TLV. To start a second instance of a nested TLV, pass its own name with an empty `Value`.
+- Sub-attributes whose type has no handler (e.g. `ipv6prefix`) are shown as raw bytes and can't be built with `ParseTLV`.
+- Encrypted sub-attributes (`encrypt=` in the dictionary, e.g. `WiMAX-hDHCP-DHCP-RK`) are loaded, but `ParseTLV` refuses to build them, because it would send them unencrypted.
+- Not supported yet: sub-attributes of RFC 6929 extended attributes, and of vendors with a format other than `1,1` or `1,1,c` (WiMAX).
+
+## Vendor Formats
+Most vendors use the standard VSA layout: a 1-byte attribute number and a 1-byte length. Some declare another layout in the dictionary with `VENDOR ... format=T,L[,c]`, and the library follows it:
+- `T`: attribute number size, 1, 2 or 4 bytes (e.g. Lucent and Starent use 2, USR uses 4).
+- `L`: length field size, 0, 1 or 2 bytes.
+- `c`: WiMAX continuation byte, which lets a long value span several attributes.
+
+`ParseVSA`, templates and `ParseTLV` encode with the vendor's format, and `DecodeAVPValue` and `ToVSA` decode with it. For WiMAX, `AddVSA` splits a long value over several Vendor-Specific attributes, and `GetVSA`/`GetTLV` join it back:
+
+```go
+vsa, _ := dict.ParseVSA("WiMAX", "WiMAX-Hotline-Indicator", longValue)
+req.AddVSA(vsa) // adds several attributes if the value is long
+
+v, ok := dict.GetVSA(p, "WiMAX", "WiMAX-Hotline-Indicator") // the whole value
+```
+
+`DecodeAVPValue` (and so `Packet.String`) still shows each WiMAX fragment separately.
+
+A `VSA` built by hand uses the standard layout unless you set `Format`, e.g. `Format: dict.VendorFormat(vendorID)`. If the format is invalid (see `VendorFormat.Valid`) or the attribute number is too big for it, `ParseVSA` and templates return `ErrInvalidVendorFormat`, and `ToAVP`/`ToAVPList` log a warning and return nothing.
+
+### API changes
+- `VendorAttr` is now `uint32` (was `uint8`).
+- `VSA` has a new `Format` field, so `VSA{...}` literals without field names no longer compile. `ToVSA` sets `Format`, and for WiMAX it removes the continuation byte from `Value`.
+- `AddVSA` can add more than one attribute (long WiMAX values).
+- A `VENDOR` line whose extra option isn't a valid `format=T,L[,c]` is now a load error.
 
 ## High Performance: Lazy Decoding
 For high-load proxies or filters where performance is critical, use lazy decoding to avoid unnecessary allocations.

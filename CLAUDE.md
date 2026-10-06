@@ -44,6 +44,27 @@ go test -fuzz=^FuzzDecodeRequest$ -fuzztime=30s .   # single fuzz target
 
 ## Notes
 
-- TLVs (`tlv.go`): `tlv` attributes and their children (dotted OIDs like `59.1` or `BEGIN-TLV` blocks) form a `tlvAttr` tree in `Dictionary.tlvAttrs` (vendor 0 = standard); children are not top-level attributes. `DecodeAVPValue` renders them, `ParseTLV`/`GetTLV` build/read them; templates treat `tlv` values as raw octets. Names are unique per vendor across top-level attributes and children: redeclaring a name with another number/type/parent is a load error. Types are compared after folding `encrypt=`/`has_tag` in, and same-wire-format types (`wireTypes`: `date`≈`integer`, `eapmessage`/`ifid`/`ipv6prefix`≈`octets`) are equal, so builtin + FreeRADIUS definitions mix; an equivalent redeclaration keeps the first definition. Numbers may have several top-level names (aliases, as in FreeRADIUS): each encodes with its own type, the last declared (or redeclared) one decodes, and all `tlv` aliases of a number share one set of children. A duplicate child number keeps the first (Warn). Children ignore `encrypt=`/`has_tag`. BEGIN-TLV blocks must close in the same file and can't contain `$INCLUDE` or vendor changes; only a `format=` argument on VENDOR sets the format. Children of `extended`/`long-extended`/`evs` attributes and of vendors with a non-`1,1` format (WiMAX) are skipped.
-- VSAs assume 1-byte vendor attribute type and length (see TODOs in `avp_vendor.go`); WiMAX/Lucent-style formats are not supported.
-- CI is GitHub Actions (`.github/workflows/ci.yml`): gofmt check, `go vet`, `make build`, `go test`, `go test -race`, and `make fuzz`.
+### Attribute names and numbers
+
+- A name is unique per vendor, across top-level attributes and TLV children. Redeclaring it with another number, type or parent is a load error; an equivalent redeclaration is fine and keeps the first definition.
+- Types are compared after folding in `encrypt=`/`has_tag`, and types with the same wire format count as equal (`wireTypes`: `date`≈`integer`, `eapmessage`/`ifid`/`ipv6prefix`≈`octets`). This lets builtin and FreeRADIUS definitions be loaded together.
+- A number may have several names (aliases, as in FreeRADIUS). Each name encodes with its own type; the last declared or redeclared name is used for decoding. All `tlv` aliases of a number share one set of children.
+
+### TLVs (`tlv.go`)
+
+- `tlv` attributes and their children form a `tlvAttr` tree in `Dictionary.tlvAttrs` (vendor 0 = standard). Children are declared with dotted ids (`59.1`) or inside `BEGIN-TLV` blocks and are not top-level attributes.
+- `DecodeAVPValue` renders TLVs, `ParseTLV` builds them, `GetTLV`/`GetTLVString` read them; templates treat `tlv` values as raw octets.
+- A duplicate child number keeps the first child (Warn). Children ignore `has_tag`; children with `encrypt=` load, but `ParseTLV` refuses them.
+- `BEGIN-TLV` blocks must close in the same file and can't contain `$INCLUDE` or vendor changes.
+- Children are skipped for `extended`/`long-extended`/`evs` attributes and for vendors whose format isn't `1,1` or `1,1,c`.
+
+### Vendor formats (`avp_vendor.go`)
+
+- `VENDOR ... format=T,L[,c]` sets the vendor's VSA header: type of 1/2/4 bytes, length of 0/1/2 bytes, and `c` for the WiMAX continuation byte. Non-`1,1` formats are kept in `Dictionary.vendorFormat`. Any VENDOR option other than a valid `format=` is a load error.
+- `VSA.Format` (zero = `1,1`) controls encoding in `ToAVP`/`ToAVPList`. `ParseVSA`, templates and `ParseTLV` fill it from the dictionary; `ToVSA` decodes with the default dictionary's format.
+- An invalid format, or an attribute number too wide for its type size, is an error in `ParseVSA` and templates; `ToAVP`/`ToAVPList` log a warning and return nothing.
+- `AddVSA` splits long WiMAX values over several AVPs and `GetVSA`/`GetTLV` (`eachVSA`) join them; `DecodeAVPValue` shows each fragment on its own.
+
+### CI
+
+- GitHub Actions (`.github/workflows/ci.yml`): gofmt check, `go vet`, `make build`, `go test`, `go test -race`, and `make fuzz`.

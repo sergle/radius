@@ -342,9 +342,9 @@ func (p *Packet) AddAVP(avps ...AVP) {
 	p.AVPs = append(p.AVPs, avps...)
 }
 
-// AddVSA adds a Vendor-Specific Attribute (VSA) to the packet.
+// AddVSA adds a Vendor-Specific Attribute (VSA) to the packet, split over several if needed (WiMAX).
 func (p *Packet) AddVSA(vsa VSA) {
-	p.AddAVP(vsa.ToAVP())
+	p.AddAVP(vsa.ToAVPList()...)
 }
 
 // DeleteAVP removes the specific AVP instance from the packet, if present.

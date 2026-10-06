@@ -42,8 +42,8 @@ ATTRIBUTE	Test-Std-TLV		173	tlv
 ATTRIBUTE	Test-Std-TLV-Len	173.1	integer
 ATTRIBUTE	Test-Std-TLV-Addr	173.3	ipaddr
 
-VENDOR		TLVWiMAX	24757	format=1,1,c
-BEGIN-VENDOR	TLVWiMAX
+VENDOR		TLVWide		9997	format=2,1
+BEGIN-VENDOR	TLVWide
 ATTRIBUTE	TW-Capability		1	tlv
 ATTRIBUTE	TW-Release		1.1	string
 ATTRIBUTE	TW-Flow			2	tlv
@@ -51,7 +51,7 @@ BEGIN-TLV	TW-Flow
 ATTRIBUTE	TW-Flow-Id		1	short
 VALUE	TW-Flow-Id		Zero	0
 END-TLV		TW-Flow
-END-VENDOR	TLVWiMAX
+END-VENDOR	TLVWide
 
 ATTRIBUTE	Test-Extended		241	extended
 ATTRIBUTE	Test-Ext-Len		241.3	integer
@@ -98,7 +98,7 @@ func TestTLVDictionaryParse(t *testing.T) {
 		t.Errorf("Test-Std-TLV type = %q, want tlv", got)
 	}
 	// unsupported vendor format and extended attributes still load as top-level
-	if !d.HasVSAAttribute(d.GetVendorID("TLVWiMAX"), "TW-Capability") {
+	if !d.HasVSAAttribute(d.GetVendorID("TLVWide"), "TW-Capability") {
 		t.Error("TW-Capability missing")
 	}
 	if !d.HasAttribute("Test-Extended") || d.HasAttribute("Test-Ext-Len") {
@@ -150,8 +150,8 @@ func TestTLVDecodeVSA(t *testing.T) {
 			"{Vendor:TLVVendor #9998, Attr: TLV-Remote #2, Value: []byte{}}"},
 		{"malformed nested", vsaAVP(testTLVVendorID, 2, []byte{4, 4, 1, 9}),
 			"{Vendor:TLVVendor #9998, Attr: TLV-Remote #2, Value: {TLV-Remote-Nested: []byte{0x1, 0x9}}}"},
-		{"unsupported vendor format", vsaAVP(24757, 1, []byte{0, 1, 3, 'a'}),
-			"{Vendor:TLVWiMAX #24757, Attr: TW-Capability #1, Value: []byte{0x0, 0x1, 0x3, 0x61}}"},
+		{"unsupported vendor format", VSA{Vendor: 9997, Type: 1, Value: []byte{1, 3, 'a'}, Format: VendorFormat{TypeLen: 2, LengthLen: 1}}.ToAVP(),
+			"{Vendor:TLVWide #9997, Attr: TW-Capability #1, Value: []byte{0x1, 0x3, 0x61}}"},
 		{"non-TLV unchanged", vsaAVP(testTLVVendorID, 1, []byte{0, 0, 0, 5}),
 			"{Vendor:TLVVendor #9998, Attr: TLV-Plain #1, Value: 5}"},
 	}
@@ -254,7 +254,7 @@ func TestParseTLVErrors(t *testing.T) {
 		{"unknown child", "TLVVendor", "TLV-Remote", []TLVValue{{Name: "Nope", Value: "1"}}, ErrUnknownAttribute},
 		{"foreign child", "TLVVendor", "TLV-Remote", []TLVValue{{Name: "TLV-Block-Id", Value: "1"}}, ErrUnknownAttribute},
 		{"tlv child with value", "TLVVendor", "TLV-Remote", []TLVValue{{Name: "TLV-Remote-Nested", Value: "1"}}, ErrInvalidValue},
-		{"unsupported vendor format", "TLVWiMAX", "TW-Capability", []TLVValue{{Name: "TW-Release", Value: "1"}}, ErrUnsupportedAttributeType},
+		{"unsupported vendor format", "TLVWide", "TW-Capability", []TLVValue{{Name: "TW-Release", Value: "1"}}, ErrUnsupportedAttributeType},
 		{"bad value", "TLVVendor", "TLV-Remote", []TLVValue{{Name: "TLV-Remote-Mask", Value: "x"}}, ErrInvalidValue},
 		{"too long", "TLVVendor", "TLV-Remote", []TLVValue{{Name: "TLV-Remote-Nested-Name", Value: strings.Repeat("a", 254)}}, ErrInvalidValue},
 	}
@@ -339,7 +339,7 @@ func FuzzTLVDecode(f *testing.F) {
 	f.Add([]byte{1, 6, 0, 0, 0, 1, 2, 5, 1, 3, 'x'})
 	f.Add([]byte{4, 4, 1, 9})
 	f.Fuzz(func(t *testing.T, value []byte) {
-		if len(value) > maxAVPValueLen-vsaHeaderSize {
+		if len(value) > DefaultVendorFormat.maxValueLen() {
 			return
 		}
 		p := Request(AccessRequest, "secret")
@@ -457,22 +457,27 @@ func writeFile(t *testing.T, name, content string) {
 	}
 }
 
-// encrypt= and has_tag don't apply to sub-attributes.
-func TestTLVChildFlagsIgnored(t *testing.T) {
+// Encrypted sub-attributes can't be built (they'd go out in clear); has_tag is ignored.
+func TestTLVChildFlags(t *testing.T) {
 	h := useRecordLogger(t)
-	d := loadTLVDict(t, "ATTRIBUTE A 200 tlv\nATTRIBUTE A-P 200.1 string encrypt=1\nATTRIBUTE A-T 200.2 integer has_tag\n")
-	avp, err := d.ParseTLV("", "A", TLVValue{Name: "A-P", Value: "pw"}, TLVValue{Name: "A-T", Value: "7"})
+	d := loadTLVDict(t, "ATTRIBUTE A 200 tlv\nATTRIBUTE A-P 200.1 string encrypt=1\nATTRIBUTE A-T 200.2 integer has_tag\nATTRIBUTE A-K 200.3 octets encrypt=2\n")
+	for _, name := range []string{"A-P", "A-K"} {
+		if _, err := d.ParseTLV("", "A", TLVValue{Name: name, Value: "pw"}); !errors.Is(err, ErrUnsupportedAttributeType) {
+			t.Errorf("ParseTLV %s: err = %v", name, err)
+		}
+	}
+	avp, err := d.ParseTLV("", "A", TLVValue{Name: "A-T", Value: "7"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(avp.Value, []byte{1, 4, 'p', 'w', 2, 6, 0, 0, 0, 7}) {
-		t.Errorf("ParseTLV = %v", avp.Value)
-	}
-	if got := d.DecodeAVPValue(nil, avp); got != "{A-P: pw, A-T: 7}" {
+	if got := d.DecodeAVPValue(nil, avp); got != "{A-T: 7}" {
 		t.Errorf("DecodeAVPValue = %q", got)
 	}
-	if n := strings.Count(h.all(), "ignoring flags of sub-attribute"); n != 2 {
-		t.Errorf("flag warnings = %d, want 2:\n%s", n, h.all())
+	if n := strings.Count(h.all(), "ignoring has_tag of sub-attribute"); n != 1 {
+		t.Errorf("has_tag warnings = %d, want 1:\n%s", n, h.all())
+	}
+	if n := h.count(slog.LevelWarn, "encrypt"); n != 0 {
+		t.Errorf("encrypt warnings = %d, want 0:\n%s", n, h.all())
 	}
 }
 
@@ -503,7 +508,7 @@ ATTRIBUTE A-1-X 200.1.1 integer
 ATTRIBUTE E 241 extended
 ATTRIBUTE E-1 241.1 integer
 ATTRIBUTE V 241.26 evs
-VENDOR W 24757 format=1,1,c
+VENDOR W 9 format=2,1
 BEGIN-VENDOR W
 ATTRIBUTE W-T 1 tlv
 ATTRIBUTE W-T-1 1.1 integer
@@ -717,7 +722,7 @@ func TestGetTLVMultipleVSAs(t *testing.T) {
 func TestTLVVendorFormatArgument(t *testing.T) {
 	d := loadTLVDict(t, `
 VENDOR V 9 # trailing comment
-VENDOR S 8 format=1,1,c
+VENDOR S 8 format=2,1
 VENDOR S 8 format=1,1
 BEGIN-VENDOR V
 ATTRIBUTE V-T 1 tlv
@@ -739,7 +744,7 @@ END-VENDOR S
 func TestTLVChildOtherFlagsQuiet(t *testing.T) {
 	h := useRecordLogger(t)
 	loadTLVDict(t, "ATTRIBUTE A 200 tlv\nATTRIBUTE A-1 200.1 ipaddr array\nATTRIBUTE A-2 200.2 integer # comment\n")
-	if strings.Contains(h.all(), "ignoring flags") {
+	if strings.Contains(h.all(), "ignoring has_tag") {
 		t.Errorf("unexpected flag warning:\n%s", h.all())
 	}
 }
@@ -851,7 +856,7 @@ func TestGetTLVTopLevel(t *testing.T) {
 	}
 }
 
-// VALUEs of unsupported sub-attributes (extended, WiMAX) are logged at Debug only.
+// VALUEs of unsupported sub-attributes (extended, 2-byte vendor types) are logged at Debug only.
 func TestTLVUnsupportedValueQuiet(t *testing.T) {
 	h := useRecordLogger(t)
 	loadTLVTestDict(t)

@@ -186,7 +186,7 @@ func TestSizedIntTemplate(t *testing.T) {
 			t.Errorf("AVP %d = %v, want %v", i, p.AVPs[i].Value, w)
 		}
 	}
-	if vsa, ok := decodeVSA(p.AVPs[3]); !ok || !bytes.Equal(vsa.Value, []byte{6}) {
+	if vsa, ok := decodeVSA(p.AVPs[3], DefaultVendorFormat); !ok || !bytes.Equal(vsa.Value, []byte{6}) {
 		t.Errorf("VSA = %+v, want value [6]", vsa)
 	}
 

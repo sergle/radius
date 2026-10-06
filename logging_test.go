@@ -120,7 +120,7 @@ ATTRIBUTE	Bad-Id-Attr	999	string
 ATTRIBUTE	Bad-Flag-Attr	200	string	encrypt=x
 ATTRIBUTE	Odd-Crypt-Attr	201	string	encrypt=9
 VALUE	Missing-Attr	Foo	1
-$INCLUDE	dictionary.usr
+$INCLUDE	dictionary.vqp
 $INCLUDE	dictionary.inc
 $INCLUDE	dictionary.inc
 `
@@ -150,7 +150,7 @@ func TestLoadFileLogsToInjectedLogger(t *testing.T) {
 		t.Fatalf("LoadFile: %v", err)
 	}
 	got := h.all()
-	for _, want := range []string{"Bad-Id-Attr", "Bad-Flag-Attr", "Odd-Crypt-Attr", "Missing-Attr", "dictionary.usr", "dictionary.inc"} {
+	for _, want := range []string{"Bad-Id-Attr", "Bad-Flag-Attr", "Odd-Crypt-Attr", "Missing-Attr", "dictionary.vqp", "dictionary.inc"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("log missing %q:\n%s", want, got)
 		}

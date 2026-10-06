@@ -2,7 +2,6 @@ package radius
 
 import (
 	"bytes"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"strconv"
@@ -13,8 +12,6 @@ const (
 	tlvHeaderLen = 2   // sub-attribute type + length
 	maxTLVLen    = 255 // max sub-attribute length, header included
 	typeTLV      = "tlv"
-	// VENDOR format the TLV support assumes (1-byte type and length)
-	defaultVendorFormat = "format=1,1"
 )
 
 // tlvAttr is a dictionary attribute of type "tlv" or a sub-attribute of one.
@@ -22,6 +19,7 @@ type tlvAttr struct {
 	name      string
 	num       uint8
 	attrType  string
+	encrypted bool     // encrypt= set; can't be built, ParseTLV doesn't encrypt
 	parent    *tlvAttr // nil for a top-level attribute
 	children  map[uint8]*tlvAttr
 	constID   map[string]uint32
@@ -325,6 +323,9 @@ func (d *Dictionary) ParseTLV(vendorName, attrName string, values ...TLVValue) (
 		if t == nil || t.parent == nil || t.root() != root {
 			return AVP{}, fmt.Errorf("%w: %s in %s", ErrUnknownAttribute, v.Name, attrName)
 		}
+		if t.encrypted {
+			return AVP{}, fmt.Errorf("%w: encrypted sub-attribute %s", ErrUnsupportedAttributeType, v.Name)
+		}
 		if t.attrType == typeTLV {
 			if v.Value != "" {
 				return AVP{}, fmt.Errorf("%w: nested TLV %s takes no value", ErrInvalidValue, v.Name)
@@ -353,10 +354,11 @@ func (d *Dictionary) ParseTLV(vendorName, attrName string, values ...TLVValue) (
 		}
 		return AVP{Type: AttributeType(root.num), Value: value}, nil
 	}
-	if len(value) > maxAVPValueLen-vsaHeaderSize {
+	f := d.formatOf(vendorID)
+	if len(value) > f.maxValueLen() {
 		return AVP{}, fmt.Errorf("%w: %s too long", ErrInvalidValue, attrName)
 	}
-	return VSA{Vendor: vendorID, Type: VendorAttr(root.num), Value: value}.ToAVP(), nil
+	return VSA{Vendor: vendorID, Type: VendorAttr(root.num), Value: value, Format: f}.ToAVP(), nil
 }
 
 // GetTLV returns a copy of the first value of TLV sub-attribute attrName in p.
@@ -371,30 +373,26 @@ func (d *Dictionary) GetTLV(p *Packet, vendorName, attrName string) ([]byte, boo
 	}
 	root := t.root()
 	path := t.path()
+	f := d.formatOf(vendorID)
 	d.mu.RUnlock()
 
 	var found []byte
 	ok := false
-	p.EachAVP(func(a AVP) bool {
-		if vendorName == "" {
+	if vendorName == "" {
+		p.EachAVP(func(a AVP) bool {
 			if a.Type == AttributeType(root.num) {
 				found, ok = findTLV(a.Value, path)
 			}
 			return !ok
-		}
-		if a.Type != AttrVendorSpecific || len(a.Value) < vendorIDLen ||
-			VendorID(binary.BigEndian.Uint32(a.Value)) != vendorID {
-			return true
-		}
-		// a Vendor-Specific attribute may hold several vendor sub-attributes
-		walkTLV(a.Value[vendorIDLen:], func(num uint8, v []byte) bool {
-			if num == root.num {
+		})
+	} else {
+		eachVSA(p, vendorID, f, func(typ VendorAttr, v []byte) bool {
+			if typ == VendorAttr(root.num) {
 				found, ok = findTLV(v, path)
 			}
 			return !ok
 		})
-		return !ok
-	})
+	}
 	if !ok {
 		return nil, false
 	}

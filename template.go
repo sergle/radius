@@ -50,6 +50,7 @@ func (t *AttributeTemplate) Add(p *Packet, value string) {
 type vsaTemplate struct {
 	vendorID VendorID
 	vsaType  VendorAttr
+	format   VendorFormat
 	handler  avpDataType
 	names    map[string]uint32 // VALUE name -> number
 	tag      uint8
@@ -58,7 +59,7 @@ type vsaTemplate struct {
 // Add encodes the value and adds it as a VSA to the provided packet; invalid values are logged and skipped.
 func (t *vsaTemplate) Add(p *Packet, value string) {
 	if t.handler == avpPassword {
-		p.AddVSA(VSA{Vendor: t.vendorID, Type: t.vsaType, Value: avpPassword.Encode(value, p.Secret, p.cryptAuthenticator())})
+		p.AddVSA(VSA{Vendor: t.vendorID, Type: t.vsaType, Value: avpPassword.Encode(value, p.Secret, p.cryptAuthenticator()), Format: t.format})
 		return
 	}
 	v, err := encodeValue(t.handler, t.names, t.tag, value)
@@ -66,7 +67,7 @@ func (t *vsaTemplate) Add(p *Packet, value string) {
 		logger().Warn("radius: template skipped VSA", "vendor", t.vendorID, "type", t.vsaType, "error", err)
 		return
 	}
-	p.AddVSA(VSA{Vendor: t.vendorID, Type: t.vsaType, Value: v})
+	p.AddVSA(VSA{Vendor: t.vendorID, Type: t.vsaType, Value: v, Format: t.format})
 }
 
 // RequestTemplate defines a reusable structure for RADIUS requests.
@@ -175,9 +176,14 @@ func (d *Dictionary) getVSATemplate(vendorName, attrName string) (AVPTemplate, e
 		return nil, fmt.Errorf("%w: attribute %s/%s has no tag", ErrInvalidTag, vendorName, attrName)
 	}
 
+	format := d.formatOf(vID)
+	if err := (VSA{Type: aID, Format: format}).check(); err != nil {
+		return nil, fmt.Errorf("%w for attribute %s/%s", err, vendorName, attrName)
+	}
 	return &vsaTemplate{
 		vendorID: vID,
 		vsaType:  aID,
+		format:   format,
 		handler:  handler,
 		names:    maps.Clone(d.vsaConstID[vID][attrName]),
 		tag:      tag,

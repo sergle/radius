@@ -241,7 +241,7 @@ func TestTemplateValueName(t *testing.T) {
 	if !bytes.Equal(p.AVPs[0].Value, framed) {
 		t.Errorf("Service-Type = %v, want %v", p.AVPs[0].Value, framed)
 	}
-	if vsa, ok := decodeVSA(p.AVPs[1]); !ok || vsa.Type != newAVPTestVendorInt || !bytes.Equal(vsa.Value, seven) {
+	if vsa, ok := decodeVSA(p.AVPs[1], DefaultVendorFormat); !ok || vsa.Type != newAVPTestVendorInt || !bytes.Equal(vsa.Value, seven) {
 		t.Errorf("VSA = %+v, want value %v", vsa, seven)
 	}
 	if !bytes.Equal(p.AVPs[2].Value, framed) {

@@ -101,8 +101,8 @@ type Dictionary struct {
 	tlvStack []tlvBlock
 	// TLV attributes and sub-attributes: vendor (0 for standard) -> name -> definition
 	tlvAttrs map[VendorID]map[string]*tlvAttr
-	// vendors with a non-default VSA format, TLV sub-attributes are ignored
-	vendorNoTLV map[VendorID]bool
+	// vendors with a VSA format other than 1,1
+	vendorFormat map[VendorID]VendorFormat
 	// names of ignored sub-attributes, their VALUEs are skipped quietly
 	skippedAttrs map[VendorID]map[string]bool
 
@@ -137,7 +137,7 @@ func NewDictionary() *Dictionary {
 	dict.vsaConstID = make(map[VendorID]map[string]map[string]uint32)
 	dict.vsaConstName = make(map[VendorID]map[string]map[uint32]string)
 	dict.tlvAttrs = make(map[VendorID]map[string]*tlvAttr)
-	dict.vendorNoTLV = make(map[VendorID]bool)
+	dict.vendorFormat = make(map[VendorID]VendorFormat)
 	dict.skippedAttrs = make(map[VendorID]map[string]bool)
 
 	return dict
@@ -237,7 +237,7 @@ func (d *Dictionary) parseLine(fname string, line string) error {
 			return errors.New("Invalid VENDOR line: " + line)
 		}
 		format := ""
-		if len(parts) > 3 && strings.HasPrefix(parts[3], "format=") {
+		if len(parts) > 3 && !strings.HasPrefix(parts[3], "#") {
 			format = parts[3]
 		}
 		return d.parseVendor(parts[1], parts[2], format)
@@ -358,18 +358,12 @@ func (f attributeFlags) effectiveType(attrType string) string {
 }
 
 func (d *Dictionary) parseAttribute(attrName string, attrID string, attrType string, flags string) error {
-	// id_size := 8
-	// if d.current_vendor > 0 {
-	//     // some vendors has 16-bit attr id (Lucent)
-	//     id_size = 16
-	// }
-
 	if len(d.tlvStack) > 0 || strings.Contains(attrID, ".") {
 		return d.parseTLVAttribute(attrName, attrID, attrType, flags)
 	}
 
 	// 0 - guess base (0x for hex)
-	aID, err := strconv.ParseUint(attrID, 0, 8)
+	aID, err := strconv.ParseUint(attrID, 0, 8*int(d.formatOf(d.currentVendor).TypeLen))
 	if err != nil {
 		logger().Warn("radius: ignoring attribute with invalid id", "attribute", attrName, "id", attrID, "error", err)
 		// ignore errors
@@ -386,7 +380,7 @@ func (d *Dictionary) parseAttribute(attrName string, attrID string, attrType str
 		return fmt.Errorf("duplicate attribute %s, already a sub-attribute of %s", attrName, old.parent.name)
 	}
 	if id, oldType, ok := d.topLevelDef(attrName); ok {
-		if id != uint8(aID) || wireType(oldType) != wireType(attrType) {
+		if id != uint32(aID) || wireType(oldType) != wireType(attrType) {
 			return fmt.Errorf("duplicate attribute %s with another definition", attrName)
 		}
 		// an equivalent redeclaration keeps the first definition, sub-attributes and VALUEs,
@@ -399,7 +393,7 @@ func (d *Dictionary) parseAttribute(attrName string, attrID string, attrType str
 		return nil
 	}
 	// another name for a number is an alias: both encode, the last one decodes
-	if attrType == typeTLV && !d.vendorNoTLV[d.currentVendor] {
+	if attrType == typeTLV && d.formatOf(d.currentVendor).tlvSupported() {
 		if t := d.aliasedTLV(uint8(aID)); t != nil {
 			// a TLV alias shares the sub-attributes
 			d.addTLVAttr(t, attrName)
@@ -457,8 +451,9 @@ func (d *Dictionary) parseTLVAttribute(attrName string, attrID string, attrType 
 	if v3, ok := v4TypeAliases[attrType]; ok {
 		attrType = v3
 	}
-	if f := parseAttributeFlags(attrName, flags); f.encrypt != 0 || f.hasTag {
-		logger().Warn("radius: ignoring flags of sub-attribute", "attribute", attrName, "flags", flags)
+	f := parseAttributeFlags(attrName, flags)
+	if f.hasTag {
+		logger().Warn("radius: ignoring has_tag of sub-attribute", "attribute", attrName)
 	}
 	num := oid[len(oid)-1]
 	if old := d.tlvAttrs[d.currentVendor][attrName]; old != nil {
@@ -471,7 +466,7 @@ func (d *Dictionary) parseTLVAttribute(attrName string, attrID string, attrType 
 	if _, _, ok := d.topLevelDef(attrName); ok {
 		return fmt.Errorf("duplicate attribute %s, already a top-level attribute", attrName)
 	}
-	child := &tlvAttr{name: attrName, num: num, attrType: attrType}
+	child := &tlvAttr{name: attrName, num: num, attrType: attrType, encrypted: f.encrypt != encryptNone}
 	if !parent.addChild(child) {
 		d.skipAttr(attrName)
 		return nil
@@ -526,7 +521,7 @@ func (d *Dictionary) tlvParent(oid []uint8) (*tlvAttr, tlvParentStatus) {
 			return nil, tlvParentUnknown
 		}
 		if parent = d.rootTLV(d.currentVendor, name); parent == nil {
-			if d.vendorNoTLV[d.currentVendor] || extendedTypes[attrType] {
+			if !d.formatOf(d.currentVendor).tlvSupported() || extendedTypes[attrType] {
 				return nil, tlvParentUnsupported
 			}
 			return nil, tlvParentNotTLV
@@ -551,13 +546,21 @@ func (d *Dictionary) tlvParent(oid []uint8) (*tlvAttr, tlvParentStatus) {
 }
 
 // topLevelDef returns the number and type of top-level attribute attrName of the current vendor.
-func (d *Dictionary) topLevelDef(attrName string) (uint8, string, bool) {
+func (d *Dictionary) topLevelDef(attrName string) (uint32, string, bool) {
 	if d.currentVendor > 0 {
 		id, ok := d.vsaAttrID[d.currentVendor][attrName]
-		return uint8(id), d.vsaAttrType[d.currentVendor][attrName], ok
+		return uint32(id), d.vsaAttrType[d.currentVendor][attrName], ok
 	}
 	id, ok := d.attrID[attrName]
-	return uint8(id), d.attrType[attrName], ok
+	return uint32(id), d.attrType[attrName], ok
+}
+
+// formatOf returns the VSA format of vendor; caller holds the lock.
+func (d *Dictionary) formatOf(vendor VendorID) VendorFormat {
+	if f, ok := d.vendorFormat[vendor]; ok {
+		return f
+	}
+	return DefaultVendorFormat
 }
 
 // rawVSAString formats a VSA of an unknown attribute, naming the vendor if known.
@@ -680,10 +683,6 @@ var blacklistDictionary = map[string]int{
 	"dictionary.compat":              1,
 	"dictionary.usr.illegal":         1,
 	"dictionary.vqp":                 1,
-	// attribute id > 1byte
-	"dictionary.lucent":  1,
-	"dictionary.starent": 1,
-	"dictionary.usr":     1,
 }
 
 func (d *Dictionary) parseInclude(fname string, incName string) error {
@@ -710,17 +709,42 @@ func (d *Dictionary) parseVendor(vendorName string, vendorID string, format stri
 	if err != nil {
 		return fmt.Errorf("vendor %s: %w", vendorName, err)
 	}
-	// TODO WiMAX continuation byte and other formats
-	if format != "" && format != defaultVendorFormat {
-		d.vendorNoTLV[VendorID(vID)] = true
+	f, err := parseVendorFormat(format)
+	if err != nil {
+		return fmt.Errorf("vendor %s: %w", vendorName, err)
+	}
+	if f != DefaultVendorFormat {
+		d.vendorFormat[VendorID(vID)] = f
 	} else {
-		delete(d.vendorNoTLV, VendorID(vID))
+		delete(d.vendorFormat, VendorID(vID))
 	}
 
 	d.vendorID[vendorName] = VendorID(vID)
 	d.vendorName[VendorID(vID)] = vendorName
 
 	return nil
+}
+
+// parseVendorFormat parses a VENDOR "format=T,L[,c]" argument; "" is format=1,1.
+func parseVendorFormat(format string) (VendorFormat, error) {
+	if format == "" {
+		return DefaultVendorFormat, nil
+	}
+	spec, ok := strings.CutPrefix(format, "format=")
+	parts := strings.Split(spec, ",")
+	if !ok || len(parts) < 2 || len(parts) > 3 {
+		return VendorFormat{}, fmt.Errorf("invalid VENDOR option %s", format)
+	}
+	t, errT := strconv.ParseUint(parts[0], 10, 8)
+	l, errL := strconv.ParseUint(parts[1], 10, 8)
+	f := VendorFormat{TypeLen: uint8(t), LengthLen: uint8(l)}
+	if len(parts) == 3 {
+		f.Continuation = parts[2] == "c"
+	}
+	if errT != nil || errL != nil || f.TypeLen == 0 || len(parts) == 3 && !f.Continuation || !f.Valid() {
+		return VendorFormat{}, fmt.Errorf("invalid %s", format)
+	}
+	return f, nil
 }
 
 func (d *Dictionary) parseBeginVendor(vendorName string) error {
@@ -771,7 +795,7 @@ func (d *Dictionary) parseBeginTLV(attrName string) error {
 		return errors.New("Not a TLV attribute " + attrName)
 	case t != nil:
 		// a known TLV: open its block
-	case d.skippedAttrs[d.currentVendor][attrName] || (known && d.vendorNoTLV[d.currentVendor]):
+	case d.skippedAttrs[d.currentVendor][attrName] || (known && !d.formatOf(d.currentVendor).tlvSupported()):
 		logger().Debug("radius: ignoring TLV sub-attributes", "attribute", attrName)
 	case known:
 		return errors.New("Not a TLV attribute " + attrName)
@@ -865,12 +889,13 @@ func (d *Dictionary) DecodeAVPValue(p *Packet, a AVP) string {
 	if a.Type == AttrUserPassword {
 		return avpPassword.String(p, a)
 	} else if a.Type == AttrVendorSpecific {
-		vsa, ok := decodeVSA(a)
+		vendor, _ := vsaVendor(a.Value)
+		d.mu.RLock()
+		vsa, ok := decodeVSA(a, d.formatOf(vendor))
 		if !ok {
+			d.mu.RUnlock()
 			return avpBinary.String(p, a)
 		}
-
-		d.mu.RLock()
 		vendorName, vendorOK := d.vendorName[vsa.Vendor]
 		attrName, attrOK := d.vsaAttrName[vsa.Vendor][vsa.Type]
 		if !attrOK {
@@ -1002,6 +1027,35 @@ func (d *Dictionary) GetVSAAttributeType(vendorID VendorID, attrName string) str
 	return d.vsaAttrType[vendorID][attrName]
 }
 
+// VendorFormat returns the VSA format of a vendor, DefaultVendorFormat if it has none or is unknown.
+func (d *Dictionary) VendorFormat(vendorID VendorID) VendorFormat {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.formatOf(vendorID)
+}
+
+// GetVSA returns a copy of the first value of vendor attribute attrName in p,
+// joining values split with the WiMAX continuation byte.
+func (d *Dictionary) GetVSA(p *Packet, vendorName, attrName string) ([]byte, bool) {
+	d.mu.RLock()
+	vendorID, vendorOK := d.vendorID[vendorName]
+	attrID, attrOK := d.vsaAttrID[vendorID][attrName]
+	f := d.formatOf(vendorID)
+	d.mu.RUnlock()
+	if !vendorOK || !attrOK {
+		return nil, false
+	}
+	var found []byte
+	ok := false
+	eachVSA(p, vendorID, f, func(typ VendorAttr, v []byte) bool {
+		if typ == attrID {
+			found, ok = bytes.Clone(v), true
+		}
+		return !ok
+	})
+	return found, ok
+}
+
 // GetVendorName returns the vendor name for a VendorID.
 func (d *Dictionary) GetVendorName(vendorID VendorID) string {
 	d.mu.RLock()
@@ -1091,7 +1145,11 @@ func (d *Dictionary) ParseVSA(vendorName string, attrName string, attrValue stri
 	if err != nil {
 		return VSA{}, fmt.Errorf("%w for attribute %s/%s", err, vendorName, attrName)
 	}
-	return VSA{Vendor: vendorID, Type: attrID, Value: value}, nil
+	vsa := VSA{Vendor: vendorID, Type: attrID, Value: value, Format: d.formatOf(vendorID)}
+	if err := vsa.check(); err != nil {
+		return VSA{}, fmt.Errorf("%w for attribute %s/%s", err, vendorName, attrName)
+	}
+	return vsa, nil
 }
 
 // encodeValue encodes value with handler; integers accept a VALUE name from names or a number.
