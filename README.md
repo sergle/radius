@@ -210,7 +210,7 @@ q, ok := dict.GetTLVString(p, "3GPP2", "3GPP2-Remote-IP-Qualifier") // "1", true
 
 Notes:
 - Sub-attributes listed one after another go into the same nested TLV. To start a second instance of a nested TLV, pass its own name with an empty `Value`.
-- Sub-attributes whose type has no handler (e.g. `ipv6prefix`) are shown as raw bytes and can't be built with `ParseTLV`.
+- Sub-attributes whose type has no handler (e.g. `ether`, `ifid`) are shown as raw bytes and can't be built with `ParseTLV`.
 - Encrypted sub-attributes (`encrypt=` in the dictionary, e.g. `WiMAX-hDHCP-DHCP-RK`) are loaded, but `ParseTLV` refuses to build them, because it would send them unencrypted.
 - Not supported yet: sub-attributes of RFC 6929 extended attributes, and of vendors with a format other than `1,1` or `1,1,c` (WiMAX).
 

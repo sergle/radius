@@ -554,6 +554,7 @@ func TestDictionaryNameConflict(t *testing.T) {
 	tests := []struct{ name, dict string }{
 		{"top-level number", "ATTRIBUTE A 200 integer\nATTRIBUTE A 201 integer\n"},
 		{"top-level type", "ATTRIBUTE A 200 integer\nATTRIBUTE A 200 string\n"},
+		{"octets vs ipv6prefix", "ATTRIBUTE A 200 octets\nATTRIBUTE A 200 ipv6prefix\n"},
 		{"top-level flags", "ATTRIBUTE A 200 string\nATTRIBUTE A 200 string encrypt=1\n"},
 		{"TLV number", "ATTRIBUTE A 200 tlv\nATTRIBUTE A-1 200.1 integer\nATTRIBUTE A 201 tlv\n"},
 		{"TLV to plain", "ATTRIBUTE A 200 tlv\nATTRIBUTE A-1 200.1 integer\nATTRIBUTE A 200 integer\n"},
@@ -975,7 +976,6 @@ func TestDictionaryEquivalentRedeclaration(t *testing.T) {
 		{"ATTRIBUTE Event-Timestamp 55 integer", "ATTRIBUTE Event-Timestamp 55 date"},
 		{"ATTRIBUTE EAP-Message 79 eapmessage", "ATTRIBUTE EAP-Message 79 octets concat"},
 		{"ATTRIBUTE Framed-Interface-Id 96 octets", "ATTRIBUTE Framed-Interface-Id 96 ifid"},
-		{"ATTRIBUTE Framed-IPv6-Prefix 97 octets", "ATTRIBUTE Framed-IPv6-Prefix 97 ipv6prefix"},
 	}
 	for _, p := range pairs {
 		for _, dict := range []string{p[0] + "\n" + p[1], p[1] + "\n" + p[0]} {

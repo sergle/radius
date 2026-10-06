@@ -578,7 +578,6 @@ var wireTypes = map[string]string{
 	"date":         typeInteger,
 	typeEAPMessage: typeOctets,
 	"ifid":         typeOctets,
-	"ipv6prefix":   typeOctets,
 }
 
 // wireType returns the type attrType is encoded as, for comparing redeclarations.
@@ -823,6 +822,7 @@ const (
 	typeSigned         = "signed"
 	typeIPAddr         = "ipaddr"
 	typeIPv6Addr       = "ipv6addr"
+	typeIPv6Prefix     = "ipv6prefix"
 	typeString         = "string"
 	typeOctets         = "octets"
 	typePassword       = "password"
@@ -841,6 +841,7 @@ var attrTypeHandlers = map[string]avpDataType{
 	typeSigned:         avpInt32,
 	typeIPAddr:         avpIP,
 	typeIPv6Addr:       avpIPv6,
+	typeIPv6Prefix:     avpIPv6Prefix,
 	typeString:         avpString,
 	typeOctets:         avpBinary,
 	typePassword:       avpPassword,
@@ -854,20 +855,20 @@ var attrTypeHandlers = map[string]avpDataType{
 	// "ether"
 	// "abinary"
 	// "ifid"
-	// "ipv6prefix"
 }
 
-// handlerForValue returns the handler for attrType, or avpBinary if value has the wrong length for it.
+// handlerForValue returns the handler for attrType, or avpBinary if value is malformed for it.
 func handlerForValue(attrType string, value []byte) avpDataType {
 	handler := attrTypeHandlers[attrType]
-	if handler == nil || !validLength(handler, len(value)) {
+	if handler == nil || !validValue(handler, value) {
 		return avpBinary
 	}
 	return handler
 }
 
-// validLength reports whether n bytes fit handler; "integer" keeps accepting trailing bytes.
-func validLength(handler avpDataType, n int) bool {
+// validValue reports whether value fits handler; "integer" keeps accepting trailing bytes.
+func validValue(handler avpDataType, value []byte) bool {
+	n := len(value)
 	switch handler {
 	case avpUint32, avpTaggedUint32:
 		return n >= uint32Size
@@ -877,6 +878,9 @@ func validLength(handler avpDataType, n int) bool {
 		return n == uint16Size
 	case avpInt32:
 		return n == int32Size
+	case avpIPv6Prefix:
+		_, ok := decodeIPv6Prefix(value)
+		return ok
 	}
 	return true
 }
@@ -1167,7 +1171,7 @@ func encodeValue(handler avpDataType, names map[string]uint32, tag uint8, value 
 			return b, nil
 		}
 		return nil, fmt.Errorf("%w %q", ErrInvalidValue, value)
-	case avpIPv6:
+	case avpIPv6, avpIPv6Prefix:
 		if b := handler.FromString(value); b != nil {
 			return b, nil
 		}

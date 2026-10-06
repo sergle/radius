@@ -18,7 +18,7 @@ ATTRIBUTE	Test-Signed	4	signed
 END-VENDOR	TestVendor
 `
 
-// malformedAVPs pass the attribute-length walk but carry values too short for their type.
+// malformedAVPs pass the attribute-length walk but carry values malformed for their type.
 var malformedAVPs = []struct {
 	name string
 	avp  AVP
@@ -34,6 +34,9 @@ var malformedAVPs = []struct {
 	{"NAS-IP-Address 1 byte", AVP{AttrNASIPAddress, []byte{10}}, ""},
 	{"NAS-IP-Address 3 bytes", AVP{AttrNASIPAddress, []byte{10, 0, 0}}, ""},
 	{"NAS-IPv6-Address 5 bytes", AVP{AttrNASIPv6Address, []byte{0x20, 1, 0xd, 0xb8, 0}}, ""},
+	{"Framed-IPv6-Prefix 1 byte", AVP{AttrFramedIPv6Prefix, []byte{0}}, "[]byte{0x0}"},
+	{"Framed-IPv6-Prefix length 129", AVP{AttrFramedIPv6Prefix, []byte{0, 129, 0x20}}, "[]byte{0x0, 0x81, 0x20}"},
+	{"Framed-IPv6-Prefix 19 bytes", AVP{AttrFramedIPv6Prefix, make([]byte, 19)}, "[]byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}"},
 	{"Vendor-Specific empty", AVP{AttrVendorSpecific, []byte{}}, "[]byte{}"},
 	{"Vendor-Specific 2 bytes", AVP{AttrVendorSpecific, []byte{0, 0}}, "[]byte{0x0, 0x0}"},
 	{"Vendor-Specific header only", AVP{AttrVendorSpecific, []byte{0, 0, 0x27, 0x0f, 1}}, "[]byte{0x0, 0x0, 0x27, 0xf, 0x1}"},

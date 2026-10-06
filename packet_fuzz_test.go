@@ -31,6 +31,7 @@ func FuzzDecodeRequest(f *testing.F) {
 		f.Add("sEcReT", seed)
 	}
 	f.Add("secret", make([]byte, 20))
+	f.Add("secret", ipv6PrefixSeed(f))
 
 	f.Fuzz(func(t *testing.T, secret string, data []byte) {
 		p, err := DecodeRequest(secret, data)
@@ -139,4 +140,19 @@ func exercisePacket(p *Packet) {
 	_ = p.GetNASPortType()
 	_ = p.GetServiceType()
 	_, _ = p.GetVLAN()
+}
+
+// ipv6PrefixSeed is a request with valid, short and malformed Framed-IPv6-Prefix values;
+// it's an Access-Request without Message-Authenticator, so mutations aren't rejected by an authenticator check.
+func ipv6PrefixSeed(f *testing.F) []byte {
+	p := Request(AccountingRequest, "secret")
+	p.AddAVP(AVP{AttrFramedIPv6Prefix, []byte{0, 64, 0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0}})
+	p.AddAVP(AVP{AttrFramedIPv6Prefix, []byte{0, 128}})
+	p.AddAVP(AVP{AttrFramedIPv6Prefix, []byte{0, 129, 0}})
+	b, err := p.Encode()
+	if err != nil {
+		f.Fatal(err)
+	}
+	b[0] = byte(AccessRequest)
+	return b
 }
