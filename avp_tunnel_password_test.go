@@ -121,3 +121,63 @@ func TestTunnelPasswordMalformed(t *testing.T) {
 		}
 	}
 }
+
+// zeroAuthRequestCodes hide attributes with an all-zero authenticator (RFC 2866, 5176; FreeRADIUS).
+var zeroAuthRequestCodes = []PacketCode{AccountingRequest, CoARequest, DisconnectRequest}
+
+// replyCodes are the reply packet codes.
+var replyCodes = []PacketCode{AccessAccept, AccessReject, AccessChallenge, AccountingResponse,
+	CoAAccept, CoAReject, DisconnectAccept, DisconnectReject}
+
+// The sender reads its own encoded request, and the receiver decodes it, with the zero authenticator.
+func TestTunnelPasswordZeroAuthenticatorRequest(t *testing.T) {
+	const secret, tag, pw = "testing123", 1, "tp"
+	for _, code := range zeroAuthRequestCodes {
+		p := Request(code, secret)
+		p.Authenticator[0] = 1 // ignored for hiding
+		if err := p.AddTunnelPassword(tag, pw); err != nil {
+			t.Fatal(err)
+		}
+		b, err := p.Encode()
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := DecodeRequest(secret, b)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for which, q := range map[string]*Packet{"sender": p, "receiver": got} {
+			if gotTag, gotPW, ok := q.GetTunnelPassword(); !ok || gotTag != tag || gotPW != pw {
+				t.Errorf("%v %s: Tunnel-Password = %d %q %v", code, which, gotTag, gotPW, ok)
+			}
+			if s := q.String(); !strings.Contains(s, "Tunnel-Password "+pw) {
+				t.Errorf("%v %s: String = %q", code, which, s)
+			}
+		}
+	}
+}
+
+// A reply not built with Reply() has no request authenticator, so it can't hide values (FreeRADIUS).
+func TestTunnelPasswordReplyWithoutRequest(t *testing.T) {
+	const secret = "testing123"
+	tmpl, err := GetDefaultDictionary().GetTemplate("Tunnel-Password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, code := range replyCodes {
+		p := &Packet{Code: code, Secret: secret}
+		if err := p.AddTunnelPassword(0, "tp"); !errors.Is(err, ErrNoRequestAuthenticator) {
+			t.Errorf("%v: AddTunnelPassword err = %v", code, err)
+		}
+		tmpl.Add(p, "tp")
+		if len(p.AVPs) != 0 {
+			t.Errorf("%v: AVPs added: %v", code, p.AVPs)
+		}
+
+		r := Request(AccessRequest, secret).Reply()
+		r.Code = code
+		if err := r.AddTunnelPassword(0, "tp"); err != nil {
+			t.Errorf("%v: Reply().AddTunnelPassword: %v", code, err)
+		}
+	}
+}

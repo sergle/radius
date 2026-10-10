@@ -18,6 +18,7 @@ var ErrMessageAuthenticatorCheckFail = fmt.Errorf("RADIUS Message-Authenticator 
 var ErrAuthenticatorCheckFail = fmt.Errorf("RADIUS Authenticator verification failed")
 var ErrMessageAuthenticatorMissing = fmt.Errorf("RADIUS Message-Authenticator missing")
 var ErrInvalidPacketLength = fmt.Errorf("RADIUS packet Length field is invalid")
+var ErrNoRequestAuthenticator = fmt.Errorf("RADIUS reply has no request authenticator, create it with request.Reply()")
 
 // the size of the RADIUS packet header (RFC 2865 section 3)
 // Code (1), Identifier (1), Length (2) and Authenticator (16)
@@ -47,6 +48,11 @@ type DecodeOptions struct {
 // A Packet can be encoded for sending over the network and decoded from bytes.
 // When decoding lazily, AVPs may be available via RawAVPs instead of AVPs; helper
 // methods (for example GetAVP/EachAVP/HasAVP) work with either representation.
+//
+// Create packets with Request, RadClient.NewRequest, request.Reply (ReplyAccept etc.)
+// or the Decode functions: they set the authenticators that hide encrypted values.
+// A reply built by hand has no request authenticator, so encrypting fails with
+// ErrNoRequestAuthenticator.
 type Packet struct {
 	Secret        string
 	Code          PacketCode
@@ -59,12 +65,44 @@ type Packet struct {
 	requestAuth [authenticatorLen]byte // set on decoded replies
 }
 
-// cryptAuthenticator returns the Request Authenticator that hides attribute values.
+// zeroAuthenticator hides values in requests whose Request Authenticator is computed (RFC 2866, 5176).
+var zeroAuthenticator [authenticatorLen]byte
+
+// cryptAuthenticator returns the Request Authenticator that hides attribute values:
+// all zeros for Accounting, CoA and Disconnect requests, as FreeRADIUS encodes them
+// (FreeRADIUS decodes their encrypt=1 values with the packet's own; we stay symmetric).
+// Access-Request uses its own (FreeRADIUS can't encrypt=2 there and decodes it with zeros).
 func (p *Packet) cryptAuthenticator() []byte {
-	if p.requestAuth != [authenticatorLen]byte{} {
+	if p.Code.IsRequest() && !p.Code.hasRandomAuthenticator() {
+		return zeroAuthenticator[:]
+	}
+	if p.requestAuth != zeroAuthenticator {
 		return p.requestAuth[:]
 	}
 	return p.Authenticator[:]
+}
+
+// ensureAuthenticator generates a random Request Authenticator if the code needs one and it isn't set;
+// kept in p, so values hidden with it and reply checks match what Encode sends.
+func (p *Packet) ensureAuthenticator() error {
+	if p.Code.hasRandomAuthenticator() && p.Authenticator == zeroAuthenticator {
+		if _, err := rand.Read(p.Authenticator[:]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// encryptAuthenticator is cryptAuthenticator for hiding a value; a reply needs the request's.
+func (p *Packet) encryptAuthenticator() ([]byte, error) {
+	if err := p.ensureAuthenticator(); err != nil {
+		return nil, err
+	}
+	auth := p.cryptAuthenticator()
+	if !p.Code.IsRequest() && [authenticatorLen]byte(auth) == zeroAuthenticator {
+		return nil, ErrNoRequestAuthenticator
+	}
+	return auth, nil
 }
 
 var packetPool = newPool(func() *Packet {
@@ -140,12 +178,8 @@ func (p *Packet) Encode() (b []byte, err error) {
 // The provided buffer must be large enough for the full packet; this package
 // commonly uses 4096 bytes (the RADIUS maximum packet size).
 func (p *Packet) EncodeTo(b []byte) (n int, err error) {
-	// generate only if not set yet; kept in p for User-Password and reply checks
-	if p.Code.hasRandomAuthenticator() && p.Authenticator == [authenticatorLen]byte{} {
-		_, err := rand.Read(p.Authenticator[:])
-		if err != nil {
-			return 0, err
-		}
+	if err := p.ensureAuthenticator(); err != nil {
+		return 0, err
 	}
 
 	// a new Message-Authenticator goes first (Blast-RADIUS, CVE-2024-3596)
@@ -769,8 +803,13 @@ func (p *Packet) GetPassword() (password string) {
 
 // AddTunnelPassword adds a Tunnel-Password attribute (RFC 2868) encrypted
 // with the packet Secret and Request Authenticator.
+// A reply must be created with request.Reply(), else ErrNoRequestAuthenticator.
 func (p *Packet) AddTunnelPassword(tag uint8, password string) error {
-	v, err := avpTunnelPassword.Encode(tag, password, p.Secret, p.cryptAuthenticator())
+	auth, err := p.encryptAuthenticator()
+	if err != nil {
+		return err
+	}
+	v, err := avpTunnelPassword.Encode(tag, password, p.Secret, auth)
 	if err != nil {
 		return err
 	}
@@ -790,6 +829,8 @@ func (p *Packet) GetTunnelPassword() (tag uint8, password string, ok bool) {
 // AddPassword adds (or replaces) the User-Password attribute, encrypting it as
 // required by the RADIUS protocol using the packet Secret and Authenticator.
 func (p *Packet) AddPassword(password string) {
+	// no error return: on failure the password is hidden with the current authenticator, as before
+	_ = p.ensureAuthenticator()
 	p.SetAVP(AVP{
 		Type:  AttrUserPassword,
 		Value: avpPassword.Encode(password, p.Secret, p.cryptAuthenticator()),

@@ -42,7 +42,11 @@ func (t *AttributeTemplate) Add(p *Packet, value string) {
 		return
 	}
 	if t.handler == avpTunnelPassword {
-		v, err := avpTunnelPassword.Encode(t.tag, value, p.Secret, p.cryptAuthenticator())
+		auth, err := p.encryptAuthenticator()
+		var v []byte
+		if err == nil {
+			v, err = avpTunnelPassword.Encode(t.tag, value, p.Secret, auth)
+		}
 		if err != nil {
 			logger().Warn("radius: template skipped attribute", "attribute", t.attrType, "error", err)
 			return

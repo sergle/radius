@@ -99,3 +99,32 @@ func TestAVPPasswordGolden(t *testing.T) {
 		t.Errorf("Golden case 2 failed: got %s, want %s", got2, expected2)
 	}
 }
+
+// A hand-built Access-Request gets its random authenticator before a value is hidden, not at Encode.
+func TestPasswordManualAccessRequest(t *testing.T) {
+	const secret, pw, tunnelPW = "s", "secret-pw", "tunnel-pw"
+	p := &Packet{Code: AccessRequest, Secret: secret}
+	p.AddPassword(pw)
+	if p.Authenticator == zeroAuthenticator {
+		t.Fatal("AddPassword left the authenticator zero")
+	}
+	if err := p.AddTunnelPassword(0, tunnelPW); err != nil {
+		t.Fatal(err)
+	}
+	b, err := p.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := DecodeRequest(secret, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for which, q := range map[string]*Packet{"sender": p, "receiver": got} {
+		if q.GetPassword() != pw {
+			t.Errorf("%s: User-Password = %q", which, q.GetPassword())
+		}
+		if _, gotPW, ok := q.GetTunnelPassword(); !ok || gotPW != tunnelPW {
+			t.Errorf("%s: Tunnel-Password = %q, %v", which, gotPW, ok)
+		}
+	}
+}
