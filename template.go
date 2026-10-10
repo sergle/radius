@@ -17,10 +17,22 @@ type AttributeTemplate struct {
 	handler  avpDataType
 	names    map[string]uint32 // VALUE name -> number
 	tag      uint8
+	ext      *ExtendedAttr // set for extended attributes
 }
 
 // Add encodes the value and adds it to the provided packet; invalid values are logged and skipped.
 func (t *AttributeTemplate) Add(p *Packet, value string) {
+	if t.ext != nil {
+		v, err := encodeValue(t.handler, t.names, 0, value)
+		if err != nil {
+			logger().Warn("radius: template skipped attribute", "attribute", t.attrType, "ext", t.ext.ExtType, "error", err)
+			return
+		}
+		e := *t.ext
+		e.Value = v
+		p.AddExtended(e)
+		return
+	}
 	if t.attrType == AttrUserPassword {
 		p.AddPassword(value)
 		return
@@ -94,8 +106,11 @@ func (t *RequestTemplate) Fill(p *Packet, values ...string) {
 
 // templateHandler returns the handler for typeName; tlv values are formatted via the dictionary and encoded as raw octets.
 func templateHandler(typeName string) (avpDataType, bool) {
-	if typeName == typeTLV {
+	switch typeName {
+	case typeTLV:
 		return avpTLV, true
+	case typeExtended, typeLongExtended:
+		return avpExtended, true
 	}
 	h, ok := attrTypeHandlers[typeName]
 	return h, ok
@@ -111,6 +126,9 @@ func (d *Dictionary) GetTemplate(name string) (*AttributeTemplate, error) {
 	defer d.mu.RUnlock()
 
 	id, ok := d.attrID[name]
+	if e := d.extAttrs[0][name]; !ok && e != nil {
+		return extTemplate(e, name, tagged)
+	}
 	if !ok {
 		return nil, fmt.Errorf("attribute %s not found in dictionary", name)
 	}
@@ -158,6 +176,9 @@ func (d *Dictionary) getVSATemplate(vendorName, attrName string) (AVPTemplate, e
 	}
 
 	aID, ok := d.vsaAttrID[vID][attrName]
+	if e := d.extAttrs[vID][attrName]; !ok && e != nil {
+		return extTemplate(e, vendorName+"/"+attrName, tagged)
+	}
 	if !ok {
 		return nil, fmt.Errorf("VSA attribute %s not found for vendor %s", attrName, vendorName)
 	}
@@ -258,4 +279,20 @@ func (d *Dictionary) CreateRequestTemplate(code PacketCode, names ...string) (*R
 		t.templates = append(t.templates, tmpl)
 	}
 	return t, nil
+}
+
+// extTemplate returns a template for extended attribute e; caller holds the lock.
+func extTemplate(e *extAttr, qname string, tagged bool) (*AttributeTemplate, error) {
+	if tagged {
+		return nil, fmt.Errorf("%w: attribute %s has no tag", ErrInvalidTag, qname)
+	}
+	if e.encrypted {
+		return nil, fmt.Errorf("%w: encrypted attribute %s", ErrUnsupportedAttributeType, qname)
+	}
+	handler, ok := templateHandler(e.attrType)
+	if !ok {
+		return nil, fmt.Errorf("no handler found for type %s", e.attrType)
+	}
+	id := e.id
+	return &AttributeTemplate{attrType: id.Type, handler: handler, names: maps.Clone(e.constID), ext: &id}, nil
 }

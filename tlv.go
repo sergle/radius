@@ -19,8 +19,9 @@ type tlvAttr struct {
 	name      string
 	num       uint8
 	attrType  string
-	encrypted bool     // encrypt= set; can't be built, ParseTLV doesn't encrypt
-	parent    *tlvAttr // nil for a top-level attribute
+	encrypted bool          // encrypt= set; can't be built, ParseTLV doesn't encrypt
+	parent    *tlvAttr      // nil for a top-level attribute
+	outer     AttributeType // top-level extended attribute (241-246) holding it, 0 if none
 	children  map[uint8]*tlvAttr
 	constID   map[string]uint32
 	constName map[uint32]string
@@ -348,6 +349,19 @@ func (d *Dictionary) ParseTLV(vendorName, attrName string, values ...TLVValue) (
 		return AVP{}, fmt.Errorf("%w in %s", err, attrName)
 	}
 
+	if root.outer != 0 {
+		e := d.extAttrs[vendorID][root.name].id
+		e.Value = value
+		if err := e.check(); err != nil {
+			return AVP{}, fmt.Errorf("%w in %s", err, attrName)
+		}
+		avps := e.ToAVPList()
+		if len(avps) != 1 {
+			return AVP{}, fmt.Errorf("%w: %s too long", ErrInvalidValue, attrName)
+		}
+		return avps[0], nil
+	}
+
 	if vendorName == "" {
 		if len(value) > maxAVPValueLen {
 			return AVP{}, fmt.Errorf("%w: %s too long", ErrInvalidValue, attrName)
@@ -374,11 +388,20 @@ func (d *Dictionary) GetTLV(p *Packet, vendorName, attrName string) ([]byte, boo
 	root := t.root()
 	path := t.path()
 	f := d.formatOf(vendorID)
+	var ext ExtendedAttr
+	if root.outer != 0 {
+		ext = d.extAttrs[vendorID][root.name].id
+	}
 	d.mu.RUnlock()
 
 	var found []byte
 	ok := false
-	if vendorName == "" {
+	if root.outer != 0 {
+		eachExtendedValue(p, ext, func(v []byte) bool {
+			found, ok = findTLV(v, path)
+			return !ok
+		})
+	} else if vendorName == "" {
 		p.EachAVP(func(a AVP) bool {
 			if a.Type == AttributeType(root.num) {
 				found, ok = findTLV(a.Value, path)

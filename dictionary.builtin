@@ -254,3 +254,17 @@ ATTRIBUTE	Digest-Domain		119	string
 ATTRIBUTE	Digest-Stale		120	string
 ATTRIBUTE	Digest-HA1		121	string
 ATTRIBUTE	SIP-AOR			122	string
+
+# RFC 6929 - RADIUS Protocol Extensions (names as in FreeRADIUS)
+ATTRIBUTE	Extended-Attribute-1	        241	extended
+ATTRIBUTE	Extended-Attribute-2	        242	extended
+ATTRIBUTE	Extended-Attribute-3	        243	extended
+ATTRIBUTE	Extended-Attribute-4	        244	extended
+ATTRIBUTE	Extended-Attribute-5	        245	long-extended
+ATTRIBUTE	Extended-Attribute-6	        246	long-extended
+ATTRIBUTE	Extended-Vendor-Specific-1	241.26	evs
+ATTRIBUTE	Extended-Vendor-Specific-2	242.26	evs
+ATTRIBUTE	Extended-Vendor-Specific-3	243.26	evs
+ATTRIBUTE	Extended-Vendor-Specific-4	244.26	evs
+ATTRIBUTE	Extended-Vendor-Specific-5	245.26	evs
+ATTRIBUTE	Extended-Vendor-Specific-6	246.26	evs

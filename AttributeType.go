@@ -121,6 +121,14 @@ const (
 	AttrDigestStale          AttributeType = 120
 	AttrDigestHA1            AttributeType = 121
 	AttrSIPAOR               AttributeType = 122
+
+	// RFC 6929 - RADIUS Protocol Extensions
+	AttrExtendedType1     AttributeType = 241
+	AttrExtendedType2     AttributeType = 242
+	AttrExtendedType3     AttributeType = 243
+	AttrExtendedType4     AttributeType = 244
+	AttrLongExtendedType1 AttributeType = 245
+	AttrLongExtendedType2 AttributeType = 246
 )
 
 func getAttributeTypeDesc(t AttributeType) attributeTypeDesc {

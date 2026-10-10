@@ -56,14 +56,22 @@ go test -fuzz=^FuzzDecodeRequest$ -fuzztime=30s .   # single fuzz target
 - `DecodeAVPValue` renders TLVs, `ParseTLV` builds them, `GetTLV`/`GetTLVString` read them; templates treat `tlv` values as raw octets.
 - A duplicate child number keeps the first child (Warn). Children ignore `has_tag`; children with `encrypt=` load, but `ParseTLV` refuses them.
 - `BEGIN-TLV` blocks must close in the same file and can't contain `$INCLUDE` or vendor changes.
-- Children are skipped for `extended`/`long-extended`/`evs` attributes and for vendors whose format isn't `1,1` or `1,1,c`.
+- Children are skipped for `evs` attributes, VSAs of an extended type, and vendors whose format isn't `1,1` or `1,1,c`. Extended attributes may be TLVs: their root `tlvAttr.outer` is 241–246.
 
 ### Vendor formats (`avp_vendor.go`)
 
 - `VENDOR ... format=T,L[,c]` sets the vendor's VSA header: type of 1/2/4 bytes, length of 0/1/2 bytes, and `c` for the WiMAX continuation byte. Non-`1,1` formats are kept in `Dictionary.vendorFormat`. Any VENDOR option other than a valid `format=` is a load error.
 - `VSA.Format` (zero = `1,1`) controls encoding in `ToAVP`/`ToAVPList`. `ParseVSA`, templates and `ParseTLV` fill it from the dictionary; `ToVSA` decodes with the default dictionary's format.
 - An invalid format, or an attribute number too wide for its type size, is an error in `ParseVSA` and templates; `ToAVP`/`ToAVPList` log a warning and return nothing.
-- `AddVSA` splits long WiMAX values over several AVPs and `GetVSA`/`GetTLV` (`eachVSA`) join them; `DecodeAVPValue` shows each fragment on its own.
+- `AddVSA` splits long WiMAX values over several AVPs and `GetVSA`/`GetTLV` (`eachVSA`) join them; `DecodeAVPValue` shows each fragment on its own; `chainStart` finds the AVP's place in the packet so later fragments are marked `Continued` and named after the first.
+
+### Extended attributes (`extended.go`, RFC 6929)
+
+- `241`–`246` are declared `extended`/`long-extended` (builtin has them); `241.N` declares an extended attribute, `241.N.M` a TLV child, `241.26` the `evs` placeholder. `BEGIN-VENDOR V format=<evs attribute>` (or `parent=`) declares EVS attributes of V (dotted `241.26.V.N` ids are skipped at Debug).
+- Definitions are `extAttr` in `Dictionary.extAttrs` (vendor 0, or the EVS vendor) and `extNums` (decoding, last alias wins). Names are unique against top-level, VSA and TLV names of the same vendor; they aren't top-level, so `GetAttributeID`/`HasAttribute` don't see them.
+- On the wire an AVP stays `{241, ext-type [flags] data}`; `ExtendedAttr` (ExtType 26 = EVS; 245/246 use the More-flag format) is built by `ParseExtended` and templates, split by `ToAVPList`/`AddExtended` (More on all but the last, EVS header in the first fragment only). `check` refuses other types, empty values and Vendor-Ids over 24 bits.
+- `GetExtended`/`GetTLV` (`eachExtended`) join contiguous fragments; a chain that is interrupted, changes Extended-Type or ends with More set is skipped. `DecodeAVPValue` shows each fragment on its own; `chainStart` finds the AVP's place in the packet so later fragments are marked `Continued` and named after the first.
+- `ParseAVP` accepts standard extended names when the value fits one AVP; extended attributes have no tags, and `encrypt=` (or `password`/`tunnel-password` typed) ones load but can't be built.
 
 ### CI
 

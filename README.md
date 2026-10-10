@@ -212,7 +212,30 @@ Notes:
 - Sub-attributes listed one after another go into the same nested TLV. To start a second instance of a nested TLV, pass its own name with an empty `Value`.
 - Sub-attributes whose type has no handler (e.g. `abinary`) are shown as raw bytes and can't be built with `ParseTLV`.
 - Encrypted sub-attributes (`encrypt=` in the dictionary, e.g. `WiMAX-hDHCP-DHCP-RK`) are loaded, but `ParseTLV` refuses to build them, because it would send them unencrypted.
-- Not supported yet: sub-attributes of RFC 6929 extended attributes, and of vendors with a format other than `1,1` or `1,1,c` (WiMAX).
+- Not supported yet: sub-attributes of vendors with a format other than `1,1` or `1,1,c` (WiMAX).
+
+## Extended Attributes (RFC 6929)
+Attributes 241–246 hold "extended" attributes, e.g. `Frag-Status` (241.1) or the IP-Port TLVs (241.5–241.7). 245 and 246 use the "long" format: a value over 251 bytes is split over several attributes. Vendors can define attributes there too (Extended-Vendor-Specific, `BEGIN-VENDOR ... format=Extended-Vendor-Specific-N` in FreeRADIUS dictionaries).
+
+Use them by name, as other attributes:
+
+```go
+avp, err := dict.ParseAVP("Frag-Status", "More-Data-Pending") // fits one attribute
+req.AddAVP(avp)
+
+e, err := dict.ParseExtended("FreeRADIUS", "FreeRADIUS-802.1X-EAPoL-Key-Msg", longValue) // "" for standard ones
+req.AddExtended(e) // splits a long value
+
+v, ok := dict.GetExtended(p, "", "Frag-Status") // the whole value, fragments joined
+```
+
+Templates (`CreateRequestTemplate`, `AddVSAAttribute` for vendor ones) accept extended names, `ParseTLV`/`GetTLV` work for TLVs among them, and `DecodeAVPValue`/`Packet.String` show them by name. Notes:
+- The builtin dictionary declares 241–246 only; load the FreeRADIUS dictionaries for the attributes in them.
+- `ParseAVP` returns one attribute, so it refuses a value too long for it; use `ParseExtended` and `AddExtended`.
+- `ParseTLV` also returns one attribute, and `ParseExtended` doesn't build TLVs, so a TLV value over 251 bytes can't be built from sub-attributes yet.
+- Values can't be empty (RFC 6929).
+- Fragments are joined only if they follow each other; a broken chain is ignored. `DecodeAVPValue` shows each fragment separately and marks the ones after the first as `Continued`.
+- The only `BEGIN-VENDOR` option is `format=` (or `parent=`) naming an Extended-Vendor-Specific attribute; anything else is a load error.
 
 ## Vendor Formats
 Most vendors use the standard VSA layout: a 1-byte attribute number and a 1-byte length. Some declare another layout in the dictionary with `VENDOR ... format=T,L[,c]`, and the library follows it:
@@ -231,13 +254,9 @@ v, ok := dict.GetVSA(p, "WiMAX", "WiMAX-Hotline-Indicator") // the whole value
 
 `DecodeAVPValue` (and so `Packet.String`) still shows each WiMAX fragment separately.
 
-A `VSA` built by hand uses the standard layout unless you set `Format`, e.g. `Format: dict.VendorFormat(vendorID)`. If the format is invalid (see `VendorFormat.Valid`) or the attribute number is too big for it, `ParseVSA` and templates return `ErrInvalidVendorFormat`, and `ToAVP`/`ToAVPList` log a warning and return nothing.
+A `VSA` built by hand uses the standard layout unless you set `Format`, e.g. `Format: dict.VendorFormat(vendorID)`. If the format is invalid (see `VendorFormat.Valid`) or the attribute number is too big for it, `ParseVSA` and templates return `ErrInvalidVendorFormat`, and `ToAVP`/`ToAVPList` log a warning and return nothing. `ToVSA` fills in `Format` and, for WiMAX, leaves the continuation byte out of `Value`.
 
-### API changes
-- `VendorAttr` is now `uint32` (was `uint8`).
-- `VSA` has a new `Format` field, so `VSA{...}` literals without field names no longer compile. `ToVSA` sets `Format`, and for WiMAX it removes the continuation byte from `Value`.
-- `AddVSA` can add more than one attribute (long WiMAX values).
-- A `VENDOR` line whose extra option isn't a valid `format=T,L[,c]` is now a load error.
+The only `VENDOR` option is `format=T,L[,c]`; anything else is a load error.
 
 ## High Performance: Lazy Decoding
 For high-load proxies or filters where performance is critical, use lazy decoding to avoid unnecessary allocations.

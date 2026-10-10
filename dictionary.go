@@ -105,6 +105,12 @@ type Dictionary struct {
 	vendorFormat map[VendorID]VendorFormat
 	// names of ignored sub-attributes, their VALUEs are skipped quietly
 	skippedAttrs map[VendorID]map[string]bool
+	// RFC 6929 extended attributes: vendor (0, or the vendor of EVS attributes) -> name -> definition
+	extAttrs map[VendorID]map[string]*extAttr
+	// vendor -> number -> definition used for decoding
+	extNums map[VendorID]map[extKey]*extAttr
+	// Extended-Vendor-Specific attribute of the open BEGIN-VENDOR format= block (parser state)
+	evsBlock *extAttr
 
 	// vsa
 	// vendor -> attribute name -> attribute id
@@ -139,6 +145,8 @@ func NewDictionary() *Dictionary {
 	dict.tlvAttrs = make(map[VendorID]map[string]*tlvAttr)
 	dict.vendorFormat = make(map[VendorID]VendorFormat)
 	dict.skippedAttrs = make(map[VendorID]map[string]bool)
+	dict.extAttrs = make(map[VendorID]map[string]*extAttr)
+	dict.extNums = make(map[VendorID]map[extKey]*extAttr)
 
 	return dict
 }
@@ -245,7 +253,11 @@ func (d *Dictionary) parseLine(fname string, line string) error {
 		if len(parts) < 2 {
 			return errors.New("Invalid BEGIN-VENDOR line: " + line)
 		}
-		return d.parseBeginVendor(parts[1])
+		option := ""
+		if len(parts) > 2 && !strings.HasPrefix(parts[2], "#") {
+			option = parts[2]
+		}
+		return d.parseBeginVendor(parts[1], option)
 	case "END-VENDOR":
 		if len(parts) < 2 {
 			return errors.New("Invalid END-VENDOR line: " + line)
@@ -361,6 +373,14 @@ func (d *Dictionary) parseAttribute(attrName string, attrID string, attrType str
 	if len(d.tlvStack) > 0 || strings.Contains(attrID, ".") {
 		return d.parseTLVAttribute(attrName, attrID, attrType, flags)
 	}
+	if d.evsBlock != nil {
+		num, err := strconv.ParseUint(attrID, 0, 8)
+		if err != nil {
+			logger().Warn("radius: ignoring attribute with invalid id", "attribute", attrName, "id", attrID, "error", err)
+			return nil
+		}
+		return d.parseExtAttribute(attrName, d.evsBlock.id.Type, uint8(num), attrType, flags)
+	}
 
 	// 0 - guess base (0x for hex)
 	aID, err := strconv.ParseUint(attrID, 0, 8*int(d.formatOf(d.currentVendor).TypeLen))
@@ -379,6 +399,9 @@ func (d *Dictionary) parseAttribute(attrName string, attrID string, attrType str
 	if old := d.tlvAttrs[d.currentVendor][attrName]; old != nil && old.parent != nil {
 		return fmt.Errorf("duplicate attribute %s, already a sub-attribute of %s", attrName, old.parent.name)
 	}
+	if _, ok := d.extAttrs[d.currentVendor][attrName]; ok {
+		return fmt.Errorf("duplicate attribute %s, already an extended attribute", attrName)
+	}
 	if id, oldType, ok := d.topLevelDef(attrName); ok {
 		if id != uint32(aID) || wireType(oldType) != wireType(attrType) {
 			return fmt.Errorf("duplicate attribute %s with another definition", attrName)
@@ -394,7 +417,7 @@ func (d *Dictionary) parseAttribute(attrName string, attrID string, attrType str
 	}
 	// another name for a number is an alias: both encode, the last one decodes
 	if attrType == typeTLV && d.formatOf(d.currentVendor).tlvSupported() {
-		if t := d.aliasedTLV(uint8(aID)); t != nil {
+		if t := d.aliasedTLV(0, uint8(aID)); t != nil {
 			// a TLV alias shares the sub-attributes
 			d.addTLVAttr(t, attrName)
 		} else {
@@ -426,12 +449,28 @@ func (d *Dictionary) parseAttribute(attrName string, attrID string, attrType str
 
 // parseTLVAttribute adds a sub-attribute declared with a dotted OID or inside BEGIN-TLV.
 func (d *Dictionary) parseTLVAttribute(attrName string, attrID string, attrType string, flags string) error {
+	if len(d.tlvStack) == 0 && d.evsBlock == nil && d.currentVendor == 0 && dottedEVS(attrID) {
+		d.skipAttr(attrName)
+		logger().Debug("radius: ignoring unsupported sub-attribute", "attribute", attrName, "id", attrID)
+		return nil
+	}
 	oid, err := parseOID(attrID)
 	if err != nil {
 		logger().Warn("radius: ignoring attribute with invalid id", "attribute", attrName, "id", attrID, "error", err)
 		return nil
 	}
-	parent, status := d.tlvParent(oid)
+	var outer AttributeType
+	if len(d.tlvStack) == 0 {
+		if d.evsBlock != nil {
+			outer = d.evsBlock.id.Type
+		} else if _, ok := d.extendedParent(oid[0]); ok {
+			outer, oid = AttributeType(oid[0]), oid[1:]
+			if len(oid) == 1 {
+				return d.parseExtAttribute(attrName, outer, oid[0], attrType, flags)
+			}
+		}
+	}
+	parent, status := d.tlvParent(outer, oid)
 	switch status {
 	case tlvParentUnknown:
 		d.skipAttr(attrName)
@@ -442,7 +481,7 @@ func (d *Dictionary) parseTLVAttribute(attrName string, attrID string, attrType 
 		logger().Warn("radius: ignoring sub-attribute, parent is not a TLV", "attribute", attrName, "id", attrID)
 		return nil
 	case tlvParentUnsupported:
-		// extended attributes, non-default vendor formats (WiMAX)
+		// Extended-Vendor-Specific, non-default vendor formats (WiMAX)
 		d.skipAttr(attrName)
 		logger().Debug("radius: ignoring unsupported sub-attribute", "attribute", attrName, "id", attrID)
 		return nil
@@ -466,6 +505,9 @@ func (d *Dictionary) parseTLVAttribute(attrName string, attrID string, attrType 
 	if _, _, ok := d.topLevelDef(attrName); ok {
 		return fmt.Errorf("duplicate attribute %s, already a top-level attribute", attrName)
 	}
+	if _, ok := d.extAttrs[d.currentVendor][attrName]; ok {
+		return fmt.Errorf("duplicate attribute %s, already an extended attribute", attrName)
+	}
 	child := &tlvAttr{name: attrName, num: num, attrType: attrType, encrypted: f.encrypt != encryptNone}
 	if !parent.addChild(child) {
 		d.skipAttr(attrName)
@@ -473,6 +515,16 @@ func (d *Dictionary) parseTLVAttribute(attrName string, attrID string, attrType 
 	}
 	d.addTLVAttr(child, child.name)
 	return nil
+}
+
+// dottedEVS reports whether attrID is an Extended-Vendor-Specific id like 241.26.11344.1, whose vendor may not fit a byte.
+func dottedEVS(attrID string) bool {
+	parts := strings.SplitN(attrID, ".", 3)
+	if len(parts) < 3 || parts[1] != strconv.Itoa(ExtTypeEVS) {
+		return false
+	}
+	outer, err := strconv.ParseUint(parts[0], 0, 8)
+	return err == nil && isExtendedType(AttributeType(outer))
 }
 
 // parseOID parses a dotted attribute number such as "59.1".
@@ -494,14 +546,14 @@ const (
 	tlvParentOK          tlvParentStatus = iota
 	tlvParentUnknown                     // parent isn't defined
 	tlvParentNotTLV                      // parent is a plain attribute
-	tlvParentUnsupported                 // extended attribute, non-default vendor format, ignored block
+	tlvParentUnsupported                 // EVS, extended VSA, non-default vendor format, ignored block
 )
 
-// extendedTypes are RFC 6929 attribute types whose sub-attributes aren't supported.
-var extendedTypes = map[string]bool{"extended": true, "long-extended": true, "evs": true}
+// extendedTypes are RFC 6929 attribute types; sub-attributes are supported only for standard ones.
+var extendedTypes = map[string]bool{typeExtended: true, typeLongExtended: true, typeEVS: true}
 
-// tlvParent returns the TLV holding the last component of oid.
-func (d *Dictionary) tlvParent(oid []uint8) (*tlvAttr, tlvParentStatus) {
+// tlvParent returns the TLV holding the last component of oid; outer is the extended attribute oid is under, or 0.
+func (d *Dictionary) tlvParent(outer AttributeType, oid []uint8) (*tlvAttr, tlvParentStatus) {
 	var parent *tlvAttr
 	if n := len(d.tlvStack); n > 0 {
 		if parent = d.tlvStack[n-1].attr; parent == nil {
@@ -510,10 +562,16 @@ func (d *Dictionary) tlvParent(oid []uint8) (*tlvAttr, tlvParentStatus) {
 	} else {
 		var name, attrType string
 		var ok bool
-		if d.currentVendor > 0 {
+		switch {
+		case outer != 0:
+			var e *extAttr
+			if e, ok = d.extNums[d.currentVendor][extKey{outer: outer, num: oid[0]}]; ok {
+				name, attrType = e.name, e.attrType
+			}
+		case d.currentVendor > 0:
 			name, ok = d.vsaAttrName[d.currentVendor][VendorAttr(oid[0])]
 			attrType = d.vsaAttrType[d.currentVendor][name]
-		} else {
+		default:
 			name, ok = d.attrName[AttributeType(oid[0])]
 			attrType = d.attrType[name]
 		}
@@ -521,7 +579,7 @@ func (d *Dictionary) tlvParent(oid []uint8) (*tlvAttr, tlvParentStatus) {
 			return nil, tlvParentUnknown
 		}
 		if parent = d.rootTLV(d.currentVendor, name); parent == nil {
-			if !d.formatOf(d.currentVendor).tlvSupported() || extendedTypes[attrType] {
+			if attrType == typeEVS || outer == 0 && (!d.formatOf(d.currentVendor).tlvSupported() || extendedTypes[attrType]) {
 				return nil, tlvParentUnsupported
 			}
 			return nil, tlvParentNotTLV
@@ -602,11 +660,11 @@ func (d *Dictionary) addTLVAttr(t *tlvAttr, name string) {
 	d.tlvAttrs[d.currentVendor][name] = t
 }
 
-// aliasedTLV returns the TLV definition of top-level attribute number id of the current vendor, or nil.
-func (d *Dictionary) aliasedTLV(id uint8) *tlvAttr {
+// aliasedTLV returns the TLV definition of top-level (or extended under outer) attribute number id of the current vendor, or nil.
+func (d *Dictionary) aliasedTLV(outer AttributeType, id uint8) *tlvAttr {
 	// the last name for id may be a non-TLV alias
 	for _, t := range d.tlvAttrs[d.currentVendor] {
-		if t.parent == nil && t.num == id {
+		if t.parent == nil && t.outer == outer && t.num == id {
 			return t
 		}
 	}
@@ -620,6 +678,14 @@ func (d *Dictionary) parseValue(attrName string, constName string, constValue st
 			return fmt.Errorf("value %s of attribute %s: %w", constName, attrName, err)
 		}
 		t.addValue(constName, cID)
+		return nil
+	}
+	if e := d.extAttrs[d.currentVendor][attrName]; e != nil {
+		cID, err := parseInteger(attrTypeHandlers[e.attrType], constValue)
+		if err != nil {
+			return fmt.Errorf("value %s of attribute %s: %w", constName, attrName, err)
+		}
+		e.addValue(constName, cID)
 		return nil
 	}
 
@@ -698,6 +764,7 @@ func (d *Dictionary) parseInclude(fname string, incName string) error {
 	}
 	// clear vendor
 	d.currentVendor = 0
+	d.evsBlock = nil
 	return d.loadFileInternal(fullName)
 }
 
@@ -744,13 +811,16 @@ func parseVendorFormat(format string) (VendorFormat, error) {
 	return f, nil
 }
 
-func (d *Dictionary) parseBeginVendor(vendorName string) error {
+func (d *Dictionary) parseBeginVendor(vendorName string, option string) error {
 	if err := d.checkNoTLVBlock("BEGIN-VENDOR " + vendorName); err != nil {
 		return err
 	}
 	vID, ok := d.vendorID[vendorName]
 	if !ok {
 		return errors.New("unknown vendor " + vendorName)
+	}
+	if err := d.parseBeginVendorFormat(vendorName, option); err != nil {
+		return err
 	}
 	d.currentVendor = vID
 	return nil
@@ -770,6 +840,7 @@ func (d *Dictionary) parseEndVendor(vendorName string) error {
 	}
 
 	d.currentVendor = 0
+	d.evsBlock = nil
 
 	return nil
 }
@@ -786,7 +857,8 @@ func (d *Dictionary) parseBeginTLV(attrName string) error {
 	t := d.tlvAttrs[d.currentVendor][attrName]
 	_, vsa := d.vsaAttrID[d.currentVendor][attrName]
 	_, std := d.attrID[attrName]
-	known := vsa || (d.currentVendor == 0 && std)
+	_, ext := d.extAttrs[d.currentVendor][attrName]
+	known := vsa || ext || (d.currentVendor == 0 && std)
 	switch {
 	case t != nil && t.attrType != typeTLV:
 		return errors.New("Not a TLV attribute " + attrName)
@@ -937,6 +1009,12 @@ func (d *Dictionary) DecodeAVPValue(p *Packet, a AVP) string {
 
 	d.mu.RLock()
 	attrName := d.attrName[a.Type]
+	switch d.attrType[attrName] {
+	case typeExtended, typeLongExtended:
+		s := d.formatExtended(p, a, d.attrType[attrName] == typeLongExtended)
+		d.mu.RUnlock()
+		return s
+	}
 	if t := d.rootTLV(0, attrName); t != nil {
 		s := t.format(p, a.Value)
 		d.mu.RUnlock()
@@ -1104,6 +1182,7 @@ func (d *Dictionary) NewVSA(vendorName string, attrName string, attrValue string
 
 // ParseAVP constructs an AVP from the attribute name and a string value using
 // the attribute type defined in the dictionary. Integer values may be VALUE names.
+// Extended attributes (RFC 6929) are accepted if the value fits one AVP; see ParseExtended.
 func (d *Dictionary) ParseAVP(attrName string, attrValue string) (AVP, error) {
 	attrName, tag, tagged, err := splitTagName(attrName)
 	if err != nil {
@@ -1112,6 +1191,9 @@ func (d *Dictionary) ParseAVP(attrName string, attrValue string) (AVP, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	attrID, ok := d.attrID[attrName]
+	if e := d.extAttrs[0][attrName]; !ok && e != nil {
+		return parseExtendedAVP(e, attrName, tagged, attrValue)
+	}
 	if !ok {
 		return AVP{}, fmt.Errorf("%w: %s", ErrUnknownAttribute, attrName)
 	}

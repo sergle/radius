@@ -97,12 +97,16 @@ func TestTLVDictionaryParse(t *testing.T) {
 	if got := d.GetAttributeType("Test-Std-TLV"); got != "tlv" {
 		t.Errorf("Test-Std-TLV type = %q, want tlv", got)
 	}
-	// unsupported vendor format and extended attributes still load as top-level
+	// unsupported vendor format still loads as top-level
 	if !d.HasVSAAttribute(d.GetVendorID("TLVWide"), "TW-Capability") {
 		t.Error("TW-Capability missing")
 	}
+	// extended attributes aren't top-level
 	if !d.HasAttribute("Test-Extended") || d.HasAttribute("Test-Ext-Len") {
 		t.Error("extended attribute handling changed")
+	}
+	if _, err := d.ParseExtended("", "Test-Ext-Len", "One"); err != nil {
+		t.Errorf("Test-Ext-Len: %v", err)
 	}
 }
 
@@ -518,8 +522,8 @@ END-VENDOR W
 	if n := strings.Count(all, "parent is not a TLV"); n != 2 {
 		t.Errorf("non-TLV parent warnings = %d, want 2 (U-X, A-1-X):\n%s", n, all)
 	}
-	if n := strings.Count(all, "ignoring unsupported sub-attribute"); n != 3 {
-		t.Errorf("unsupported sub-attribute debug logs = %d, want 3 (E-1, V, W-T-1):\n%s", n, all)
+	if n := strings.Count(all, "ignoring unsupported sub-attribute"); n != 1 {
+		t.Errorf("unsupported sub-attribute debug logs = %d, want 1 (W-T-1):\n%s", n, all)
 	}
 }
 
@@ -859,11 +863,11 @@ func TestGetTLVTopLevel(t *testing.T) {
 	}
 }
 
-// VALUEs of unsupported sub-attributes (extended, 2-byte vendor types) are logged at Debug only.
+// VALUEs of unsupported sub-attributes (2-byte vendor types) are logged at Debug only.
 func TestTLVUnsupportedValueQuiet(t *testing.T) {
 	h := useRecordLogger(t)
 	loadTLVTestDict(t)
-	for _, name := range []string{"Test-Ext-Len", "TW-Flow-Id"} {
+	for _, name := range []string{"TW-Flow-Id"} {
 		if n := h.count(slog.LevelDebug, "attribute="+name+" value="); n != 1 {
 			t.Errorf("%s: debug logs = %d, want 1:\n%s", name, n, h.all())
 		}

@@ -24,6 +24,7 @@ fuzz:
 	go test -fuzz=^FuzzEapDecode$$ -fuzztime=$(FUZZTIME) .
 	go test -fuzz=^FuzzTLVDecode$$ -fuzztime=$(FUZZTIME) .
 	go test -fuzz=^FuzzVSAFormatDecode$$ -fuzztime=$(FUZZTIME) .
+	go test -fuzz=^FuzzExtendedDecode$$ -fuzztime=$(FUZZTIME) .
 
 clean:
 	go clean
