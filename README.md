@@ -196,7 +196,7 @@ log.Print(dict.DecodeAVPValue(reply, *tt)) // "VLAN (tag 1)"
 ```
 
 ## TLV Attributes
-Attributes of type `tlv` (e.g. 3GPP2, FreeRADIUS EAP-FAST) hold sub-attributes, declared with dotted ids (`59.1`) or `BEGIN-TLV` blocks. Build them with `ParseTLV`/`NewTLV` (use keyed `TLVValue` fields) and read them with `GetTLV`/`GetTLVString`; `DecodeAVPValue` renders them:
+Attributes of type `tlv` (e.g. 3GPP2, FreeRADIUS EAP-FAST) hold sub-attributes, declared with dotted ids (`59.1`) or `BEGIN-TLV` blocks. Build them with `ParseTLV`/`NewTLV` or `AddTLV` (use keyed `TLVValue` fields) and read them with `GetTLV`/`GetTLVString`; `DecodeAVPValue` renders them:
 
 ```go
 avp, err := dict.ParseTLV("3GPP2", "3GPP2-Remote-IP-Address",
@@ -211,7 +211,17 @@ q, ok := dict.GetTLVString(p, "3GPP2", "3GPP2-Remote-IP-Qualifier") // "1", true
 Notes:
 - Sub-attributes listed one after another go into the same nested TLV. To start a second instance of a nested TLV, pass its own name with an empty `Value`.
 - Sub-attributes whose type has no handler (e.g. `abinary`) are shown as raw bytes and can't be built with `ParseTLV`.
-- Encrypted sub-attributes (`encrypt=` in the dictionary, e.g. `WiMAX-hDHCP-DHCP-RK`) are loaded, but `ParseTLV` refuses to build them, because it would send them unencrypted.
+- Encrypted sub-attributes (`encrypt=1` or `encrypt=2` in the dictionary, e.g. `WiMAX-hDHCP-DHCP-RK`) need the packet's secret and authenticator, so build them with `AddTLV`, which encrypts them and adds the attribute to the packet. `ParseTLV` refuses them, because it would send them unencrypted. For a reply, create the packet with `request.Reply()` (or `ReplyAccept()` etc.) first, otherwise `AddTLV` (like `AddTunnelPassword`) returns `ErrNoRequestAuthenticator`. Accounting, CoA and Disconnect requests hide values with an all-zero authenticator (RFC 2866, RFC 5176; as FreeRADIUS). `encrypt=2` values (like Tunnel-Password, RFC 2868) can't go in an Access-Request or Status-Server: `AddTLV` and `AddTunnelPassword` return `ErrTunnelPasswordInRequest`. A failing `AddTLV` leaves the packet unchanged. For example:
+
+  ```go
+  reply := req.ReplyAccept()
+  err := dict.AddTLV(reply, "WiMAX", "WiMAX-hDHCP-Server-Parameters",
+  	radius.TLVValue{Name: "WiMAX-hDHCP-DHCP-RK", Value: string(key)},
+  	radius.TLVValue{Name: "WiMAX-hDHCP-DHCP-RK-Key-Id", Value: "1"},
+  )
+  ```
+
+  `GetTLV`, `GetTLVString`, `DecodeAVPValue` and `Packet.String` decrypt them with the packet they are given. If the ciphertext is malformed, `GetTLV` doesn't find it and the others show the raw bytes; `DecodeAVPValue(nil, …)` shows the raw bytes too (`GetTLV` and `GetTLVString` find nothing in a nil packet). A wrong secret or authenticator isn't detected: it decrypts to garbage. Only `encrypt=1` on `string` sub-attributes and `encrypt=2` on non-TLV ones are supported. Those others, and `encrypt=3`, are loaded with a warning but can't be built (`ErrUnsupportedAttributeType`) or decrypted: they are shown as raw bytes and `GetTLV` doesn't find them (nor the sub-attributes of such an encrypted TLV).
 - Not supported yet: sub-attributes of vendors with a format other than `1,1` or `1,1,c` (WiMAX).
 
 ## Extended Attributes (RFC 6929)

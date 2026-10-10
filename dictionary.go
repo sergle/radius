@@ -23,8 +23,9 @@ var (
 	ErrUnknownVendor            = errors.New("unknown vendor")
 	ErrUnsupportedAttributeType = errors.New("unsupported attribute type")
 	ErrInvalidValue             = errors.New("invalid attribute value")
-	ErrEncryptedAttribute       = errors.New("encrypted attribute needs a packet, use AddPassword")
+	ErrEncryptedAttribute       = errors.New("encrypted attribute needs a packet")
 	ErrInvalidTag               = errors.New("invalid tag")
+	ErrNilPacket                = errors.New("nil packet")
 )
 
 //go:embed dictionary.builtin
@@ -403,7 +404,7 @@ func (d *Dictionary) parseAttribute(attrName string, attrID string, attrType str
 		return fmt.Errorf("duplicate attribute %s, already an extended attribute", attrName)
 	}
 	if id, oldType, ok := d.topLevelDef(attrName); ok {
-		if id != uint32(aID) || wireType(oldType) != wireType(attrType) {
+		if id != uint32(aID) || wireType(oldType) != wireType(attrType) || encryptMethod(oldType, d.topLevelFlags(attrName)) != encryptMethod(attrType, f) {
 			return fmt.Errorf("duplicate attribute %s with another definition", attrName)
 		}
 		// an equivalent redeclaration keeps the first definition, sub-attributes and VALUEs,
@@ -418,10 +419,13 @@ func (d *Dictionary) parseAttribute(attrName string, attrID string, attrType str
 	// another name for a number is an alias: both encode, the last one decodes
 	if attrType == typeTLV && d.formatOf(d.currentVendor).tlvSupported() {
 		if t := d.aliasedTLV(0, uint8(aID)); t != nil {
-			// a TLV alias shares the sub-attributes
+			// a TLV alias shares the sub-attributes, and the first one's encrypt=
+			warnUnbuildableTLV(&tlvAttr{name: attrName, attrType: attrType, encrypt: f.encrypt})
 			d.addTLVAttr(t, attrName)
 		} else {
-			d.addTLVAttr(&tlvAttr{name: attrName, num: uint8(aID), attrType: attrType}, attrName)
+			t := &tlvAttr{name: attrName, num: uint8(aID), attrType: attrType, encrypt: f.encrypt}
+			warnUnbuildableTLV(t)
+			d.addTLVAttr(t, attrName)
 		}
 	}
 
@@ -496,7 +500,7 @@ func (d *Dictionary) parseTLVAttribute(attrName string, attrID string, attrType 
 	}
 	num := oid[len(oid)-1]
 	if old := d.tlvAttrs[d.currentVendor][attrName]; old != nil {
-		if old.parent != parent || old.num != num || old.attrType != attrType {
+		if old.parent != parent || old.num != num || old.attrType != attrType || old.encrypt != f.encrypt {
 			return fmt.Errorf("duplicate attribute %s with another definition", attrName)
 		}
 		// an identical redeclaration
@@ -508,13 +512,22 @@ func (d *Dictionary) parseTLVAttribute(attrName string, attrID string, attrType 
 	if _, ok := d.extAttrs[d.currentVendor][attrName]; ok {
 		return fmt.Errorf("duplicate attribute %s, already an extended attribute", attrName)
 	}
-	child := &tlvAttr{name: attrName, num: num, attrType: attrType, encrypted: f.encrypt != encryptNone}
+	child := &tlvAttr{name: attrName, num: num, attrType: attrType, encrypt: f.encrypt}
 	if !parent.addChild(child) {
 		d.skipAttr(attrName)
 		return nil
 	}
+	warnUnbuildableTLV(child)
 	d.addTLVAttr(child, child.name)
 	return nil
+}
+
+// warnUnbuildableTLV warns if t's encrypt= isn't supported: encrypt=1 on a non-string
+// (decrypting strips trailing zeros), an encrypted TLV, encrypt=3; such values can't be built or decrypted.
+func warnUnbuildableTLV(t *tlvAttr) {
+	if t.encrypt != encryptNone && !t.canEncrypt() {
+		logger().Warn("radius: encryption of TLV attribute not supported", "attribute", t.name, "type", t.attrType, "encrypt", t.encrypt)
+	}
 }
 
 // dottedEVS reports whether attrID is an Extended-Vendor-Specific id like 241.26.11344.1, whose vendor may not fit a byte.
@@ -611,6 +624,27 @@ func (d *Dictionary) topLevelDef(attrName string) (uint32, string, bool) {
 	}
 	id, ok := d.attrID[attrName]
 	return uint32(id), d.attrType[attrName], ok
+}
+
+// encryptMethod returns the encrypt= method of attrType with flags f, counting the builtin password types.
+func encryptMethod(attrType string, f attributeFlags) int {
+	switch {
+	case f.encrypt != encryptNone:
+		return f.encrypt
+	case attrType == typePassword:
+		return encryptUserPassword
+	case attrType == typeTunnelPassword:
+		return encryptTunnelPassword
+	}
+	return encryptNone
+}
+
+// topLevelFlags returns the flags of top-level attribute attrName of the current vendor.
+func (d *Dictionary) topLevelFlags(attrName string) attributeFlags {
+	if d.currentVendor > 0 {
+		return d.vsaAttrFlags[d.currentVendor][attrName]
+	}
+	return d.attrFlags[attrName]
 }
 
 // formatOf returns the VSA format of vendor; caller holds the lock.
@@ -1207,7 +1241,7 @@ func (d *Dictionary) ParseAVP(attrName string, attrValue string) (AVP, error) {
 	}
 	value, err := encodeValue(handler, d.constID[attrName], tag, attrValue)
 	if err != nil {
-		return AVP{}, fmt.Errorf("%w for attribute %s", err, attrName)
+		return AVP{}, fmt.Errorf("%w%s for attribute %s", err, encryptedHint(err, attrID), attrName)
 	}
 	return AVP{Type: attrID, Value: value}, nil
 }
@@ -1246,6 +1280,20 @@ func (d *Dictionary) ParseVSA(vendorName string, attrName string, attrValue stri
 		return VSA{}, fmt.Errorf("%w for attribute %s/%s", err, vendorName, attrName)
 	}
 	return vsa, nil
+}
+
+// encryptedHint names the Packet method that builds encrypted attribute id, if there is one.
+func encryptedHint(err error, id AttributeType) string {
+	if !errors.Is(err, ErrEncryptedAttribute) {
+		return ""
+	}
+	switch id {
+	case AttrUserPassword:
+		return ", use AddPassword"
+	case AttrTunnelPassword:
+		return ", use AddTunnelPassword"
+	}
+	return ""
 }
 
 // encodeValue encodes value with handler; integers accept a VALUE name from names or a number.

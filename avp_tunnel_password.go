@@ -46,12 +46,20 @@ func (s AvpTunnelPassword) Encode(tag uint8, password, secret string, requestAut
 	if len(password) > tunnelPasswordMaxLen {
 		return nil, ErrTunnelPasswordTooLong
 	}
-	var salt [tunnelSaltLen]byte
-	if _, err := rand.Read(salt[:]); err != nil {
+	salt, err := newTunnelSalt()
+	if err != nil {
 		return nil, err
 	}
-	salt[0] |= tunnelSaltBit
 	return tunnelPasswordEncrypt(tag, salt, password, secret, requestAuth), nil
+}
+
+// newTunnelSalt returns a random salt with the high bit set.
+func newTunnelSalt() (salt [tunnelSaltLen]byte, err error) {
+	if _, err = rand.Read(salt[:]); err != nil {
+		return salt, err
+	}
+	salt[0] |= tunnelSaltBit
+	return salt, nil
 }
 
 func tunnelPasswordEncrypt(tag uint8, salt [tunnelSaltLen]byte, password, secret string, requestAuth []byte) []byte {
@@ -82,28 +90,40 @@ func tunnelPasswordEncrypt(tag uint8, salt [tunnelSaltLen]byte, password, secret
 }
 
 func (s AvpTunnelPassword) decrypt(p *Packet, v []byte) (tag uint8, password string, ok bool) {
-	if p == nil || len(v) < tunnelHeaderLen+blockSize || (len(v)-tunnelHeaderLen)%blockSize != 0 {
+	if p == nil || len(v) < tunnelTagLen {
 		return 0, "", false
 	}
-	c := v[tunnelHeaderLen:]
+	plain, ok := tunnelPasswordDecrypt(p.Secret, p.cryptAuthenticator(encryptTunnelPassword), v[tunnelTagLen:])
+	if !ok {
+		return 0, "", false
+	}
+	return v[0], string(plain), true
+}
+
+// tunnelPasswordDecrypt decrypts v, a salt and the hidden length byte + password.
+func tunnelPasswordDecrypt(secret string, requestAuth, v []byte) ([]byte, bool) {
+	if len(v) < tunnelSaltLen+blockSize || (len(v)-tunnelSaltLen)%blockSize != 0 {
+		return nil, false
+	}
+	c := v[tunnelSaltLen:]
 	plain := make([]byte, len(c))
 
 	h := md5.New()
-	h.Write([]byte(p.Secret))
-	h.Write(p.cryptAuthenticator())
-	h.Write(v[tunnelTagLen:tunnelHeaderLen])
+	h.Write([]byte(secret))
+	h.Write(requestAuth)
+	h.Write(v[:tunnelSaltLen])
 	for i := 0; i < len(c); i += blockSize {
 		b := h.Sum(nil)
 		for j := 0; j < blockSize; j++ {
 			plain[i+j] = c[i+j] ^ b[j]
 		}
 		h.Reset()
-		h.Write([]byte(p.Secret))
+		h.Write([]byte(secret))
 		h.Write(c[i : i+blockSize])
 	}
 	n := int(plain[0])
 	if n > len(plain)-1 {
-		return 0, "", false
+		return nil, false
 	}
-	return v[0], string(plain[1 : 1+n]), true
+	return plain[1 : 1+n], true
 }

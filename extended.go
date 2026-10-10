@@ -46,7 +46,7 @@ type extAttr struct {
 	key       extKey
 	id        ExtendedAttr // without Value
 	attrType  string
-	encrypted bool // encrypt= set; can't be built, it would be sent unencrypted
+	encrypt   int // encrypt= method (encryptMethod); can't be built, it would be sent unencrypted
 	constID   map[string]uint32
 	constName map[uint32]string
 }
@@ -249,9 +249,9 @@ func (d *Dictionary) parseExtAttribute(attrName string, outer AttributeType, num
 		return fmt.Errorf("duplicate attribute %s, already a top-level attribute", attrName)
 	}
 	key := extKey{outer: outer, num: num}
-	encrypted := f.encrypt != encryptNone || attrType == typePassword || attrType == typeTunnelPassword
+	encrypt := encryptMethod(attrType, f)
 	if old := d.extAttrs[vendor][attrName]; old != nil {
-		if old.key != key || wireType(old.attrType) != wireType(attrType) || old.encrypted != encrypted {
+		if old.key != key || extWireType(old.attrType, old.encrypt) != extWireType(attrType, encrypt) || old.encrypt != encrypt {
 			return fmt.Errorf("duplicate attribute %s with another definition", attrName)
 		}
 		// an equivalent redeclaration keeps the first definition and decodes the number again
@@ -263,12 +263,16 @@ func (d *Dictionary) parseExtAttribute(attrName string, outer AttributeType, num
 	if evsBlock {
 		id = ExtendedAttr{Type: outer, ExtType: ExtTypeEVS, Vendor: vendor, VendorType: num}
 	}
-	e := &extAttr{name: attrName, key: key, id: id, attrType: attrType, encrypted: encrypted}
+	e := &extAttr{name: attrName, key: key, id: id, attrType: attrType, encrypt: encrypt}
 	if attrType == typeTLV {
 		if t := d.aliasedTLV(outer, num); t != nil {
+			// an alias shares the first one's encrypt=
+			warnUnbuildableTLV(&tlvAttr{name: attrName, attrType: attrType, encrypt: f.encrypt})
 			d.addTLVAttr(t, attrName)
 		} else {
-			d.addTLVAttr(&tlvAttr{name: attrName, num: num, attrType: attrType, outer: outer}, attrName)
+			t := &tlvAttr{name: attrName, num: num, attrType: attrType, outer: outer, encrypt: f.encrypt}
+			warnUnbuildableTLV(t)
+			d.addTLVAttr(t, attrName)
 		}
 	}
 	if _, ok := d.extAttrs[vendor]; !ok {
@@ -279,6 +283,11 @@ func (d *Dictionary) parseExtAttribute(attrName string, outer AttributeType, num
 	// another name for a number is an alias: both encode, the last one decodes
 	d.extNums[vendor][key] = e
 	return nil
+}
+
+// extWireType is wireType after folding encrypt into attrType, as top-level types are.
+func extWireType(attrType string, encrypt int) string {
+	return wireType(attributeFlags{encrypt: encrypt}.effectiveType(attrType))
 }
 
 // parseBeginVendorFormat sets the Extended-Vendor-Specific attribute named by a BEGIN-VENDOR format= option.
@@ -392,7 +401,7 @@ func (d *Dictionary) formatExtValue(p *Packet, vendor VendorID, e *extAttr, v []
 	if t := d.rootTLV(vendor, e.name); t != nil {
 		return t.format(p, v)
 	}
-	if e.encrypted {
+	if e.encrypt != encryptNone {
 		return avpBinary.String(p, AVP{Value: v})
 	}
 	handler := handlerForValue(e.attrType, v)
@@ -424,7 +433,7 @@ func encodeExtended(e *extAttr, qname string, tagged bool, value string) (Extend
 	if tagged {
 		return ExtendedAttr{}, fmt.Errorf("%w: attribute %s has no tag", ErrInvalidTag, qname)
 	}
-	if e.encrypted {
+	if e.encrypt != encryptNone {
 		return ExtendedAttr{}, fmt.Errorf("%w: encrypted attribute %s", ErrUnsupportedAttributeType, qname)
 	}
 	handler := attrTypeHandlers[e.attrType]

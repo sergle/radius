@@ -23,6 +23,7 @@ fuzz:
 	go test -fuzz=^FuzzDecodeRequestLazy$$ -fuzztime=$(FUZZTIME) .
 	go test -fuzz=^FuzzEapDecode$$ -fuzztime=$(FUZZTIME) .
 	go test -fuzz=^FuzzTLVDecode$$ -fuzztime=$(FUZZTIME) .
+	go test -fuzz=^FuzzTLVEncryptedDecode$$ -fuzztime=$(FUZZTIME) .
 	go test -fuzz=^FuzzVSAFormatDecode$$ -fuzztime=$(FUZZTIME) .
 	go test -fuzz=^FuzzExtendedDecode$$ -fuzztime=$(FUZZTIME) .
 

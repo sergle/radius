@@ -2,6 +2,7 @@ package radius
 
 import (
 	"bytes"
+	"errors"
 	"testing"
 )
 
@@ -104,12 +105,13 @@ func TestAVPPasswordGolden(t *testing.T) {
 func TestPasswordManualAccessRequest(t *testing.T) {
 	const secret, pw, tunnelPW = "s", "secret-pw", "tunnel-pw"
 	p := &Packet{Code: AccessRequest, Secret: secret}
+	// refused before the authenticator is generated (Tunnel-Password is for replies)
+	if err := p.AddTunnelPassword(0, tunnelPW); !errors.Is(err, ErrTunnelPasswordInRequest) || p.Authenticator != zeroAuthenticator {
+		t.Fatalf("AddTunnelPassword: err = %v, authenticator %x", err, p.Authenticator)
+	}
 	p.AddPassword(pw)
 	if p.Authenticator == zeroAuthenticator {
 		t.Fatal("AddPassword left the authenticator zero")
-	}
-	if err := p.AddTunnelPassword(0, tunnelPW); err != nil {
-		t.Fatal(err)
 	}
 	b, err := p.Encode()
 	if err != nil {
@@ -122,9 +124,6 @@ func TestPasswordManualAccessRequest(t *testing.T) {
 	for which, q := range map[string]*Packet{"sender": p, "receiver": got} {
 		if q.GetPassword() != pw {
 			t.Errorf("%s: User-Password = %q", which, q.GetPassword())
-		}
-		if _, gotPW, ok := q.GetTunnelPassword(); !ok || gotPW != tunnelPW {
-			t.Errorf("%s: Tunnel-Password = %q, %v", which, gotPW, ok)
 		}
 	}
 }

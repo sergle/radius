@@ -38,11 +38,11 @@ func (t *AttributeTemplate) Add(p *Packet, value string) {
 		return
 	}
 	if t.handler == avpPassword {
-		p.AddAVP(AVP{Type: t.attrType, Value: avpPassword.Encode(value, p.Secret, p.cryptAuthenticator())})
+		p.AddAVP(AVP{Type: t.attrType, Value: avpPassword.Encode(value, p.Secret, p.cryptAuthenticator(encryptUserPassword))})
 		return
 	}
 	if t.handler == avpTunnelPassword {
-		auth, err := p.encryptAuthenticator()
+		auth, err := p.encryptAuthenticator(encryptTunnelPassword)
 		var v []byte
 		if err == nil {
 			v, err = avpTunnelPassword.Encode(t.tag, value, p.Secret, auth)
@@ -75,7 +75,7 @@ type vsaTemplate struct {
 // Add encodes the value and adds it as a VSA to the provided packet; invalid values are logged and skipped.
 func (t *vsaTemplate) Add(p *Packet, value string) {
 	if t.handler == avpPassword {
-		p.AddVSA(VSA{Vendor: t.vendorID, Type: t.vsaType, Value: avpPassword.Encode(value, p.Secret, p.cryptAuthenticator()), Format: t.format})
+		p.AddVSA(VSA{Vendor: t.vendorID, Type: t.vsaType, Value: avpPassword.Encode(value, p.Secret, p.cryptAuthenticator(encryptUserPassword)), Format: t.format})
 		return
 	}
 	v, err := encodeValue(t.handler, t.names, t.tag, value)
@@ -290,7 +290,7 @@ func extTemplate(e *extAttr, qname string, tagged bool) (*AttributeTemplate, err
 	if tagged {
 		return nil, fmt.Errorf("%w: attribute %s has no tag", ErrInvalidTag, qname)
 	}
-	if e.encrypted {
+	if e.encrypt != encryptNone {
 		return nil, fmt.Errorf("%w: encrypted attribute %s", ErrUnsupportedAttributeType, qname)
 	}
 	handler, ok := templateHandler(e.attrType)

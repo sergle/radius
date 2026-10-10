@@ -19,7 +19,7 @@ type tlvAttr struct {
 	name      string
 	num       uint8
 	attrType  string
-	encrypted bool          // encrypt= set; can't be built, ParseTLV doesn't encrypt
+	encrypt   int           // encrypt= method; AddTLV encrypts, readers decrypt with the packet, if canEncrypt
 	parent    *tlvAttr      // nil for a top-level attribute
 	outer     AttributeType // top-level extended attribute (241-246) holding it, 0 if none
 	children  map[uint8]*tlvAttr
@@ -108,9 +108,42 @@ func (t *tlvAttr) path() []uint8 {
 	return nums
 }
 
-// format renders value as its sub-attributes, or as octets if it is malformed; caller holds the lock.
+// canEncrypt reports whether t's encrypt= method can be applied: encrypt=1 on a string, encrypt=2 on a non-TLV.
+func (t *tlvAttr) canEncrypt() bool {
+	switch t.encrypt {
+	case encryptUserPassword:
+		return t.attrType == typeString
+	case encryptTunnelPassword:
+		return t.attrType != typeTLV
+	}
+	return false
+}
+
+// unsupportedEncryption returns t or the TLV holding it that is encrypted with a method that can't be applied, or nil.
+func (t *tlvAttr) unsupportedEncryption() *tlvAttr {
+	for ; t != nil; t = t.parent {
+		if t.encrypt != encryptNone && !t.canEncrypt() {
+			return t
+		}
+	}
+	return nil
+}
+
+// decrypt reverses the encrypt= method of t with p; it fails without p, if the method can't be applied, or on malformed ciphertext.
+func (t *tlvAttr) decrypt(p *Packet, v []byte) ([]byte, bool) {
+	if p == nil || !t.canEncrypt() {
+		return nil, false
+	}
+	auth := p.cryptAuthenticator(t.encrypt)
+	if t.encrypt == encryptUserPassword {
+		return passwordDecrypt(p.Secret, auth, v)
+	}
+	return tunnelPasswordDecrypt(p.Secret, auth, v)
+}
+
+// format renders value as its sub-attributes, or as octets if it is malformed or encrypted; caller holds the lock.
 func (t *tlvAttr) format(p *Packet, value []byte) string {
-	if !validTLV(value) {
+	if !validTLV(value) || t.encrypt != encryptNone {
 		return avpBinary.String(p, AVP{Value: value})
 	}
 	var b strings.Builder
@@ -131,8 +164,15 @@ func (t *tlvAttr) format(p *Packet, value []byte) string {
 	return b.String()
 }
 
-// formatValue renders value of sub-attribute t; caller holds the lock.
+// formatValue renders value of sub-attribute t, decrypted with p; caller holds the lock.
 func (t *tlvAttr) formatValue(p *Packet, v []byte) string {
+	if t.encrypt != encryptNone {
+		plain, ok := t.decrypt(p, v)
+		if !ok {
+			return avpBinary.String(p, AVP{Value: v})
+		}
+		v = plain
+	}
 	if t.attrType == typeTLV {
 		return t.format(p, v)
 	}
@@ -141,6 +181,32 @@ func (t *tlvAttr) formatValue(p *Packet, v []byte) string {
 		return name
 	}
 	return handler.String(p, AVP{Value: v})
+}
+
+// encryptValue hides v with method (of a canEncrypt sub-attribute), p's Secret and the authenticator used for passwords.
+func encryptValue(method int, p *Packet, v []byte) ([]byte, error) {
+	auth, err := p.encryptAuthenticator(method)
+	if err != nil {
+		return nil, err
+	}
+	var salt [tunnelSaltLen]byte
+	if method == encryptTunnelPassword {
+		if salt, err = newTunnelSalt(); err != nil {
+			return nil, err
+		}
+	}
+	return encryptValueSalt(method, v, p.Secret, auth, salt)
+}
+
+// encryptValueSalt is encryptValue with a given salt (encrypt=2 only); sub-attributes have no tag byte.
+func encryptValueSalt(method int, v []byte, secret string, auth []byte, salt [tunnelSaltLen]byte) ([]byte, error) {
+	if method == encryptTunnelPassword {
+		return tunnelPasswordEncrypt(0, salt, string(v), secret, auth)[tunnelTagLen:], nil
+	}
+	if len(v) > maxPasswordLen {
+		return nil, fmt.Errorf("%w: longer than %d bytes", ErrInvalidValue, maxPasswordLen)
+	}
+	return avpPassword.Encode(string(v), secret, auth), nil
 }
 
 // walkTLV calls fn for each sub-attribute of value until fn returns false or value is malformed.
@@ -295,7 +361,34 @@ func (d *Dictionary) NewTLV(vendorName, attrName string, values ...TLVValue) AVP
 // vendorName is "" for standard attributes, otherwise a Vendor-Specific AVP is returned.
 // Consecutive values under the same nested TLV share one instance of it; the
 // nested TLV's own name with an empty value starts a new instance.
+// It refuses encrypted sub-attributes: build encrypt=1 (string) and encrypt=2 (non-tlv) ones
+// with AddTLV; other encrypt= methods can't be built.
 func (d *Dictionary) ParseTLV(vendorName, attrName string, values ...TLVValue) (AVP, error) {
+	return d.parseTLV(nil, vendorName, attrName, values)
+}
+
+// AddTLV is like ParseTLV but adds the AVP to p, encrypting encrypt= sub-attributes
+// with p's Secret and the Request Authenticator (as AddTunnelPassword does).
+// For a reply, create p with request.Reply(), else encrypting returns ErrNoRequestAuthenticator;
+// encrypt=2 in an Access-Request or Status-Server returns ErrTunnelPasswordInRequest.
+// On error p is unchanged.
+func (d *Dictionary) AddTLV(p *Packet, vendorName, attrName string, values ...TLVValue) error {
+	if p == nil {
+		return ErrNilPacket
+	}
+	auth := p.Authenticator
+	avp, err := d.parseTLV(p, vendorName, attrName, values)
+	if err != nil {
+		// undo a Request Authenticator generated for an earlier value
+		p.Authenticator = auth
+		return err
+	}
+	p.AddAVP(avp)
+	return nil
+}
+
+// parseTLV implements ParseTLV; encrypted sub-attributes need p.
+func (d *Dictionary) parseTLV(p *Packet, vendorName, attrName string, values []TLVValue) (AVP, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	vendorID, root, err := d.lookupTLV(vendorName, attrName)
@@ -324,8 +417,13 @@ func (d *Dictionary) ParseTLV(vendorName, attrName string, values ...TLVValue) (
 		if t == nil || t.parent == nil || t.root() != root {
 			return AVP{}, fmt.Errorf("%w: %s in %s", ErrUnknownAttribute, v.Name, attrName)
 		}
-		if t.encrypted {
-			return AVP{}, fmt.Errorf("%w: encrypted sub-attribute %s", ErrUnsupportedAttributeType, v.Name)
+		if u := t.unsupportedEncryption(); u == t {
+			return AVP{}, fmt.Errorf("%w: %s is encrypted with an unsupported method", ErrUnsupportedAttributeType, v.Name)
+		} else if u != nil {
+			return AVP{}, fmt.Errorf("%w: %s: parent %s is encrypted with an unsupported method", ErrUnsupportedAttributeType, v.Name, u.name)
+		}
+		if t.encrypt != encryptNone && p == nil {
+			return AVP{}, fmt.Errorf("%w, use AddTLV: %s", ErrEncryptedAttribute, v.Name)
 		}
 		if t.attrType == typeTLV {
 			if v.Value != "" {
@@ -339,6 +437,9 @@ func (d *Dictionary) ParseTLV(vendorName, attrName string, values ...TLVValue) (
 			return AVP{}, fmt.Errorf("%w %q for attribute %s", ErrUnsupportedAttributeType, t.attrType, v.Name)
 		}
 		b, err := encodeValue(handler, t.constID, 0, v.Value)
+		if err == nil && t.encrypt != encryptNone {
+			b, err = encryptValue(t.encrypt, p, b)
+		}
 		if err != nil {
 			return AVP{}, fmt.Errorf("%w for attribute %s", err, v.Name)
 		}
@@ -378,12 +479,31 @@ func (d *Dictionary) ParseTLV(vendorName, attrName string, values ...TLVValue) (
 // GetTLV returns a copy of the first value of TLV sub-attribute attrName in p.
 //
 // vendorName is "" for sub-attributes of standard attributes.
+// An encrypted sub-attribute is decrypted with p; malformed ciphertext or an
+// unsupported method is not found, but a wrong secret or authenticator isn't
+// detected and gives garbage.
 func (d *Dictionary) GetTLV(p *Packet, vendorName, attrName string) ([]byte, bool) {
+	v, t, ok := d.findTLVValue(p, vendorName, attrName)
+	if !ok {
+		return nil, false
+	}
+	if t.encrypt != encryptNone {
+		return t.decrypt(p, v)
+	}
+	return bytes.Clone(v), true
+}
+
+// findTLVValue returns the first raw value of sub-attribute attrName in p and its definition;
+// values inside an encrypted TLV are not found.
+func (d *Dictionary) findTLVValue(p *Packet, vendorName, attrName string) ([]byte, *tlvAttr, bool) {
 	d.mu.RLock()
 	vendorID, t, err := d.lookupTLV(vendorName, attrName)
+	if err == nil && t.parent != nil && t.parent.unsupportedEncryption() != nil {
+		err = ErrUnsupportedAttributeType
+	}
 	if err != nil {
 		d.mu.RUnlock()
-		return nil, false
+		return nil, nil, false
 	}
 	root := t.root()
 	path := t.path()
@@ -416,23 +536,17 @@ func (d *Dictionary) GetTLV(p *Packet, vendorName, attrName string) ([]byte, boo
 			return !ok
 		})
 	}
-	if !ok {
-		return nil, false
-	}
-	return bytes.Clone(found), true
+	return found, t, ok
 }
 
 // GetTLVString is like GetTLV but formats the value, using VALUE names and nested sub-attributes.
+// Encrypted values that can't be decrypted are shown as octets.
 func (d *Dictionary) GetTLVString(p *Packet, vendorName, attrName string) (string, bool) {
-	v, ok := d.GetTLV(p, vendorName, attrName)
+	v, t, ok := d.findTLVValue(p, vendorName, attrName)
 	if !ok {
 		return "", false
 	}
 	d.mu.RLock()
 	defer d.mu.RUnlock()
-	_, t, err := d.lookupTLV(vendorName, attrName)
-	if err != nil {
-		return "", false
-	}
 	return t.formatValue(p, v), true
 }

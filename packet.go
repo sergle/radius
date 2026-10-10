@@ -19,6 +19,7 @@ var ErrAuthenticatorCheckFail = fmt.Errorf("RADIUS Authenticator verification fa
 var ErrMessageAuthenticatorMissing = fmt.Errorf("RADIUS Message-Authenticator missing")
 var ErrInvalidPacketLength = fmt.Errorf("RADIUS packet Length field is invalid")
 var ErrNoRequestAuthenticator = fmt.Errorf("RADIUS reply has no request authenticator, create it with request.Reply()")
+var ErrTunnelPasswordInRequest = fmt.Errorf("RADIUS Access-Request and Status-Server can't carry Tunnel-Password (encrypt=2) values")
 
 // the size of the RADIUS packet header (RFC 2865 section 3)
 // Code (1), Identifier (1), Length (2) and Authenticator (16)
@@ -68,12 +69,13 @@ type Packet struct {
 // zeroAuthenticator hides values in requests whose Request Authenticator is computed (RFC 2866, 5176).
 var zeroAuthenticator [authenticatorLen]byte
 
-// cryptAuthenticator returns the Request Authenticator that hides attribute values:
+// cryptAuthenticator returns the Request Authenticator that hides values of encrypt= method:
 // all zeros for Accounting, CoA and Disconnect requests, as FreeRADIUS encodes them
-// (FreeRADIUS decodes their encrypt=1 values with the packet's own; we stay symmetric).
-// Access-Request uses its own (FreeRADIUS can't encrypt=2 there and decodes it with zeros).
-func (p *Packet) cryptAuthenticator() []byte {
-	if p.Code.IsRequest() && !p.Code.hasRandomAuthenticator() {
+// (FreeRADIUS decodes their encrypt=1 values with the packet's own; we stay symmetric),
+// and for encrypt=2 in any request, as FreeRADIUS decodes them (we don't encode those).
+// Access-Request and Status-Server hide encrypt=1 with their own, replies with the request's.
+func (p *Packet) cryptAuthenticator(method int) []byte {
+	if p.Code.IsRequest() && (!p.Code.hasRandomAuthenticator() || method == encryptTunnelPassword) {
 		return zeroAuthenticator[:]
 	}
 	if p.requestAuth != zeroAuthenticator {
@@ -93,12 +95,16 @@ func (p *Packet) ensureAuthenticator() error {
 	return nil
 }
 
-// encryptAuthenticator is cryptAuthenticator for hiding a value; a reply needs the request's.
-func (p *Packet) encryptAuthenticator() ([]byte, error) {
+// encryptAuthenticator is cryptAuthenticator for hiding a value; a reply needs the request's,
+// and encrypt=2 isn't allowed in Access-Request or Status-Server (RFC 2868 section 3.5; FreeRADIUS refuses it).
+func (p *Packet) encryptAuthenticator(method int) ([]byte, error) {
+	if method == encryptTunnelPassword && p.Code.hasRandomAuthenticator() {
+		return nil, ErrTunnelPasswordInRequest
+	}
 	if err := p.ensureAuthenticator(); err != nil {
 		return nil, err
 	}
-	auth := p.cryptAuthenticator()
+	auth := p.cryptAuthenticator(method)
 	if !p.Code.IsRequest() && [authenticatorLen]byte(auth) == zeroAuthenticator {
 		return nil, ErrNoRequestAuthenticator
 	}
@@ -330,8 +336,11 @@ func (p *Packet) GetAVP(attrType AttributeType) *AVP {
 
 // EachAVP iterates over attributes in the packet, calling fn for each.
 //
-// If fn returns false, iteration stops early.
+// If fn returns false, iteration stops early. A nil packet has no attributes.
 func (p *Packet) EachAVP(fn func(a AVP) bool) {
+	if p == nil {
+		return
+	}
 	if len(p.AVPs) > 0 {
 		for i := range p.AVPs {
 			if !fn(p.AVPs[i]) {
@@ -803,9 +812,10 @@ func (p *Packet) GetPassword() (password string) {
 
 // AddTunnelPassword adds a Tunnel-Password attribute (RFC 2868) encrypted
 // with the packet Secret and Request Authenticator.
-// A reply must be created with request.Reply(), else ErrNoRequestAuthenticator.
+// A reply must be created with request.Reply(), else ErrNoRequestAuthenticator;
+// Access-Request and Status-Server can't carry it (ErrTunnelPasswordInRequest).
 func (p *Packet) AddTunnelPassword(tag uint8, password string) error {
-	auth, err := p.encryptAuthenticator()
+	auth, err := p.encryptAuthenticator(encryptTunnelPassword)
 	if err != nil {
 		return err
 	}
@@ -833,7 +843,7 @@ func (p *Packet) AddPassword(password string) {
 	_ = p.ensureAuthenticator()
 	p.SetAVP(AVP{
 		Type:  AttrUserPassword,
-		Value: avpPassword.Encode(password, p.Secret, p.cryptAuthenticator()),
+		Value: avpPassword.Encode(password, p.Secret, p.cryptAuthenticator(encryptUserPassword)),
 	})
 }
 

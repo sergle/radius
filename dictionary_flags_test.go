@@ -235,3 +235,28 @@ func TestDecodeReplyEncrypt1Attribute(t *testing.T) {
 		})
 	}
 }
+
+// The error hints at a helper only where one builds the attribute.
+func TestEncryptedAttributeHint(t *testing.T) {
+	d := loadTLVDict(t, freeradiusFlagsDict+"VENDOR WiMAX 24757 format=1,1,c\nBEGIN-VENDOR WiMAX\nATTRIBUTE WiMAX-MSK 5 octets encrypt=2\nEND-VENDOR WiMAX\n")
+	check := func(what string, err error, hint string) {
+		t.Helper()
+		if !errors.Is(err, ErrEncryptedAttribute) {
+			t.Errorf("%s: err = %v, want ErrEncryptedAttribute", what, err)
+			return
+		}
+		if hint == "" && strings.Contains(err.Error(), "use ") || hint != "" && !strings.Contains(err.Error(), "use "+hint+" ") && !strings.HasSuffix(err.Error(), "use "+hint) {
+			t.Errorf("%s: err = %q, want hint %q", what, err, hint)
+		}
+	}
+	_, err := d.ParseAVP("User-Password", "x")
+	check("User-Password", err, "AddPassword")
+	_, err = d.ParseAVP("Tunnel-Password", "x")
+	check("Tunnel-Password", err, "AddTunnelPassword")
+	_, err = d.ParseAVP("Test-Secret", "x")
+	check("Test-Secret", err, "")
+	_, err = d.ParseVSA("Ascend", "Ascend-Secret", "x")
+	check("Ascend-Secret", err, "")
+	_, err = d.ParseVSA("WiMAX", "WiMAX-MSK", "x")
+	check("WiMAX-MSK", err, "")
+}

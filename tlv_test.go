@@ -363,7 +363,7 @@ func FuzzTLVDecode(f *testing.F) {
 }
 
 // loadTLVDict loads dict text into a new dictionary.
-func loadTLVDict(t *testing.T, dict string) *Dictionary {
+func loadTLVDict(t testing.TB, dict string) *Dictionary {
 	t.Helper()
 	d := NewDictionary()
 	if err := d.loadReader("tlv_test", strings.NewReader(dict)); err != nil {
@@ -461,12 +461,12 @@ func writeFile(t *testing.T, name, content string) {
 	}
 }
 
-// Encrypted sub-attributes can't be built (they'd go out in clear); has_tag is ignored.
+// ParseTLV can't build encrypted sub-attributes (they'd go out in clear); has_tag is ignored.
 func TestTLVChildFlags(t *testing.T) {
 	h := useRecordLogger(t)
 	d := loadTLVDict(t, "ATTRIBUTE A 200 tlv\nATTRIBUTE A-P 200.1 string encrypt=1\nATTRIBUTE A-T 200.2 integer has_tag\nATTRIBUTE A-K 200.3 octets encrypt=2\n")
 	for _, name := range []string{"A-P", "A-K"} {
-		if _, err := d.ParseTLV("", "A", TLVValue{Name: name, Value: "pw"}); !errors.Is(err, ErrUnsupportedAttributeType) {
+		if _, err := d.ParseTLV("", "A", TLVValue{Name: name, Value: "pw"}); !errors.Is(err, ErrEncryptedAttribute) {
 			t.Errorf("ParseTLV %s: err = %v", name, err)
 		}
 	}
@@ -570,6 +570,19 @@ func TestDictionaryNameConflict(t *testing.T) {
 		{"child parent", "ATTRIBUTE A 200 tlv\nATTRIBUTE B 201 tlv\nATTRIBUTE X 200.1 integer\nATTRIBUTE X 201.1 integer\n"},
 		{"child after top-level", "ATTRIBUTE X 5 integer\nATTRIBUTE A 200 tlv\nATTRIBUTE X 200.1 integer\n"},
 		{"top-level after child", "ATTRIBUTE A 200 tlv\nATTRIBUTE X 200.1 integer\nATTRIBUTE X 5 integer\n"},
+		{"child encrypt", "ATTRIBUTE A 200 tlv\nATTRIBUTE A-1 200.1 string\nATTRIBUTE A-1 200.1 string encrypt=2\n"},
+		{"child encrypt method", "ATTRIBUTE A 200 tlv\nATTRIBUTE A-1 200.1 string encrypt=1\nATTRIBUTE A-1 200.1 string encrypt=2\n"},
+		{"TLV encrypt", "ATTRIBUTE A 200 tlv\nATTRIBUTE A 200 tlv encrypt=2\n"},
+		{"vendor TLV encrypt", "VENDOR V 9\nBEGIN-VENDOR V\nATTRIBUTE A 1 tlv encrypt=2\nATTRIBUTE A 1 tlv\nEND-VENDOR V\n"},
+		{"integer encrypt", "ATTRIBUTE A 5 integer\nATTRIBUTE A 5 integer encrypt=2\n"},
+		{"octets encrypt=3", "ATTRIBUTE A 5 octets\nATTRIBUTE A 5 octets encrypt=3\n"},
+		{"string encrypt=3", "ATTRIBUTE A 5 octets\nATTRIBUTE A 5 string encrypt=3\n"},
+		{"password vs encrypt=2", "ATTRIBUTE A 5 password\nATTRIBUTE A 5 integer encrypt=2\n"},
+		{"vendor integer encrypt", "VENDOR V 9\nBEGIN-VENDOR V\nATTRIBUTE A 1 integer encrypt=1\nATTRIBUTE A 1 integer\nEND-VENDOR V\n"},
+		{"extended encrypt", "ATTRIBUTE E 241 extended\nATTRIBUTE A 241.8 octets\nATTRIBUTE A 241.8 octets encrypt=3\n"},
+		{"extended encrypt method", "ATTRIBUTE E 241 extended\nATTRIBUTE A 241.8 octets encrypt=1\nATTRIBUTE A 241.8 octets encrypt=2\n"},
+		{"extended tlv encrypt method", "ATTRIBUTE E 241 extended\nATTRIBUTE A 241.7 tlv encrypt=1\nATTRIBUTE A 241.7 tlv encrypt=2\n"},
+		{"EVS encrypt method", "ATTRIBUTE E 241 extended\nATTRIBUTE EVS 241.26 evs\nVENDOR V 9\nBEGIN-VENDOR V format=EVS\nATTRIBUTE A 1 string encrypt=1\nATTRIBUTE A 1 string encrypt=2\nEND-VENDOR V\n"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -981,9 +994,14 @@ func TestDictionaryEquivalentRedeclaration(t *testing.T) {
 		{"ATTRIBUTE Tunnel-Type 64 integer has_tag", "ATTRIBUTE Tunnel-Type 64 tagged-integer"},
 		{"ATTRIBUTE EAP-Message 79 eapmessage", "ATTRIBUTE EAP-Message 79 octets concat"},
 	}
+	const ext = "ATTRIBUTE Extended-Attribute-1 241 extended\n"
+	pairs = append(pairs,
+		[2]string{"ATTRIBUTE A 241.8 password", "ATTRIBUTE A 241.8 string encrypt=1"},
+		[2]string{"ATTRIBUTE A 241.8 tunnel-password", "ATTRIBUTE A 241.8 octets encrypt=2"},
+	)
 	for _, p := range pairs {
 		for _, dict := range []string{p[0] + "\n" + p[1], p[1] + "\n" + p[0]} {
-			if err := NewDictionary().loadReader("equiv", strings.NewReader(dict)); err != nil {
+			if err := NewDictionary().loadReader("equiv", strings.NewReader(ext+dict)); err != nil {
 				t.Errorf("%q: %v", dict, err)
 			}
 		}

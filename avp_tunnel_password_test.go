@@ -8,7 +8,7 @@ import (
 )
 
 // Tag 1, salt 0x8123, "tunnel-pass", secret "testing123", Request Authenticator 00..0f
-// (computed independently, RFC 2868 section 3.5).
+// (computed independently, RFC 2868 section 3.5); in an Access-Accept to that request.
 const tunnelPasswordVector = "01812379529da6b23e3aa2fbb16e08eeba8f83"
 
 func tunnelPasswordVectorPacket(t *testing.T) (*Packet, AVP) {
@@ -17,9 +17,9 @@ func tunnelPasswordVectorPacket(t *testing.T) (*Packet, AVP) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := &Packet{Secret: "testing123", Code: AccessRequest}
-	for i := range p.Authenticator {
-		p.Authenticator[i] = byte(i)
+	p := &Packet{Secret: "testing123", Code: AccessAccept}
+	for i := range p.requestAuth {
+		p.requestAuth[i] = byte(i)
 	}
 	a := AVP{Type: AttrTunnelPassword, Value: v}
 	p.AddAVP(a)
@@ -179,5 +179,59 @@ func TestTunnelPasswordReplyWithoutRequest(t *testing.T) {
 		if err := r.AddTunnelPassword(0, "tp"); err != nil {
 			t.Errorf("%v: Reply().AddTunnelPassword: %v", code, err)
 		}
+	}
+}
+
+// Tunnel-Password can't be hidden in an Access-Request or Status-Server (RFC 2868 section 3.5, FreeRADIUS).
+func TestTunnelPasswordInAccessRequest(t *testing.T) {
+	const secret = "testing123"
+	d := loadTLVDict(t, encTLVDict)
+	tmpl, err := GetDefaultDictionary().GetTemplate("Tunnel-Password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, code := range []PacketCode{AccessRequest, StatusServer} {
+		packets := map[string]*Packet{"Request": Request(code, secret), "manual": {Code: code, Secret: secret}}
+		for which, p := range packets {
+			auth := p.Authenticator
+			if err := p.AddTunnelPassword(0, "tp"); !errors.Is(err, ErrTunnelPasswordInRequest) {
+				t.Errorf("%v %s: AddTunnelPassword err = %v", code, which, err)
+			}
+			if err := d.AddTLV(p, "", "Enc-TLV", TLVValue{Name: "Enc-Pass", Value: "pw"}, TLVValue{Name: "Enc-Key", Value: "k"}); !errors.Is(err, ErrTunnelPasswordInRequest) {
+				t.Errorf("%v %s: AddTLV err = %v", code, which, err)
+			}
+			tmpl.Add(p, "tp")
+			if len(p.AVPs) != 0 || p.Authenticator != auth {
+				t.Errorf("%v %s: packet changed: AVPs %v, authenticator %x", code, which, p.AVPs, p.Authenticator)
+			}
+		}
+	}
+}
+
+// A received Access-Request's encrypt=2 values are decrypted with zeros, as FreeRADIUS does.
+func TestTunnelPasswordDecodeAccessRequest(t *testing.T) {
+	const secret, tag, pw = "testing123", 1, "tp"
+	d := loadTLVDict(t, encTLVDict)
+	salt, err := newTunnelSalt()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := Request(AccessRequest, secret)
+	p.AddAVP(AVP{Type: AttrTunnelPassword, Value: tunnelPasswordEncrypt(tag, salt, pw, secret, zeroAuthenticator[:])})
+	key := tunnelPasswordEncrypt(0, salt, pw, secret, zeroAuthenticator[:])[tunnelTagLen:]
+	p.AddAVP(AVP{Type: encTLVType, Value: append([]byte{2, byte(tlvHeaderLen + len(key))}, key...)})
+	b, err := p.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := DecodeRequest(secret, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotTag, gotPW, ok := got.GetTunnelPassword(); !ok || gotTag != tag || gotPW != pw {
+		t.Errorf("Tunnel-Password = %d %q %v", gotTag, gotPW, ok)
+	}
+	if v, ok := d.GetTLV(got, "", "Enc-Key"); !ok || string(v) != pw {
+		t.Errorf("Enc-Key = %q, %v", v, ok)
 	}
 }

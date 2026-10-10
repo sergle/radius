@@ -5,7 +5,10 @@ import (
 	"crypto"
 )
 
-const blockSize = 16
+const (
+	blockSize      = 16
+	maxPasswordLen = 128 // RFC 2865 section 5.2
+)
 
 var avpPassword AvpPassword
 
@@ -15,36 +18,30 @@ func (s AvpPassword) Value(p *Packet, a AVP) interface{} {
 	if p == nil {
 		return ""
 	}
+	password, _ := passwordDecrypt(p.Secret, p.cryptAuthenticator(encryptUserPassword), a.Value)
+	return string(password)
+}
 
-	b := a.Value
-	password := make([]byte, len(b))
-	last := make([]byte, blockSize)
-	copy(last, p.cryptAuthenticator())
-	hash := crypto.Hash(crypto.MD5).New()
-	blocks := 0
-
-	if len(b)%blockSize != 0 {
-		return ""
+// passwordDecrypt reverses RFC 2865 hiding of b and removes the zero padding.
+func passwordDecrypt(secret string, authenticator, b []byte) ([]byte, bool) {
+	if len(b) == 0 || len(b)%blockSize != 0 {
+		return nil, false
 	}
-
-	for len(b) > 0 {
-		hash.Write(append([]byte(p.Secret), last...))
+	password := make([]byte, len(b))
+	last := authenticator
+	hash := crypto.Hash(crypto.MD5).New()
+	for i := 0; i < len(b); i += blockSize {
+		hash.Write([]byte(secret))
+		hash.Write(last)
 		digest := hash.Sum(nil)
 		hash.Reset()
-
-		// see crypto/cipher/xor.go for faster implementation
-		for i := 0; i < blockSize; i++ {
-			password[blockSize*blocks+i] = b[i] ^ digest[i]
+		for j := 0; j < blockSize; j++ {
+			password[i+j] = b[i+j] ^ digest[j]
 		}
 		// next block
-		last = b[:blockSize]
-		b = b[blockSize:]
-		blocks += 1
+		last = b[i : i+blockSize]
 	}
-
-	//remove padding zeroes
-	password = bytes.TrimRight(password, string([]byte{0}))
-	return string(password)
+	return bytes.TrimRight(password, "\x00"), true
 }
 
 func (s AvpPassword) String(p *Packet, a AVP) string {
