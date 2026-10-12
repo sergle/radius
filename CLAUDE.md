@@ -43,7 +43,7 @@ go test -fuzz=^FuzzDecodeRequest$ -fuzztime=30s .   # single fuzz target
 
 **Templates (`template.go`).** `RequestTemplate` pre-resolves attribute/VSA names against a dictionary once, then `Fill`/`CreateRequest` adds values positionally. Includes a special VLAN template (RFC 3580 tunnel attributes).
 
-**Auth helpers:** CHAP (`chap.go`), MS-CHAPv2 (`msChapv2.go`), EAP packets (`eap.go`, `avp_eap_message.go`), RFC 5090 Digest (`digest.go`, `digest_helpers.go`).
+**Auth helpers:** CHAP (`chap.go`), MS-CHAPv2 (`msChapv2.go`: NT-Response, S= authenticator response, RFC 3079 MPPE keys), EAP packets (`eap.go`, `avp_eap_message.go`), RFC 5090 Digest (`digest.go`, `digest_helpers.go`).
 
 ## Notes
 

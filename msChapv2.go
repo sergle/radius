@@ -4,9 +4,11 @@ import (
 	"crypto/des"
 	"crypto/sha1"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"math/bits"
 	"strconv"
+	"strings"
 	"unicode/utf16"
 )
 
@@ -119,6 +121,63 @@ func MSCHAPv2NTResponse(authChallenge, peerChallenge []byte, username, password 
 		block.Encrypt(out[i*8:], challenge)
 	}
 	return out, nil
+}
+
+const mppeKeyLen = 16 // 128-bit MPPE key
+
+// Magic constants of RFC 2759 §8.7 and RFC 3079 §3.4.
+var (
+	msChapV2AuthMagic1 = []byte("Magic server to client signing constant")
+	msChapV2AuthMagic2 = []byte("Pad to make it do more than one iteration")
+	mppeMasterMagic    = []byte("This is the MPPE Master Key")
+	mppeRecvMagic      = []byte("On the client side, this is the send key; on the server side, it is the receive key.")
+	mppeSendMagic      = []byte("On the client side, this is the receive key; on the server side, it is the send key.")
+)
+
+// MSCHAPv2AuthenticatorResponse computes the "S=..." string sent in the
+// MS-CHAP2-Success message (RFC 2759 §8.7).
+func MSCHAPv2AuthenticatorResponse(authChallenge, peerChallenge, ntResponse []byte, username, password string) string {
+	h := sha1.New()
+	h.Write(md4(MSCHAPv2NTHash(password)))
+	h.Write(ntResponse)
+	h.Write(msChapV2AuthMagic1)
+	digest := h.Sum(nil)
+
+	h.Reset()
+	h.Write(digest)
+	h.Write(MSCHAPv2ChallengeHash(peerChallenge, authChallenge, username))
+	h.Write(msChapV2AuthMagic2)
+	return "S=" + strings.ToUpper(hex.EncodeToString(h.Sum(nil)))
+}
+
+// msChapV2MasterKey implements GetMasterKey (RFC 3079 §3.4).
+func msChapV2MasterKey(ntHash, ntResponse []byte) []byte {
+	h := sha1.New()
+	h.Write(md4(ntHash))
+	h.Write(ntResponse)
+	h.Write(mppeMasterMagic)
+	return h.Sum(nil)[:mppeKeyLen]
+}
+
+// msChapV2StartKey implements GetAsymmetricStartKey (RFC 3079 §3.4).
+func msChapV2StartKey(masterKey, magic []byte) []byte {
+	var pad1, pad2 [40]byte
+	for i := range pad2 {
+		pad2[i] = 0xf2
+	}
+	h := sha1.New()
+	h.Write(masterKey)
+	h.Write(pad1[:])
+	h.Write(magic)
+	h.Write(pad2[:])
+	return h.Sum(nil)[:mppeKeyLen]
+}
+
+// MSCHAPv2MPPEKeys derives the 128-bit MPPE keys for MS-MPPE-Send-Key and
+// MS-MPPE-Recv-Key (RFC 3079 §3.4, server side).
+func MSCHAPv2MPPEKeys(ntResponse []byte, password string) (sendKey, recvKey []byte) {
+	master := msChapV2MasterKey(MSCHAPv2NTHash(password), ntResponse)
+	return msChapV2StartKey(master, mppeSendMagic), msChapV2StartKey(master, mppeRecvMagic)
 }
 
 type MsChapV2Packet struct {

@@ -163,8 +163,132 @@ func main() {
 
 On the server, `request.VerifyCHAP(password)` checks the response; without `CHAP-Challenge` the Request Authenticator is used as the challenge.
 
+## MS-CHAPv2 (RFC 2548, RFC 2759)
+MS-CHAPv2 travels in Microsoft VSAs, so load a dictionary that includes `dictionary.microsoft` (see [Dictionaries](#dictionaries-loading-external-vendor-dictionaries-cisco-microsoft-)). The client sends `MS-CHAP-Challenge` and `MS-CHAP2-Response`; the server checks the NT-Response and answers with `MS-CHAP2-Success`, which proves to the client that the server knows the password too, and the MPPE keys (RFC 3079).
+
+Client (NAS) side:
+
+```go
+package main
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/subtle"
+	"log"
+	"time"
+
+	"github.com/sergle/radius/v2"
+)
+
+func main() {
+	dict := radius.NewDictionary()
+	if err := dict.LoadFile("/path/to/your/dictionary"); err != nil {
+		log.Fatal(err)
+	}
+	const user, password = "admin", "secret"
+
+	authChallenge := make([]byte, 16) // sent by the NAS to the peer
+	peerChallenge := make([]byte, 16) // chosen by the peer
+	rand.Read(authChallenge)
+	rand.Read(peerChallenge)
+	ntResponse, err := radius.MSCHAPv2NTResponse(authChallenge, peerChallenge, user, password)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// MS-CHAP2-Response: Ident(1) Flags(1) Peer-Challenge(16) Reserved(8) NT-Response(24)
+	resp := make([]byte, 50)
+	resp[0] = 1 // Ident
+	copy(resp[2:18], peerChallenge)
+	copy(resp[26:], ntResponse)
+
+	client := radius.NewRadClient("127.0.0.1:1812", "shared-secret")
+	req := client.NewAccessRequest()
+	req.AddAVP(radius.AVP{Type: radius.AttrUserName, Value: []byte(user)})
+	for _, a := range [][2]string{
+		{"MS-CHAP-Challenge", string(authChallenge)},
+		{"MS-CHAP2-Response", string(resp)},
+	} {
+		vsa, err := dict.ParseVSA("Microsoft", a[0], a[1])
+		if err == nil {
+			err = req.AddVSA(vsa)
+		}
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	reply, err := client.SendContext(ctx, req)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if reply.Code != radius.AccessAccept {
+		log.Fatalf("Reply: %s", reply.Code)
+	}
+
+	// MS-CHAP2-Success: Ident(1) "S=<40 hex digits>"
+	want := radius.MSCHAPv2AuthenticatorResponse(authChallenge, peerChallenge, ntResponse, user, password)
+	success, ok := dict.GetVSA(reply, "Microsoft", "MS-CHAP2-Success")
+	if !ok || len(success) == 0 || subtle.ConstantTimeCompare(success[1:], []byte(want)) != 1 {
+		log.Fatal("server failed to authenticate")
+	}
+	sendKey, _ := dict.GetVSA(reply, "Microsoft", "MS-MPPE-Send-Key") // decrypted
+	recvKey, _ := dict.GetVSA(reply, "Microsoft", "MS-MPPE-Recv-Key")
+	log.Printf("Accepted, send key %x, recv key %x", sendKey, recvKey)
+}
+```
+
+Server side (`dict` loaded as above, `lookupPassword` is your user store):
+
+```go
+handler := radius.HandlerFunc(func(ctx context.Context, request *radius.Packet) *radius.Packet {
+	if request.Code != radius.AccessRequest {
+		return nil
+	}
+	user := request.GetUsername()
+	password, ok := lookupPassword(user)
+	challenge, _ := dict.GetVSA(request, "Microsoft", "MS-CHAP-Challenge")
+	resp, _ := dict.GetVSA(request, "Microsoft", "MS-CHAP2-Response")
+	if !ok || len(challenge) != 16 || len(resp) != 50 {
+		return request.ReplyReject()
+	}
+	ident, peerChallenge, ntResponse := string(resp[:1]), resp[2:18], resp[26:]
+
+	want, err := radius.MSCHAPv2NTResponse(challenge, peerChallenge, user, password)
+	if err != nil || subtle.ConstantTimeCompare(ntResponse, want) != 1 {
+		reply := request.ReplyReject()
+		if vsa, err := dict.ParseVSA("Microsoft", "MS-CHAP-Error", ident+"E=691 R=0"); err == nil {
+			reply.AddVSA(vsa)
+		}
+		return reply
+	}
+
+	// Encrypted attributes need the request's authenticator: use request.Reply*()
+	reply := request.ReplyAccept()
+	sendKey, recvKey := radius.MSCHAPv2MPPEKeys(ntResponse, password)
+	for _, a := range [][2]string{
+		{"MS-CHAP2-Success", ident + radius.MSCHAPv2AuthenticatorResponse(challenge, peerChallenge, ntResponse, user, password)},
+		{"MS-MPPE-Send-Key", string(sendKey)},
+		{"MS-MPPE-Recv-Key", string(recvKey)},
+	} {
+		vsa, err := dict.ParseVSA("Microsoft", a[0], a[1])
+		if err == nil {
+			err = reply.AddVSA(vsa)
+		}
+		if err != nil {
+			log.Printf("MS-CHAPv2 reply: %v", err)
+			return request.ReplyReject()
+		}
+	}
+	return reply
+})
+```
+
 ## Tagged Attributes (RFC 2868)
-Tunnel attributes (`Tunnel-Type`, `Tunnel-Medium-Type`, `Tunnel-Private-Group-ID`, ...) carry a tag (1–31) that groups attributes of the same tunnel. Dictionaries mark them with `has_tag`. Set the tag with the FreeRADIUS `Name:tag` syntax; without it the tag is 0:
+Tunnel attributes (`Tunnel-Type`, `Tunnel-Medium-Type`, `Tunnel-Private-Group-ID`, ...) carry a tag (1–31) that groups attributes of the same tunnel. Dictionaries mark them with `has_tag`. Set the tag with the `Name:tag` syntax; without it the tag is 0:
 
 ```go
 dict := radius.GetDefaultDictionary()
@@ -275,6 +399,7 @@ Vendor attributes declared with `encrypt=1` (as User-Password) or `encrypt=2` (w
 
 ```go
 reply := request.ReplyAccept()
+sendKey, _ := radius.MSCHAPv2MPPEKeys(ntResponse, password) // RFC 3079
 vsa, err := dict.ParseVSA("Microsoft", "MS-MPPE-Send-Key", string(sendKey))
 if err == nil {
 	err = reply.AddVSA(vsa)

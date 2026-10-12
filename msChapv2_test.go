@@ -136,3 +136,29 @@ func TestMSCHAPv2NTResponseDeterministic(t *testing.T) {
 		t.Error("NT-Response is not deterministic")
 	}
 }
+
+// RFC 2759 A.7
+func TestMSCHAPv2AuthenticatorResponse(t *testing.T) {
+	auth := mustHex(t, "5B5D7C7D7B3F2F3E3C2C602132262628")
+	peer := mustHex(t, "21402324255E262A28295F2B3A337C7E")
+	ntResp := mustHex(t, "82309ECD8D708B5EA08FAA3981CD83544233114A3D85D6DF")
+	got := MSCHAPv2AuthenticatorResponse(auth, peer, ntResp, "User", "clientPass")
+	if want := "S=407A5589115FD0D6209F510FE9C04566932CDA56"; got != want {
+		t.Errorf("AuthenticatorResponse:\n got  %s\n want %s", got, want)
+	}
+}
+
+// RFC 3079 3.5.3
+func TestMSCHAPv2MPPEKeys(t *testing.T) {
+	ntResp := mustHex(t, "82309ECD8D708B5EA08FAA3981CD83544233114A3D85D6DF")
+	if got, want := msChapV2MasterKey(MSCHAPv2NTHash("clientPass"), ntResp), mustHex(t, "FDECE3717A8C838CB388E527AE3CDD31"); !bytes.Equal(got, want) {
+		t.Errorf("MasterKey:\n got  %X\n want %X", got, want)
+	}
+	send, recv := MSCHAPv2MPPEKeys(ntResp, "clientPass")
+	if want := mustHex(t, "8B7CDC149B993A1BA118CB153F56DCCB"); !bytes.Equal(send, want) {
+		t.Errorf("SendKey:\n got  %X\n want %X", send, want)
+	}
+	if len(recv) != mppeKeyLen || bytes.Equal(recv, send) {
+		t.Errorf("RecvKey: %X", recv)
+	}
+}
