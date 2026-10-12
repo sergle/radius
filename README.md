@@ -268,6 +268,21 @@ A `VSA` built by hand uses the standard layout unless you set `Format`, e.g. `Fo
 
 The only `VENDOR` option is `format=T,L[,c]`; anything else is a load error.
 
+### Encrypted VSAs
+Vendor attributes declared with `encrypt=1` (as User-Password) or `encrypt=2` (with `has_tag` as Tunnel-Password, without it as MS-MPPE-Send-Key, RFC 2548) are encrypted by `AddVSA` with the packet's secret and authenticator. `ParseVSA` keeps the plaintext, so add the result with `AddVSA` and check its error:
+
+```go
+reply := request.ReplyAccept()
+vsa, err := dict.ParseVSA("Microsoft", "MS-MPPE-Send-Key", string(sendKey))
+if err == nil {
+	err = reply.AddVSA(vsa)
+}
+
+key, ok := dict.GetVSA(p, "Microsoft", "MS-MPPE-Send-Key") // decrypted
+```
+
+`AddVSA` returns `ErrNoRequestAuthenticator` for a reply not made with `request.Reply()`, and `ErrTunnelPasswordInRequest` for `encrypt=2` in an Access-Request or Status-Server; the packet is unchanged on error. `ToAVP`/`ToAVPList` refuse such a VSA (log a warning and return nothing), so it never goes out unencrypted. `GetVSA`, `DecodeAVPValue` and `Packet.String` decrypt them.
+
 ## High Performance: Lazy Decoding
 For high-load proxies or filters where performance is critical, use lazy decoding to avoid unnecessary allocations.
 

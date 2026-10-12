@@ -74,16 +74,21 @@ type vsaTemplate struct {
 
 // Add encodes the value and adds it as a VSA to the provided packet; invalid values are logged and skipped.
 func (t *vsaTemplate) Add(p *Packet, value string) {
-	if t.handler == avpPassword {
-		p.AddVSA(VSA{Vendor: t.vendorID, Type: t.vsaType, Value: avpPassword.Encode(value, p.Secret, p.cryptAuthenticator(encryptUserPassword)), Format: t.format})
-		return
+	vsa := VSA{Vendor: t.vendorID, Type: t.vsaType, Format: t.format}
+	var err error
+	if isEncrypted(t.handler) {
+		// AddVSA encrypts it
+		err = checkHiddenLen(t.handler, value)
+		vsa.Value, vsa.enc, vsa.tag = []byte(value), t.handler, t.tag
+	} else {
+		vsa.Value, err = encodeValue(t.handler, t.names, t.tag, value)
 	}
-	v, err := encodeValue(t.handler, t.names, t.tag, value)
+	if err == nil {
+		err = p.AddVSA(vsa)
+	}
 	if err != nil {
 		logger().Warn("radius: template skipped VSA", "vendor", t.vendorID, "type", t.vsaType, "error", err)
-		return
 	}
-	p.AddVSA(VSA{Vendor: t.vendorID, Type: t.vsaType, Value: v, Format: t.format})
 }
 
 // RequestTemplate defines a reusable structure for RADIUS requests.

@@ -68,11 +68,15 @@ func (f VendorFormat) tlvSupported() bool {
 }
 
 // VSA is a vendor attribute; Format is the vendor's header layout, zero for format=1,1.
+// ParseVSA returns an encrypted attribute with its plaintext Value, which Packet.AddVSA encrypts.
 type VSA struct {
 	Vendor VendorID
 	Type   VendorAttr
 	Value  []byte
 	Format VendorFormat
+
+	enc avpDataType // encrypted type of a plaintext Value, nil if Value is encoded
+	tag uint8       // tag of an encrypted tagged Value
 }
 
 var avpVendor AvpVendor
@@ -115,10 +119,18 @@ func (vsa VSA) check() error {
 	return nil
 }
 
+// encodable reports an error if vsa can't be encoded without a packet.
+func (vsa VSA) encodable() error {
+	if vsa.enc != nil {
+		return fmt.Errorf("%w, use Packet.AddVSA", ErrEncryptedAttribute)
+	}
+	return vsa.check()
+}
+
 // ToAVP encodes vsa as one Vendor-Specific AVP; use ToAVPList for long values with continuation.
-// An invalid format or type is logged and gives the zero AVP.
+// An invalid format or type, or a value to encrypt, is logged and gives the zero AVP.
 func (vsa VSA) ToAVP() AVP {
-	if err := vsa.check(); err != nil {
+	if err := vsa.encodable(); err != nil {
 		logger().Warn("radius: VSA.ToAVP", "vendor", vsa.Vendor, "error", err)
 		return AVP{}
 	}
@@ -126,9 +138,9 @@ func (vsa VSA) ToAVP() AVP {
 }
 
 // ToAVPList is like ToAVP but splits a value too long for one AVP if the format has a continuation byte;
-// an invalid format or type is logged and gives nil.
+// an invalid format or type, or a value to encrypt, is logged and gives nil.
 func (vsa VSA) ToAVPList() []AVP {
-	if err := vsa.check(); err != nil {
+	if err := vsa.encodable(); err != nil {
 		logger().Warn("radius: VSA.ToAVPList", "vendor", vsa.Vendor, "error", err)
 		return nil
 	}

@@ -201,6 +201,9 @@ func encryptValue(method int, p *Packet, v []byte) ([]byte, error) {
 // encryptValueSalt is encryptValue with a given salt (encrypt=2 only); sub-attributes have no tag byte.
 func encryptValueSalt(method int, v []byte, secret string, auth []byte, salt [tunnelSaltLen]byte) ([]byte, error) {
 	if method == encryptTunnelPassword {
+		if len(v) > tunnelPasswordMaxLen {
+			return nil, fmt.Errorf("%w: longer than %d bytes", ErrInvalidValue, tunnelPasswordMaxLen)
+		}
 		return tunnelPasswordEncrypt(0, salt, string(v), secret, auth)[tunnelTagLen:], nil
 	}
 	if len(v) > maxPasswordLen {

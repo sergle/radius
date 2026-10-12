@@ -577,6 +577,7 @@ func TestDictionaryNameConflict(t *testing.T) {
 		{"integer encrypt", "ATTRIBUTE A 5 integer\nATTRIBUTE A 5 integer encrypt=2\n"},
 		{"octets encrypt=3", "ATTRIBUTE A 5 octets\nATTRIBUTE A 5 octets encrypt=3\n"},
 		{"string encrypt=3", "ATTRIBUTE A 5 octets\nATTRIBUTE A 5 string encrypt=3\n"},
+		{"tagged vs untagged encrypt=2", "ATTRIBUTE A 5 tunnel-password\nATTRIBUTE A 5 string encrypt=2\n"},
 		{"password vs encrypt=2", "ATTRIBUTE A 5 password\nATTRIBUTE A 5 integer encrypt=2\n"},
 		{"vendor integer encrypt", "VENDOR V 9\nBEGIN-VENDOR V\nATTRIBUTE A 1 integer encrypt=1\nATTRIBUTE A 1 integer\nEND-VENDOR V\n"},
 		{"extended encrypt", "ATTRIBUTE E 241 extended\nATTRIBUTE A 241.8 octets\nATTRIBUTE A 241.8 octets encrypt=3\n"},
@@ -993,6 +994,7 @@ func TestDictionaryEquivalentRedeclaration(t *testing.T) {
 		{"ATTRIBUTE Tunnel-Password 69 tunnel-password", "ATTRIBUTE Tunnel-Password 69 string has_tag,encrypt=2"},
 		{"ATTRIBUTE Tunnel-Type 64 integer has_tag", "ATTRIBUTE Tunnel-Type 64 tagged-integer"},
 		{"ATTRIBUTE EAP-Message 79 eapmessage", "ATTRIBUTE EAP-Message 79 octets concat"},
+		{"ATTRIBUTE A 200 string encrypt=2", "ATTRIBUTE A 200 octets encrypt=2"},
 	}
 	const ext = "ATTRIBUTE Extended-Attribute-1 241 extended\n"
 	pairs = append(pairs,

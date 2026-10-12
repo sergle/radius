@@ -133,7 +133,7 @@ func TestBuiltinPasswordTypes(t *testing.T) {
 	}
 }
 
-// Encrypted attributes can't be built without a packet: they must not go out as plaintext.
+// Encrypted attributes can't be encoded without a packet: they must not go out as plaintext.
 func TestParseEncryptedAttributeFails(t *testing.T) {
 	d := useFreeRADIUSFlagsDict(t)
 
@@ -145,8 +145,13 @@ func TestParseEncryptedAttributeFails(t *testing.T) {
 			t.Errorf("NewAVP(%s) = %v, want zero AVP", name, avp)
 		}
 	}
-	if _, err := d.ParseVSA("Ascend", "Ascend-Secret", "hunter2"); !errors.Is(err, ErrEncryptedAttribute) {
-		t.Errorf("ParseVSA: err = %v, want ErrEncryptedAttribute", err)
+	// a parsed encrypted VSA is encrypted by Packet.AddVSA and not encoded alone
+	vsa, err := d.ParseVSA("Ascend", "Ascend-Secret", "hunter2")
+	if err != nil {
+		t.Fatalf("ParseVSA: %v", err)
+	}
+	if avp := vsa.ToAVP(); avp.Type != 0 || avp.Value != nil {
+		t.Errorf("ToAVP = %v, want zero AVP", avp)
 	}
 }
 
@@ -255,8 +260,12 @@ func TestEncryptedAttributeHint(t *testing.T) {
 	check("Tunnel-Password", err, "AddTunnelPassword")
 	_, err = d.ParseAVP("Test-Secret", "x")
 	check("Test-Secret", err, "")
-	_, err = d.ParseVSA("Ascend", "Ascend-Secret", "x")
-	check("Ascend-Secret", err, "")
-	_, err = d.ParseVSA("WiMAX", "WiMAX-MSK", "x")
-	check("WiMAX-MSK", err, "")
+	// parsed encrypted VSAs are encrypted by Packet.AddVSA, not encoded alone
+	for _, name := range [][2]string{{"Ascend", "Ascend-Secret"}, {"WiMAX", "WiMAX-MSK"}} {
+		vsa, err := d.ParseVSA(name[0], name[1], "x")
+		if err != nil {
+			t.Fatalf("ParseVSA %s: %v", name[1], err)
+		}
+		check(name[1], vsa.encodable(), "Packet.AddVSA")
+	}
 }

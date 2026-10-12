@@ -361,7 +361,14 @@ func (f attributeFlags) effectiveType(attrType string) string {
 	case encryptUserPassword:
 		return typePassword
 	case encryptTunnelPassword:
-		return typeTunnelPassword
+		if f.hasTag {
+			return typeTunnelPassword
+		}
+		// RFC 2548: no tag byte
+		if attrType == typeOctets {
+			return typeSaltOctets
+		}
+		return typeSaltString
 	case encryptAscendSecret:
 		// Not decrypted yet; don't present ciphertext as text.
 		return typeOctets
@@ -633,7 +640,7 @@ func encryptMethod(attrType string, f attributeFlags) int {
 		return f.encrypt
 	case attrType == typePassword:
 		return encryptUserPassword
-	case attrType == typeTunnelPassword:
+	case attrType == typeTunnelPassword, attrType == typeSaltString, attrType == typeSaltOctets:
 		return encryptTunnelPassword
 	}
 	return encryptNone
@@ -668,6 +675,7 @@ func rawVSAString(vsa *VSA, vendorName string, vendorOK bool) string {
 // wireTypes maps types to a type with the same encoding, e.g. builtin vs FreeRADIUS definitions.
 var wireTypes = map[string]string{
 	typeEAPMessage: typeOctets,
+	typeSaltString: typeSaltOctets,
 }
 
 // wireType returns the type attrType is encoded as, for comparing redeclarations.
@@ -935,6 +943,8 @@ const (
 	typeOctets         = "octets"
 	typePassword       = "password"
 	typeTunnelPassword = "tunnel-password"
+	typeSaltString     = "salt-encrypted-string"
+	typeSaltOctets     = "salt-encrypted-octets"
 	typeTaggedInteger  = "tagged-integer"
 	typeTaggedString   = "tagged-string"
 	typeVSA            = "vsa"
@@ -954,6 +964,8 @@ var attrTypeHandlers = map[string]avpDataType{
 	typeOctets:         avpBinary,
 	typePassword:       avpPassword,
 	typeTunnelPassword: avpTunnelPassword,
+	typeSaltString:     avpSaltString,
+	typeSaltOctets:     avpSaltOctets,
 	typeTaggedInteger:  avpTaggedUint32,
 	typeTaggedString:   avpTaggedString,
 	typeVSA:            avpVendor,
@@ -1161,11 +1173,13 @@ func (d *Dictionary) VendorFormat(vendorID VendorID) VendorFormat {
 }
 
 // GetVSA returns a copy of the first value of vendor attribute attrName in p,
-// joining values split with the WiMAX continuation byte.
+// joining values split with the WiMAX continuation byte. Encrypted values are decrypted
+// (without the tag); malformed ciphertext is not found, a wrong secret gives garbage.
 func (d *Dictionary) GetVSA(p *Packet, vendorName, attrName string) ([]byte, bool) {
 	d.mu.RLock()
 	vendorID, vendorOK := d.vendorID[vendorName]
 	attrID, attrOK := d.vsaAttrID[vendorID][attrName]
+	handler := attrTypeHandlers[d.vsaAttrType[vendorID][attrName]]
 	f := d.formatOf(vendorID)
 	d.mu.RUnlock()
 	if !vendorOK || !attrOK {
@@ -1179,7 +1193,10 @@ func (d *Dictionary) GetVSA(p *Packet, vendorName, attrName string) ([]byte, boo
 		}
 		return !ok
 	})
-	return found, ok
+	if !ok {
+		return nil, false
+	}
+	return decryptHandlerValue(p, handler, found)
 }
 
 // GetVendorName returns the vendor name for a VendorID.
@@ -1248,6 +1265,7 @@ func (d *Dictionary) ParseAVP(attrName string, attrValue string) (AVP, error) {
 
 // ParseVSA constructs a Vendor-Specific Attribute from the vendor name, attribute
 // name, and a string value using the VSA type defined in the dictionary.
+// An encrypted attribute keeps the plaintext and is encrypted by Packet.AddVSA.
 func (d *Dictionary) ParseVSA(vendorName string, attrName string, attrValue string) (VSA, error) {
 	attrName, tag, tagged, err := splitTagName(attrName)
 	if err != nil {
@@ -1271,11 +1289,20 @@ func (d *Dictionary) ParseVSA(vendorName string, attrName string, attrValue stri
 	if tagged && !isTagged(handler) {
 		return VSA{}, fmt.Errorf("%w: attribute %s/%s has no tag", ErrInvalidTag, vendorName, attrName)
 	}
-	value, err := encodeValue(handler, d.vsaConstID[vendorID][attrName], tag, attrValue)
-	if err != nil {
-		return VSA{}, fmt.Errorf("%w for attribute %s/%s", err, vendorName, attrName)
+	vsa := VSA{Vendor: vendorID, Type: attrID, Format: d.formatOf(vendorID)}
+	if isEncrypted(handler) {
+		// Packet.AddVSA encrypts it
+		if err := checkHiddenLen(handler, attrValue); err != nil {
+			return VSA{}, fmt.Errorf("%w for attribute %s/%s", err, vendorName, attrName)
+		}
+		vsa.Value, vsa.enc, vsa.tag = []byte(attrValue), handler, tag
+	} else {
+		value, err := encodeValue(handler, d.vsaConstID[vendorID][attrName], tag, attrValue)
+		if err != nil {
+			return VSA{}, fmt.Errorf("%w for attribute %s/%s", err, vendorName, attrName)
+		}
+		vsa.Value = value
 	}
-	vsa := VSA{Vendor: vendorID, Type: attrID, Value: value, Format: d.formatOf(vendorID)}
 	if err := vsa.check(); err != nil {
 		return VSA{}, fmt.Errorf("%w for attribute %s/%s", err, vendorName, attrName)
 	}
@@ -1299,7 +1326,7 @@ func encryptedHint(err error, id AttributeType) string {
 // encodeValue encodes value with handler; integers accept a VALUE name from names or a number.
 func encodeValue(handler avpDataType, names map[string]uint32, tag uint8, value string) ([]byte, error) {
 	switch handler {
-	case avpPassword, avpTunnelPassword:
+	case avpPassword, avpTunnelPassword, avpSaltString, avpSaltOctets:
 		return nil, ErrEncryptedAttribute
 	case avpTaggedString:
 		return encodeTaggedString(tag, value), nil

@@ -285,9 +285,14 @@ func (d *Dictionary) parseExtAttribute(attrName string, outer AttributeType, num
 	return nil
 }
 
-// extWireType is wireType after folding encrypt into attrType, as top-level types are.
+// extWireType is wireType after folding encrypt into attrType, as top-level types are;
+// extended attributes have no tags, so tunnel-password is untagged.
 func extWireType(attrType string, encrypt int) string {
-	return wireType(attributeFlags{encrypt: encrypt}.effectiveType(attrType))
+	t := attributeFlags{encrypt: encrypt}.effectiveType(attrType)
+	if t == typeTunnelPassword {
+		t = typeSaltOctets
+	}
+	return wireType(t)
 }
 
 // parseBeginVendorFormat sets the Extended-Vendor-Specific attribute named by a BEGIN-VENDOR format= option.

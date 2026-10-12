@@ -387,8 +387,23 @@ func (p *Packet) AddAVP(avps ...AVP) {
 }
 
 // AddVSA adds a Vendor-Specific Attribute (VSA) to the packet, split over several if needed (WiMAX).
-func (p *Packet) AddVSA(vsa VSA) {
+// An encrypted attribute from ParseVSA is encrypted with the packet; p is unchanged on error.
+func (p *Packet) AddVSA(vsa VSA) error {
+	if err := vsa.check(); err != nil {
+		return err
+	}
+	if vsa.enc != nil {
+		auth := p.Authenticator
+		v, err := encryptHandlerValue(p, vsa.enc, vsa.tag, string(vsa.Value))
+		if err != nil {
+			// undo a Request Authenticator generated for the value
+			p.Authenticator = auth
+			return err
+		}
+		vsa.Value, vsa.enc = v, nil
+	}
 	p.AddAVP(vsa.ToAVPList()...)
+	return nil
 }
 
 // DeleteAVP removes the specific AVP instance from the packet, if present.
