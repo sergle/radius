@@ -384,29 +384,50 @@ func (p *Packet) AddVSA(vsa VSA) error {
 }
 
 // DeleteAVP removes the specific AVP instance from the packet, if present.
+// avp comes from GetAVP; it stays valid after AddAVP and on lazy packets.
 func (p *Packet) DeleteAVP(avp *AVP) {
+	if avp == nil {
+		return
+	}
 	for i := range p.AVPs {
-		if &(p.AVPs[i]) == avp {
-			for j := i; j < len(p.AVPs)-1; j++ {
-				p.AVPs[j] = p.AVPs[j+1]
-			}
-			p.AVPs = p.AVPs[:len(p.AVPs)-1]
-			break
+		if sameAVP(&p.AVPs[i], avp) {
+			p.AVPs = slices.Delete(p.AVPs, i, i+1)
+			return
+		}
+	}
+	for _, a := range rawAttrs(p.RawAVPs) {
+		if sameAVP(&a, avp) {
+			p.parseRawAVPs()
+			p.DeleteAVP(avp)
+			return
 		}
 	}
 }
 
+// sameAVP reports whether a and b are the same instance: same Type and Value storage.
+func sameAVP(a, b *AVP) bool {
+	if len(a.Value) == 0 || len(b.Value) == 0 {
+		return a == b
+	}
+	return a.Type == b.Type && len(a.Value) == len(b.Value) && &a.Value[0] == &b.Value[0]
+}
+
+// parseRawAVPs moves lazy attributes in front of AVPs.
+func (p *Packet) parseRawAVPs() {
+	if p.RawAVPs == nil {
+		return
+	}
+	var avps []AVP
+	for _, a := range rawAttrs(p.RawAVPs) {
+		avps = append(avps, a)
+	}
+	p.AVPs = append(avps, p.AVPs...)
+	p.RawAVPs = nil
+}
+
 // deleteAllType removes all attributes with the given type from the packet.
 func (p *Packet) deleteAllType(attrType AttributeType) {
-	// move lazy attributes in front of AVPs
-	if p.RawAVPs != nil {
-		var avps []AVP
-		for _, a := range rawAttrs(p.RawAVPs) {
-			avps = append(avps, a)
-		}
-		p.AVPs = append(avps, p.AVPs...)
-		p.RawAVPs = nil
-	}
+	p.parseRawAVPs()
 	p.AVPs = slices.DeleteFunc(p.AVPs, func(a AVP) bool { return a.Type == attrType })
 }
 

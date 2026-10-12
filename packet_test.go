@@ -338,6 +338,32 @@ func TestPacketEAPGolden(t *testing.T) {
 	}
 }
 
+// A GetAVP pointer still deletes after AddAVP reallocates.
+func TestDeleteAVPAfterAdd(t *testing.T) {
+	p := Request(AccessAccept, "secret")
+	p.AddAVP(AVP{Type: AttrReplyMessage, Value: []byte("a")})
+	a := p.GetAVP(AttrReplyMessage)
+	for range 10 {
+		p.AddAVP(AVP{Type: AttrUserName, Value: []byte("u")})
+	}
+	p.DeleteAVP(a)
+	if p.HasAVP(AttrReplyMessage) || len(p.AVPs) != 10 {
+		t.Errorf("got %v", p.AVPs)
+	}
+	p.DeleteAVP(&AVP{Type: AttrUserName, Value: []byte("u")})
+	p.DeleteAVP(nil)
+	if len(p.AVPs) != 10 {
+		t.Errorf("deleted an AVP not in the packet: %v", p.AVPs)
+	}
+	// an empty value matches by pointer
+	p.AddAVP(AVP{Type: AttrState})
+	p.DeleteAVP(&AVP{Type: AttrState})
+	p.DeleteAVP(p.GetAVP(AttrState))
+	if p.HasAVP(AttrState) || len(p.AVPs) != 10 {
+		t.Errorf("empty value: %v", p.AVPs)
+	}
+}
+
 func TestSetAVPReplacesAll(t *testing.T) {
 	p := Request(AccessAccept, "secret")
 	p.AddAVP(AVP{Type: AttrReplyMessage, Value: []byte("a")},

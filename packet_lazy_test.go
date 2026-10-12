@@ -70,3 +70,11 @@ func TestLazyPacketSetAVP(t *testing.T) {
 		t.Errorf("Reply-Message = %v", v)
 	}
 }
+
+func TestLazyPacketDeleteAVP(t *testing.T) {
+	p := lazyTestPacket(t)
+	p.DeleteAVP(p.GetAVP(AttrReplyMessage))
+	if got := avpTypes(p); len(got) != 2 || got[0] != AttrUserName || string(p.GetAVP(AttrReplyMessage).Value) != "b" {
+		t.Errorf("EachAVP = %v", got)
+	}
+}
