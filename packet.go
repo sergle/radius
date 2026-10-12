@@ -377,7 +377,7 @@ func rawAttrs(b []byte) iter.Seq2[int, AVP] {
 
 // SetAVP removes all attributes of the same type and then adds avp.
 func (p *Packet) SetAVP(avp AVP) {
-	p.DeleteOneType(avp.Type)
+	p.deleteAllType(avp.Type)
 	p.AddAVP(avp)
 }
 
@@ -419,18 +419,9 @@ func (p *Packet) DeleteAVP(avp *AVP) {
 	}
 }
 
-// DeleteOneType removes the first attribute with the given type from the packet.
-func (p *Packet) DeleteOneType(attrType AttributeType) {
-	for i := 0; i < len(p.AVPs); i++ {
-		if p.AVPs[i].Type == attrType {
-			for j := i; j < len(p.AVPs)-1; j++ {
-				p.AVPs[j] = p.AVPs[j+1]
-			}
-			p.AVPs = p.AVPs[:len(p.AVPs)-1]
-			i--
-			break
-		}
-	}
+// deleteAllType removes all attributes with the given type from the packet.
+func (p *Packet) deleteAllType(attrType AttributeType) {
+	p.AVPs = slices.DeleteFunc(p.AVPs, func(a AVP) bool { return a.Type == attrType })
 }
 
 // Request constructs a new request packet with a random Identifier.

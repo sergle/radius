@@ -337,3 +337,14 @@ func TestPacketEAPGolden(t *testing.T) {
 		t.Errorf("EAP data mismatch: got %s, want cbFiBooRnZsXnZJ3", string(eap.Data))
 	}
 }
+
+func TestSetAVPReplacesAll(t *testing.T) {
+	p := Request(AccessAccept, "secret")
+	p.AddAVP(AVP{Type: AttrReplyMessage, Value: []byte("a")},
+		AVP{Type: AttrUserName, Value: []byte("u")},
+		AVP{Type: AttrReplyMessage, Value: []byte("b")})
+	p.SetAVP(AVP{Type: AttrReplyMessage, Value: []byte("c")})
+	if len(p.AVPs) != 2 || p.AVPs[0].Type != AttrUserName || string(p.AVPs[1].Value) != "c" {
+		t.Errorf("got %v", p.AVPs)
+	}
+}
