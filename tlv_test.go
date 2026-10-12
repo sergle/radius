@@ -444,12 +444,12 @@ func TestTLVBlockMisuse(t *testing.T) {
 	}
 
 	// a parse error inside a block doesn't leak the block either
+	writeFile(t, a, "ATTRIBUTE A 1 tlv\nBEGIN-TLV A\nVALUE\n")
 	d = NewDictionary()
-	if err := d.loadReader("bad", strings.NewReader("ATTRIBUTE A 1 tlv\nBEGIN-TLV A\nVALUE\n")); err == nil {
+	if err := d.LoadFile(a); err == nil {
 		t.Fatal("expected parse error")
 	}
-	d.loadReader("next", strings.NewReader("ATTRIBUTE Foo 5 string\n"))
-	if !d.HasAttribute("Foo") {
+	if err := d.LoadFile(b); err != nil || !d.HasAttribute("Foo") {
 		t.Error("attribute after failed file became a sub-attribute")
 	}
 }

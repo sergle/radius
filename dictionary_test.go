@@ -3,6 +3,7 @@ package radius
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -205,4 +206,57 @@ func TestConcurrency(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func TestLoadFileRetryAfterMissingInclude(t *testing.T) {
+	dir := t.TempDir()
+	main := filepath.Join(dir, "dictionary")
+	if err := os.WriteFile(main, []byte("ATTRIBUTE\tRetry-Attr\t200\tstring\n$INCLUDE\tdictionary.inc\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	d := NewDictionary()
+	if err := d.LoadFile(main); err == nil {
+		t.Fatal("expected error for missing include")
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "dictionary.inc"), []byte("ATTRIBUTE\tRetry-Inc\t201\tstring\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.LoadFile(main); err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+	if !d.HasAttribute("Retry-Attr") || !d.HasAttribute("Retry-Inc") {
+		t.Error("retry didn't load the files")
+	}
+}
+
+func TestLoadFileLongLine(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "dictionary")
+	content := "# " + strings.Repeat("x", 70000) + "\nATTRIBUTE\tAfter-Long-Line\t200\tstring\n"
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	d := NewDictionary()
+	if err := d.LoadFile(path); err == nil {
+		t.Error("expected error for a line over the scanner limit")
+	}
+}
+
+func TestLoadFileFailureResetsVendor(t *testing.T) {
+	dir := t.TempDir()
+	bad, next := filepath.Join(dir, "bad"), filepath.Join(dir, "next")
+	if err := os.WriteFile(bad, []byte("VENDOR\tV\t9999\nBEGIN-VENDOR\tV\nATTRIBUTE\tBad-Line\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(next, []byte("ATTRIBUTE\tFoo\t200\tstring\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	d := NewDictionary()
+	if err := d.LoadFile(bad); err == nil {
+		t.Fatal("expected error")
+	}
+	if err := d.LoadFile(next); err != nil || !d.HasAttribute("Foo") {
+		t.Errorf("attribute after failed file became a VSA: err=%v", err)
+	}
 }

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"math"
 	"net"
 	"os"
@@ -156,10 +157,25 @@ func NewDictionary() *Dictionary {
 //
 // The file format is compatible with FreeRADIUS dictionary files and supports
 // $INCLUDE recursion (with internal/unsupported files skipped).
+//
+// On error d may be partly loaded, and loading blocks lookups in d; to update
+// the default dictionary, load into a NewDictionary and swap it in with
+// SetDefaultDictionary.
 func (d *Dictionary) LoadFile(fname string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return d.loadFileInternal(fname)
+	return d.load(func() error { return d.loadFileInternal(fname) })
+}
+
+// load runs f; on error it forgets the files read, so they can be loaded again, and resets the parser state.
+func (d *Dictionary) load(f func() error) error {
+	files := maps.Clone(d.fileList)
+	if err := f(); err != nil {
+		d.fileList = files
+		d.currentVendor, d.tlvStack, d.evsBlock = 0, nil, nil
+		return err
+	}
+	return nil
 }
 
 func (d *Dictionary) loadFileInternal(fname string) error {
@@ -188,23 +204,25 @@ func (d *Dictionary) loadReader(name string, r io.Reader) error {
 	depth := len(d.tlvStack)
 	for scanner.Scan() {
 		if err := d.parseLine(name, scanner.Text()); err != nil {
-			d.tlvStack = d.tlvStack[:min(depth, len(d.tlvStack))]
 			return err
 		}
 	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("%s: %w", name, err)
+	}
 	if len(d.tlvStack) > depth {
-		open := d.tlvStack[len(d.tlvStack)-1].name
-		d.tlvStack = d.tlvStack[:depth]
-		return fmt.Errorf("%s: missing END-TLV %s", name, open)
+		return fmt.Errorf("%s: missing END-TLV %s", name, d.tlvStack[len(d.tlvStack)-1].name)
 	}
 	return nil
 }
 
-// LoadBuiltin loads the embedded built-in dictionary into d.
+// LoadBuiltin loads the embedded built-in dictionary into d; see LoadFile.
 func (d *Dictionary) LoadBuiltin() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return d.loadReader("dictionary.builtin", bytes.NewReader(builtinDictionaryData))
+	return d.load(func() error {
+		return d.loadReader("dictionary.builtin", bytes.NewReader(builtinDictionaryData))
+	})
 }
 
 func (d *Dictionary) parseLine(fname string, line string) error {
