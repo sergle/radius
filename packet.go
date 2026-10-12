@@ -48,8 +48,8 @@ type DecodeOptions struct {
 // Packet represents a RADIUS packet as defined by RFC 2865/RFC 2866.
 //
 // A Packet can be encoded for sending over the network and decoded from bytes.
-// When decoding lazily, AVPs may be available via RawAVPs instead of AVPs; helper
-// methods (for example GetAVP/EachAVP/HasAVP) work with either representation.
+// When decoding lazily, received attributes are kept in RawAVPs and added ones in AVPs;
+// helper methods (for example GetAVP/EachAVP/HasAVP) and Encode see RawAVPs first, then AVPs.
 //
 // Create packets with Request, RadClient.NewRequest, request.Reply (ReplyAccept etc.)
 // or the Decode functions: they set the authenticators that hide encrypted values.
@@ -275,22 +275,18 @@ func (p *Packet) encodeNoHashTo(b []byte, withMA bool) (n int, err error) {
 		written += messageAuthenticatorLen
 	}
 
-	if len(p.AVPs) > 0 {
-		bb := b[written:]
-		for i := range p.AVPs {
-			n, err := p.AVPs[i].Encode(bb)
-			written += n
-			if err != nil {
-				return 0, err
-			}
-			bb = bb[n:]
+	if len(b) < written+len(p.RawAVPs) {
+		return 0, errors.New("buffer too small")
+	}
+	written += copy(b[written:], p.RawAVPs)
+	bb := b[written:]
+	for i := range p.AVPs {
+		n, err := p.AVPs[i].Encode(bb)
+		written += n
+		if err != nil {
+			return 0, err
 		}
-	} else if len(p.RawAVPs) > 0 {
-		if len(b) < written+len(p.RawAVPs) {
-			return 0, errors.New("buffer too small")
-		}
-		copy(b[written:], p.RawAVPs)
-		written += len(p.RawAVPs)
+		bb = bb[n:]
 	}
 
 	binary.BigEndian.PutUint16(b[2:4], uint16(written))
@@ -299,37 +295,21 @@ func (p *Packet) encodeNoHashTo(b []byte, withMA bool) (n int, err error) {
 
 // HasAVP reports whether the packet contains at least one attribute of the given type.
 func (p *Packet) HasAVP(attrType AttributeType) bool {
-	if len(p.AVPs) > 0 {
-		for i := range p.AVPs {
-			if p.AVPs[i].Type == attrType {
-				return true
-			}
-		}
-		return false
-	}
-	for _, a := range rawAttrs(p.RawAVPs) {
-		if a.Type == attrType {
-			return true
-		}
-	}
-	return false
+	return p.GetAVP(attrType) != nil
 }
 
 // GetAVP returns the first attribute of the given type, or nil if not present.
 //
 // For lazily decoded packets, GetAVP returns a pointer to a newly allocated AVP.
 func (p *Packet) GetAVP(attrType AttributeType) *AVP {
-	if len(p.AVPs) > 0 {
-		for i := range p.AVPs {
-			if p.AVPs[i].Type == attrType {
-				return &p.AVPs[i]
-			}
-		}
-		return nil
-	}
 	for _, a := range rawAttrs(p.RawAVPs) {
 		if a.Type == attrType {
-			return &AVP{Type: a.Type, Value: a.Value}
+			return &a
+		}
+	}
+	for i := range p.AVPs {
+		if p.AVPs[i].Type == attrType {
+			return &p.AVPs[i]
 		}
 	}
 	return nil
@@ -342,17 +322,13 @@ func (p *Packet) EachAVP(fn func(a AVP) bool) {
 	if p == nil {
 		return
 	}
-	if len(p.AVPs) > 0 {
-		for i := range p.AVPs {
-			if !fn(p.AVPs[i]) {
-				return
-			}
-		}
-		return
-	}
-
 	for _, a := range rawAttrs(p.RawAVPs) {
 		if !fn(a) {
+			return
+		}
+	}
+	for i := range p.AVPs {
+		if !fn(p.AVPs[i]) {
 			return
 		}
 	}
@@ -421,6 +397,15 @@ func (p *Packet) DeleteAVP(avp *AVP) {
 
 // deleteAllType removes all attributes with the given type from the packet.
 func (p *Packet) deleteAllType(attrType AttributeType) {
+	// move lazy attributes in front of AVPs
+	if p.RawAVPs != nil {
+		var avps []AVP
+		for _, a := range rawAttrs(p.RawAVPs) {
+			avps = append(avps, a)
+		}
+		p.AVPs = append(avps, p.AVPs...)
+		p.RawAVPs = nil
+	}
 	p.AVPs = slices.DeleteFunc(p.AVPs, func(a AVP) bool { return a.Type == attrType })
 }
 
@@ -762,9 +747,10 @@ func (p *Packet) String() string {
 		"Code: " + p.Code.String() + "\n" +
 		"Identifier: " + strconv.Itoa(int(p.Identifier)) + "\n" +
 		"Authenticator: " + fmt.Sprintf("%#v", p.Authenticator) + "\n"
-	for _, avp := range p.AVPs {
+	p.EachAVP(func(avp AVP) bool {
 		s += avp.StringWithPacket(p) + "\n"
-	}
+		return true
+	})
 	return s
 }
 
@@ -935,7 +921,7 @@ func (p *Packet) GetEAPMessage() *EapPacket {
 // SetEAPMessage replaces any EAP-Message attributes with eap, split into
 // consecutive 253-byte fragments as needed (RFC 3579 §3.1).
 func (p *Packet) SetEAPMessage(eap *EapPacket) {
-	p.AVPs = slices.DeleteFunc(p.AVPs, func(a AVP) bool { return a.Type == AttrEAPMessage })
+	p.deleteAllType(AttrEAPMessage)
 	p.AddAVP(eap.ToEAPMessages()...)
 }
 
