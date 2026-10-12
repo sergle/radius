@@ -107,7 +107,9 @@ func main() {
 
 	req := client.NewRequest(radius.AccessRequest)
 	req.AddAVP(radius.AVP{Type: radius.AttrUserName, Value: []byte("admin")})
-	req.AddPassword("secret")
+	if err := req.AddPassword("secret"); err != nil {
+		log.Fatal(err)
+	}
 
 	// Context-aware request with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

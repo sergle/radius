@@ -3,6 +3,7 @@ package radius
 import (
 	"bytes"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -125,5 +126,31 @@ func TestPasswordManualAccessRequest(t *testing.T) {
 		if q.GetPassword() != pw {
 			t.Errorf("%s: User-Password = %q", which, q.GetPassword())
 		}
+	}
+}
+
+// RFC 2865 section 5.2: User-Password is at most 128 bytes.
+func TestAddPasswordTooLong(t *testing.T) {
+	p := &Packet{Code: AccessRequest, Secret: "s"}
+	if err := p.AddPassword(strings.Repeat("x", maxPasswordLen)); err != nil {
+		t.Fatal(err)
+	}
+	auth := p.Authenticator
+	if err := p.AddPassword(strings.Repeat("x", maxPasswordLen+1)); !errors.Is(err, ErrInvalidValue) {
+		t.Fatalf("err = %v, want ErrInvalidValue", err)
+	}
+	if p.GetPassword() != strings.Repeat("x", maxPasswordLen) || p.Authenticator != auth {
+		t.Fatal("packet changed on error")
+	}
+
+	// the template skips it
+	q := &Packet{Code: AccessRequest, Secret: "s"}
+	tmpl, err := GetDefaultDictionary().CreateRequestTemplate(AccessRequest, "User-Password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl.Fill(q, strings.Repeat("x", maxPasswordLen+1))
+	if q.HasAVP(AttrUserPassword) || q.Authenticator != zeroAuthenticator {
+		t.Fatal("template added a too long password")
 	}
 }

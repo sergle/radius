@@ -840,13 +840,19 @@ func (p *Packet) GetTunnelPassword() (tag uint8, password string, ok bool) {
 
 // AddPassword adds (or replaces) the User-Password attribute, encrypting it as
 // required by the RADIUS protocol using the packet Secret and Authenticator.
-func (p *Packet) AddPassword(password string) {
-	// no error return: on failure the password is hidden with the current authenticator, as before
-	_ = p.ensureAuthenticator()
+// A password longer than 128 bytes is ErrInvalidValue; p is unchanged on error.
+func (p *Packet) AddPassword(password string) error {
+	if err := checkHiddenLen(avpPassword, password); err != nil {
+		return err
+	}
+	if err := p.ensureAuthenticator(); err != nil {
+		return err
+	}
 	p.SetAVP(AVP{
 		Type:  AttrUserPassword,
 		Value: avpPassword.Encode(password, p.Secret, p.cryptAuthenticator(encryptUserPassword)),
 	})
+	return nil
 }
 
 // GetNasIpAddress returns NAS-IP-Address as a net.IP, if present.

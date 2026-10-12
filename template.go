@@ -34,7 +34,9 @@ func (t *AttributeTemplate) Add(p *Packet, value string) {
 		return
 	}
 	if t.attrType == AttrUserPassword {
-		p.AddPassword(value)
+		if err := p.AddPassword(value); err != nil {
+			logger().Warn("radius: template skipped attribute", "attribute", t.attrType, "error", err)
+		}
 		return
 	}
 	if isEncrypted(t.handler) {
