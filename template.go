@@ -37,17 +37,12 @@ func (t *AttributeTemplate) Add(p *Packet, value string) {
 		p.AddPassword(value)
 		return
 	}
-	if t.handler == avpPassword {
-		p.AddAVP(AVP{Type: t.attrType, Value: avpPassword.Encode(value, p.Secret, p.cryptAuthenticator(encryptUserPassword))})
-		return
-	}
-	if t.handler == avpTunnelPassword {
-		auth, err := p.encryptAuthenticator(encryptTunnelPassword)
-		var v []byte
-		if err == nil {
-			v, err = avpTunnelPassword.Encode(t.tag, value, p.Secret, auth)
-		}
+	if isEncrypted(t.handler) {
+		auth := p.Authenticator
+		v, err := encryptHandlerValue(p, t.handler, t.tag, value)
 		if err != nil {
+			// undo a Request Authenticator generated for the value
+			p.Authenticator = auth
 			logger().Warn("radius: template skipped attribute", "attribute", t.attrType, "error", err)
 			return
 		}

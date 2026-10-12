@@ -196,6 +196,45 @@ func TestTemplateEncryptsEncrypt1Attributes(t *testing.T) {
 	}
 }
 
+// Templates hide encrypt=1 attributes of hand-built packets with the authenticator Encode sends.
+func TestTemplateEncrypt1HandBuilt(t *testing.T) {
+	const secret = "testing123"
+	const plain = "hunter2"
+	d := useFreeRADIUSFlagsDict(t)
+
+	rt, err := d.CreateRequestTemplate(AccessRequest, "Test-Secret")
+	if err != nil {
+		t.Fatalf("CreateRequestTemplate: %v", err)
+	}
+	p := &Packet{Code: AccessRequest, Secret: secret}
+	rt.Fill(p, plain)
+	b, err := p.Encode()
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	got, err := DecodeRequest(secret, b)
+	if err != nil {
+		t.Fatalf("DecodeRequest: %v", err)
+	}
+	if a := got.GetAVP(AttributeType(241)); a == nil || a.Decode(got) != plain {
+		t.Errorf("Test-Secret = %v, want %q", a, plain)
+	}
+
+	// a hand-built reply has no request authenticator: skipped, p unchanged
+	reply := &Packet{Code: AccessAccept, Secret: secret}
+	rt.Fill(reply, plain)
+	if len(reply.AVPs) != 0 || reply.Authenticator != zeroAuthenticator {
+		t.Errorf("reply = %+v, want no AVPs and zero authenticator", reply)
+	}
+
+	// over 128 bytes is skipped
+	p = &Packet{Code: AccessRequest, Secret: secret}
+	rt.Fill(p, strings.Repeat("x", maxPasswordLen+1))
+	if len(p.AVPs) != 0 {
+		t.Errorf("long value added AVPs: %+v", p.AVPs)
+	}
+}
+
 // An encrypt=1 attribute in a reply is hidden with the Request Authenticator.
 func TestDecodeReplyEncrypt1Attribute(t *testing.T) {
 	const secret = "testing123"
