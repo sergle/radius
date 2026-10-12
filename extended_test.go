@@ -74,6 +74,12 @@ func extLong(typ AttributeType, ext, flags uint8, data ...byte) AVP {
 	return AVP{Type: typ, Value: append([]byte{ext, flags}, data...)}
 }
 
+// extMore returns a full-length long-extended AVP with the More flag: data padded with fill.
+func extMore(typ AttributeType, ext, fill uint8, data ...byte) AVP {
+	pad := bytes.Repeat([]byte{fill}, maxLongExtData-len(data))
+	return extLong(typ, ext, extMoreFlag, append(pad, data...)...)
+}
+
 func TestExtendedDictionaryLoad(t *testing.T) {
 	h := useRecordLogger(t)
 	d := loadExtTestDict(t)
@@ -257,7 +263,7 @@ func TestGetExtended(t *testing.T) {
 		AVP{Type: 241, Value: []byte{8, 'x'}},
 		AVP{Type: 241, Value: []byte{1, 0, 0, 0, 2}},
 		AVP{Type: 241, Value: []byte{8, 'y'}},
-		extLong(245, 1, extMoreFlag, 'a'),
+		extMore(245, 1, 'a'),
 		extLong(245, 1, 0, 'b'),
 	)
 	if v, ok := d.GetExtended(p, "", "Frag-Status"); !ok || !bytes.Equal(v, []byte{0, 0, 0, 2}) {
@@ -266,7 +272,7 @@ func TestGetExtended(t *testing.T) {
 	if v, ok := d.GetExtended(p, "", "Ext-Name"); !ok || string(v) != "x" {
 		t.Errorf("Ext-Name = %q, %v (want the first)", v, ok)
 	}
-	if v, ok := d.GetExtended(p, "", "Long-Blob"); !ok || string(v) != "ab" {
+	if v, ok := d.GetExtended(p, "", "Long-Blob"); !ok || string(v) != strings.Repeat("a", maxLongExtData)+"b" {
 		t.Errorf("Long-Blob = %q, %v", v, ok)
 	}
 	if _, ok := d.GetExtended(p, "", "Long-Text"); ok {
@@ -284,7 +290,8 @@ func TestGetExtendedMalformed(t *testing.T) {
 		name string
 		avps []AVP
 	}{
-		{"More on last AVP", []AVP{extLong(245, 1, extMoreFlag, 'a')}},
+		{"More on last AVP", []AVP{extMore(245, 1, 'a')}},
+		{"short More fragment", []AVP{extLong(245, 1, extMoreFlag, 'a'), extLong(245, 1, 0, 'b')}},
 		{"interrupted", []AVP{extLong(245, 1, extMoreFlag, 'a'), {Type: AttrUserName, Value: []byte("u")}}},
 		{"other ext type", []AVP{extLong(245, 1, extMoreFlag, 'a'), extLong(245, 2, 0, 'b')}},
 		{"other outer type", []AVP{extLong(245, 1, extMoreFlag, 'a'), {Type: 246, Value: []byte{1, 0, 'b'}}}},
@@ -370,8 +377,9 @@ func TestExtendedTLV(t *testing.T) {
 
 	p := Request(AccessRequest, "secret")
 	p.AddAVP(AVP{Type: 241, Value: []byte{5, 1, 6, 0, 0, 0, 1}})
-	// a TLV split over two long-extended fragments
-	p.AddAVP(extLong(245, 3, extMoreFlag, 1, 6, 0), extLong(245, 3, 0, 0, 0, 9))
+	// a TLV split over two long-extended fragments, after an unknown one filling the first
+	pad := append([]byte{99, maxLongExtData - 3}, make([]byte, maxLongExtData-5)...)
+	p.AddAVP(extLong(245, 3, extMoreFlag, append(pad, 1, 6, 0)...), extLong(245, 3, 0, 0, 0, 9))
 	if s, ok := d.GetTLVString(p, "", "Ext-Port-Type"); !ok || s != "Static" {
 		t.Errorf("GetTLVString = %q, %v", s, ok)
 	}

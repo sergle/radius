@@ -171,11 +171,11 @@ func (id ExtendedAttr) match(ext uint8, data []byte) ([]byte, bool) {
 }
 
 // eachExtended calls fn with the Extended-Type and data of each outer attribute in p until fn returns false.
-// Long values are joined; an incomplete or interrupted chain of fragments is skipped.
+// Long values are joined; an incomplete, interrupted or short-fragmented chain is skipped.
 func eachExtended(p *Packet, outer AttributeType, long bool, fn func(ext uint8, data []byte) bool) {
 	var pending []byte
 	var pendingExt uint8
-	chained := false
+	chained, bad := false, false
 	p.EachAVP(func(a AVP) bool {
 		if a.Type != outer {
 			chained = false
@@ -191,13 +191,18 @@ func eachExtended(p *Packet, outer AttributeType, long bool, fn func(ext uint8, 
 		}
 		if more || chained {
 			if !chained {
-				pending, pendingExt, chained = nil, ext, true
+				pending, pendingExt, chained, bad = nil, ext, true, false
 			}
+			// RFC 6929 §2.2: only a full-length fragment may have More set
+			bad = bad || more && len(data) != maxLongExtData
 			pending = append(pending, data...)
 			if more {
 				return true
 			}
 			chained = false
+			if bad {
+				return true
+			}
 			data = pending
 		}
 		return fn(ext, data)
