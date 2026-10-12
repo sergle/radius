@@ -41,7 +41,8 @@ type DecodeOptions struct {
 	// RequireMessageAuthenticator rejects Access-* packets that do not contain
 	// a Message-Authenticator attribute (RFC 3579).
 	//
-	// Default: false (accept packets without Message-Authenticator).
+	// Default: false (accept packets without Message-Authenticator, unless they
+	// carry EAP-Message, RFC 3579 section 3.2).
 	RequireMessageAuthenticator bool
 }
 
@@ -709,7 +710,17 @@ func findAttributeOffset(buf []byte, attrType AttributeType) int {
 func (p *Packet) checkMessageAuthenticator(buf []byte, offset int, requestAuth []byte, opts *DecodeOptions) (err error) {
 	if offset < 0 {
 		// Status-Server requires it (RFC 5997 section 3)
-		if p.Code == StatusServer || opts != nil && opts.RequireMessageAuthenticator && p.Code.IsAccess() {
+		if p.Code == StatusServer {
+			return ErrMessageAuthenticatorMissing
+		}
+		if !p.Code.IsAccess() {
+			return nil
+		}
+		if opts != nil && opts.RequireMessageAuthenticator {
+			return ErrMessageAuthenticatorMissing
+		}
+		// EAP-Message requires it (RFC 3579 section 3.2)
+		if findAttributeOffset(buf, AttrEAPMessage) >= 0 {
 			return ErrMessageAuthenticatorMissing
 		}
 		return nil

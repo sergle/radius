@@ -353,3 +353,33 @@ func TestDecodeRejectsWrongDirection(t *testing.T) {
 		t.Errorf("DecodeRequestPooled: got %v, want %v", err, ErrUnexpectedCode)
 	}
 }
+
+// RFC 3579 section 3.2: Access-* packets with EAP-Message must carry Message-Authenticator.
+func TestEAPMessageRequiresMessageAuthenticator(t *testing.T) {
+	const secret = "testing123"
+	eap := AVP{Type: AttrEAPMessage, Value: []byte{2, 1, 0, 5, 1}}
+
+	req := rawRequest(AccessRequest, 1, eap)
+	reqAuth := req[4:packetHeaderLen]
+	reply := rawRequest(AccessChallenge, 1, eap)
+	h := md5.New()
+	h.Write(reply[:4])
+	h.Write(reqAuth)
+	h.Write(reply[packetHeaderLen:])
+	h.Write([]byte(secret))
+	copy(reply[4:packetHeaderLen], h.Sum(nil))
+
+	decoders := map[string]func() (*Packet, error){
+		"request":        func() (*Packet, error) { return DecodeRequest(secret, req) },
+		"request pooled": func() (*Packet, error) { return DecodeRequestPooled(secret, req) },
+		"request lazy":   func() (*Packet, error) { return DecodeRequestLazy(secret, req) },
+		"reply":          func() (*Packet, error) { return DecodeReply(secret, reply, reqAuth) },
+		"reply pooled":   func() (*Packet, error) { return DecodeReplyPooled(secret, reply, reqAuth) },
+		"reply lazy":     func() (*Packet, error) { return DecodeReplyLazy(secret, reply, reqAuth) },
+	}
+	for name, decode := range decoders {
+		if _, err := decode(); !errors.Is(err, ErrMessageAuthenticatorMissing) {
+			t.Errorf("%s: got %v, want %v", name, err, ErrMessageAuthenticatorMissing)
+		}
+	}
+}
