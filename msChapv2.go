@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/bits"
 	"strconv"
+	"unicode/utf16"
 )
 
 // ── MSCHAPv2 crypto (RFC 2759) ────────────────────────────────────────────────
@@ -84,10 +85,10 @@ func msChapDESKey(k7 []byte) []byte {
 
 // MSCHAPv2NTHash computes NT-Hash = MD4(UTF-16LE(password)) (RFC 2759 §8.2).
 func MSCHAPv2NTHash(password string) []byte {
-	runes := []rune(password)
-	b := make([]byte, len(runes)*2)
-	for i, r := range runes {
-		binary.LittleEndian.PutUint16(b[i*2:], uint16(r))
+	u := utf16.Encode([]rune(password))
+	b := make([]byte, len(u)*2)
+	for i, c := range u {
+		binary.LittleEndian.PutUint16(b[i*2:], c)
 	}
 	return md4(b)
 }

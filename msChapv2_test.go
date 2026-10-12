@@ -51,6 +51,24 @@ func TestMSCHAPv2NTHashEmpty(t *testing.T) {
 	}
 }
 
+// Non-ASCII BMP runes are one UTF-16 unit each, not UTF-8 bytes.
+func TestMSCHAPv2NTHashBMP(t *testing.T) {
+	got := MSCHAPv2NTHash("aé€")
+	want := md4([]byte{'a', 0, 0xE9, 0x00, 0xAC, 0x20}) // é = 00E9, € = 20AC
+	if !bytes.Equal(got, want) {
+		t.Errorf("NTHash:\n got  %X\n want %X", got, want)
+	}
+}
+
+// Runes above U+FFFF are encoded as UTF-16 surrogate pairs.
+func TestMSCHAPv2NTHashSurrogate(t *testing.T) {
+	got := MSCHAPv2NTHash("a\U0001F600")
+	want := md4([]byte{'a', 0, 0x3D, 0xD8, 0x00, 0xDE}) // U+1F600 = D83D DE00
+	if !bytes.Equal(got, want) {
+		t.Errorf("NTHash:\n got  %X\n want %X", got, want)
+	}
+}
+
 // RFC 2759 A.3
 func TestMSCHAPv2ChallengeHash(t *testing.T) {
 	peer := mustHex(t, "21402324255E262A28295F2B3A337C7E")
