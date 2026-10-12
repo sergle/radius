@@ -201,6 +201,49 @@ func TestRadClientSkipsStrayReplies(t *testing.T) {
 	}
 }
 
+// An unsigned packet with a request code isn't taken as the reply, even without Message-Authenticator.
+func TestRadClientSkipsRequestCode(t *testing.T) {
+	const secret = "testing123"
+	addr := startScriptedServer(t, func(attempt int, req []byte) [][]byte {
+		return [][]byte{rawAccessRequest(req[1]), acceptReply(t, secret, req)}
+	})
+	client := NewRadClient(addr, secret)
+	client.SetTimeout(time.Second)
+	client.SetRequireMessageAuthenticator(false)
+
+	reply, err := client.Send(client.NewAccessRequest())
+	if err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	if reply.Code != AccessAccept {
+		t.Fatalf("got %v, want Access-Accept", reply.Code)
+	}
+}
+
+// A reply whose code doesn't answer the request is skipped.
+func TestRadClientSkipsMismatchedReplyCode(t *testing.T) {
+	const secret = "testing123"
+	addr := startScriptedServer(t, func(attempt int, req []byte) [][]byte {
+		p, err := DecodeRequest(secret, req)
+		if err != nil {
+			t.Errorf("decode request: %v", err)
+			return nil
+		}
+		b, err := p.ReplyCoAAccept().Encode()
+		if err != nil {
+			t.Errorf("encode reply: %v", err)
+			return nil
+		}
+		return [][]byte{b}
+	})
+	client := NewRadClient(addr, secret)
+	client.SetTimeout(200 * time.Millisecond)
+
+	if _, err := client.Send(client.NewAccessRequest()); !errors.Is(err, ErrUnexpectedCode) {
+		t.Fatalf("got %v, want %v", err, ErrUnexpectedCode)
+	}
+}
+
 // A context deadline bounds retransmissions.
 func TestRadClientContextDeadline(t *testing.T) {
 	const secret = "testing123"

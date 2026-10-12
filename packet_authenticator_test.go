@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/md5"
 	"encoding/binary"
+	"errors"
 	"testing"
 )
 
@@ -309,5 +310,46 @@ func TestEncodeFillsMessageAuthenticator(t *testing.T) {
 				t.Fatalf("DecodeReply: %v", err)
 			}
 		})
+	}
+}
+
+// Requests must not decode as replies (they carry no authentication), nor replies as requests.
+func TestDecodeRejectsWrongDirection(t *testing.T) {
+	const secret = "testing123"
+	statusServer, err := Request(StatusServer, secret).Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	requests := map[string][]byte{
+		"Access-Request": rawAccessRequest(1),
+		"Status-Server":  statusServer,
+	}
+	auth := make([]byte, authenticatorLen)
+	for name, b := range requests {
+		t.Run(name, func(t *testing.T) {
+			if _, err := DecodeReply(secret, b, auth); !errors.Is(err, ErrUnexpectedCode) {
+				t.Errorf("DecodeReply: got %v, want %v", err, ErrUnexpectedCode)
+			}
+			if _, err := DecodeReplyLazy(secret, b, auth); !errors.Is(err, ErrUnexpectedCode) {
+				t.Errorf("DecodeReplyLazy: got %v, want %v", err, ErrUnexpectedCode)
+			}
+			if _, err := DecodeReplyPooled(secret, b, auth); !errors.Is(err, ErrUnexpectedCode) {
+				t.Errorf("DecodeReplyPooled: got %v, want %v", err, ErrUnexpectedCode)
+			}
+		})
+	}
+
+	accept, err := Request(AccessRequest, secret).ReplyAccept().Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DecodeRequest(secret, accept); !errors.Is(err, ErrUnexpectedCode) {
+		t.Errorf("DecodeRequest: got %v, want %v", err, ErrUnexpectedCode)
+	}
+	if _, err := DecodeRequestLazy(secret, accept); !errors.Is(err, ErrUnexpectedCode) {
+		t.Errorf("DecodeRequestLazy: got %v, want %v", err, ErrUnexpectedCode)
+	}
+	if _, err := DecodeRequestPooled(secret, accept); !errors.Is(err, ErrUnexpectedCode) {
+		t.Errorf("DecodeRequestPooled: got %v, want %v", err, ErrUnexpectedCode)
 	}
 }

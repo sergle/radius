@@ -85,3 +85,21 @@ func (pc PacketCode) IsAccess() bool {
 	}
 	return false
 }
+
+// answers reports whether pc is a valid reply code to request code req.
+func (pc PacketCode) answers(req PacketCode) bool {
+	switch req {
+	case AccessRequest:
+		return pc == AccessAccept || pc == AccessReject || pc == AccessChallenge
+	case AccountingRequest:
+		return pc == AccountingResponse
+	case CoARequest:
+		return pc == CoAAccept || pc == CoAReject
+	case DisconnectRequest:
+		return pc == DisconnectAccept || pc == DisconnectReject
+	case StatusServer:
+		// RFC 5997: Access-Accept on the auth port, Accounting-Response on the accounting port
+		return pc == AccessAccept || pc == AccountingResponse
+	}
+	return false
+}

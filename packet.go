@@ -20,6 +20,7 @@ var ErrMessageAuthenticatorMissing = fmt.Errorf("RADIUS Message-Authenticator mi
 var ErrInvalidPacketLength = fmt.Errorf("RADIUS packet Length field is invalid")
 var ErrNoRequestAuthenticator = fmt.Errorf("RADIUS reply has no request authenticator, create it with request.Reply()")
 var ErrTunnelPasswordInRequest = fmt.Errorf("RADIUS Access-Request and Status-Server can't carry Tunnel-Password (encrypt=2) values")
+var ErrUnexpectedCode = fmt.Errorf("RADIUS packet code unexpected")
 
 // the size of the RADIUS packet header (RFC 2865 section 3)
 // Code (1), Identifier (1), Length (2) and Authenticator (16)
@@ -494,37 +495,37 @@ func (p *Packet) Send(c net.PacketConn, addr net.Addr) error {
 //
 // Deprecated: kept for backward compatibility; use DecodeRequest.
 func DecodePacket(secret string, buf []byte) (p *Packet, err error) {
-	return decodePacket(secret, buf, nil, nil)
+	return decodePacket(secret, buf, nil, false, nil)
 }
 
 // DecodeRequest decodes a request packet from buf using the shared secret.
 func DecodeRequest(secret string, buf []byte) (p *Packet, err error) {
-	return decodePacket(secret, buf, nil, nil)
+	return decodePacket(secret, buf, nil, false, nil)
 }
 
 // DecodeRequestWithOptions decodes a request packet from buf using the shared secret
 // and the provided options.
 func DecodeRequestWithOptions(secret string, buf []byte, opts *DecodeOptions) (p *Packet, err error) {
-	return decodePacket(secret, buf, nil, opts)
+	return decodePacket(secret, buf, nil, false, opts)
 }
 
 // DecodeReply decodes a reply packet from buf using the shared secret and
 // requestAuth (the 16-byte Authenticator from the corresponding request).
 func DecodeReply(secret string, buf []byte, requestAuth []byte) (p *Packet, err error) {
-	return decodePacket(secret, buf, requestAuth, nil)
+	return decodePacket(secret, buf, requestAuth, true, nil)
 }
 
 // DecodeReplyWithOptions decodes a reply packet from buf using the shared secret,
 // requestAuth (the 16-byte Authenticator from the corresponding request), and options.
 func DecodeReplyWithOptions(secret string, buf []byte, requestAuth []byte, opts *DecodeOptions) (p *Packet, err error) {
-	return decodePacket(secret, buf, requestAuth, opts)
+	return decodePacket(secret, buf, requestAuth, true, opts)
 }
 
 // DecodeRequestPooled decodes a request packet and returns a packet from an
 // internal pool. The returned packet must be released with (*Packet).Release.
 func DecodeRequestPooled(secret string, buf []byte) (p *Packet, err error) {
 	p = packetPool.Get()
-	err = decodePacketTo(p, secret, buf, nil, nil)
+	err = decodePacketTo(p, secret, buf, nil, false, nil)
 	if err != nil {
 		p.Release()
 		return nil, err
@@ -535,7 +536,7 @@ func DecodeRequestPooled(secret string, buf []byte) (p *Packet, err error) {
 // DecodeRequestPooledWithOptions is like DecodeRequestPooled but allows options.
 func DecodeRequestPooledWithOptions(secret string, buf []byte, opts *DecodeOptions) (p *Packet, err error) {
 	p = packetPool.Get()
-	err = decodePacketTo(p, secret, buf, nil, opts)
+	err = decodePacketTo(p, secret, buf, nil, false, opts)
 	if err != nil {
 		p.Release()
 		return nil, err
@@ -547,7 +548,7 @@ func DecodeRequestPooledWithOptions(secret string, buf []byte, opts *DecodeOptio
 // internal pool. The returned packet must be released with (*Packet).Release.
 func DecodeReplyPooled(secret string, buf []byte, requestAuth []byte) (p *Packet, err error) {
 	p = packetPool.Get()
-	err = decodePacketTo(p, secret, buf, requestAuth, nil)
+	err = decodePacketTo(p, secret, buf, requestAuth, true, nil)
 	if err != nil {
 		p.Release()
 		return nil, err
@@ -558,7 +559,7 @@ func DecodeReplyPooled(secret string, buf []byte, requestAuth []byte) (p *Packet
 // DecodeReplyPooledWithOptions is like DecodeReplyPooled but allows options.
 func DecodeReplyPooledWithOptions(secret string, buf []byte, requestAuth []byte, opts *DecodeOptions) (p *Packet, err error) {
 	p = packetPool.Get()
-	err = decodePacketTo(p, secret, buf, requestAuth, opts)
+	err = decodePacketTo(p, secret, buf, requestAuth, true, opts)
 	if err != nil {
 		p.Release()
 		return nil, err
@@ -569,34 +570,34 @@ func DecodeReplyPooledWithOptions(secret string, buf []byte, requestAuth []byte,
 // DecodeRequestLazy decodes only the packet header and keeps attributes in
 // raw form for lazy access via RawAVPs.
 func DecodeRequestLazy(secret string, buf []byte) (p *Packet, err error) {
-	return decodePacketLazy(secret, buf, nil, nil)
+	return decodePacketLazy(secret, buf, nil, false, nil)
 }
 
 // DecodeRequestLazyWithOptions is like DecodeRequestLazy but allows options.
 func DecodeRequestLazyWithOptions(secret string, buf []byte, opts *DecodeOptions) (p *Packet, err error) {
-	return decodePacketLazy(secret, buf, nil, opts)
+	return decodePacketLazy(secret, buf, nil, false, opts)
 }
 
 // DecodeReplyLazy decodes only the packet header and keeps attributes in raw
 // form for lazy access via RawAVPs.
 func DecodeReplyLazy(secret string, buf []byte, requestAuth []byte) (p *Packet, err error) {
-	return decodePacketLazy(secret, buf, requestAuth, nil)
+	return decodePacketLazy(secret, buf, requestAuth, true, nil)
 }
 
 // DecodeReplyLazyWithOptions is like DecodeReplyLazy but allows options.
 func DecodeReplyLazyWithOptions(secret string, buf []byte, requestAuth []byte, opts *DecodeOptions) (p *Packet, err error) {
-	return decodePacketLazy(secret, buf, requestAuth, opts)
+	return decodePacketLazy(secret, buf, requestAuth, true, opts)
 }
 
 // decode request/reply
-func decodePacket(Secret string, buf []byte, requestAuth []byte, opts *DecodeOptions) (p *Packet, err error) {
+func decodePacket(Secret string, buf []byte, requestAuth []byte, reply bool, opts *DecodeOptions) (p *Packet, err error) {
 	p = &Packet{Secret: Secret}
-	err = decodePacketTo(p, Secret, buf, requestAuth, opts)
+	err = decodePacketTo(p, Secret, buf, requestAuth, reply, opts)
 	return p, err
 }
 
-func decodePacketTo(p *Packet, Secret string, buf []byte, requestAuth []byte, opts *DecodeOptions) error {
-	buf, err := decodePacketHeaderTo(p, Secret, buf, requestAuth)
+func decodePacketTo(p *Packet, Secret string, buf []byte, requestAuth []byte, reply bool, opts *DecodeOptions) error {
+	buf, err := decodePacketHeaderTo(p, Secret, buf, requestAuth, reply)
 	if err != nil {
 		return err
 	}
@@ -628,9 +629,9 @@ func decodePacketTo(p *Packet, Secret string, buf []byte, requestAuth []byte, op
 	return nil
 }
 
-func decodePacketLazy(Secret string, buf []byte, requestAuth []byte, opts *DecodeOptions) (p *Packet, err error) {
+func decodePacketLazy(Secret string, buf []byte, requestAuth []byte, reply bool, opts *DecodeOptions) (p *Packet, err error) {
 	p = &Packet{Secret: Secret}
-	buf, err = decodePacketHeaderTo(p, Secret, buf, requestAuth)
+	buf, err = decodePacketHeaderTo(p, Secret, buf, requestAuth, reply)
 	if err != nil {
 		return p, err
 	}
@@ -646,8 +647,9 @@ func decodePacketLazy(Secret string, buf []byte, requestAuth []byte, opts *Decod
 	return p, nil
 }
 
-// decodePacketHeaderTo verifies the header and returns buf cut to its Length field.
-func decodePacketHeaderTo(p *Packet, Secret string, buf []byte, requestAuth []byte) ([]byte, error) {
+// decodePacketHeaderTo verifies the header and returns buf cut to its Length field;
+// reply tells whether a reply or a request code is expected.
+func decodePacketHeaderTo(p *Packet, Secret string, buf []byte, requestAuth []byte, reply bool) ([]byte, error) {
 	if len(buf) < packetHeaderLen {
 		return nil, ErrInvalidPacketLength
 	}
@@ -659,6 +661,10 @@ func decodePacketHeaderTo(p *Packet, Secret string, buf []byte, requestAuth []by
 
 	p.Secret = Secret
 	p.Code = PacketCode(buf[0])
+	// a request code in a reply would skip the authenticator check
+	if p.Code.IsRequest() == reply {
+		return nil, fmt.Errorf("%w %v", ErrUnexpectedCode, p.Code)
+	}
 	p.Identifier = buf[1]
 	copy(p.Authenticator[:], buf[4:packetHeaderLen])
 	if !p.Code.IsRequest() {

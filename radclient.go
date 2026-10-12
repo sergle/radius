@@ -3,6 +3,7 @@ package radius
 import (
 	"cmp"
 	"context"
+	"fmt"
 	"net"
 	"time"
 )
@@ -20,7 +21,7 @@ const (
 //
 // It encodes requests, sends them to the configured server, reads a reply, and
 // validates the reply authenticator using the shared secret. Replies with a
-// wrong Identifier or failing verification are skipped while waiting. With
+// wrong Identifier or code, or failing verification, are skipped while waiting. With
 // SetRetries the unchanged request is retransmitted (RFC 5080 section 2.2.1).
 type RadClient struct {
 	secret  string
@@ -120,6 +121,9 @@ func (c *RadClient) SendContext(ctx context.Context, request *Packet) (*Packet, 
 				continue
 			}
 			reply, derr := DecodeReplyWithOptions(c.secret, b[:n], requestAuth[:], &opts)
+			if derr == nil && !reply.Code.answers(request.Code) {
+				derr = fmt.Errorf("%w %v in reply to %v", ErrUnexpectedCode, reply.Code, request.Code)
+			}
 			if derr != nil {
 				lastErr = derr
 				continue
