@@ -88,6 +88,7 @@ func (p *Packet) cryptAuthenticator(method int) []byte {
 
 // ensureAuthenticator generates a random Request Authenticator if the code needs one and it isn't set;
 // kept in p, so values hidden with it and reply checks match what Encode sends.
+// Only adding attributes calls it; Encode doesn't modify p.
 func (p *Packet) ensureAuthenticator() error {
 	if p.Code.hasRandomAuthenticator() && p.Authenticator == zeroAuthenticator {
 		if _, err := rand.Read(p.Authenticator[:]); err != nil {
@@ -170,8 +171,10 @@ func (p *Packet) Copy() *Packet {
 // If the packet Code requires it, Encode will compute and include
 // Message-Authenticator and the packet Authenticator in the output.
 // A Message-Authenticator not already in the packet is added as the first attribute.
-// Replies are left unchanged; a request's Authenticator is set to the one
-// sent (random for an Access-Request or Status-Server if unset).
+// Encode only writes the output, so a packet may be encoded (or sent) from several
+// goroutines at once. The Authenticator sent is in the output (b[4:20]): computed for
+// Accounting, CoA and Disconnect requests, random for an Access-Request or
+// Status-Server if unset (then new on each call).
 func (p *Packet) Encode() (b []byte, err error) {
 	b = make([]byte, maxPacketLen)
 	n, err := p.EncodeTo(b)
@@ -182,19 +185,23 @@ func (p *Packet) Encode() (b []byte, err error) {
 }
 
 // EncodeTo serializes the packet into b and returns the number of bytes written.
+// Like Encode, it doesn't modify p.
 //
 // The provided buffer must be large enough for the full packet; this package
 // commonly uses 4096 bytes (the RADIUS maximum packet size).
 func (p *Packet) EncodeTo(b []byte) (n int, err error) {
-	if err := p.ensureAuthenticator(); err != nil {
-		return 0, err
-	}
-
 	// a new Message-Authenticator goes first (Blast-RADIUS, CVE-2024-3596)
 	addMA := p.Code.hasMessageAuthenticator() && !p.HasAVP(AttrMessageAuthenticator)
 	n, err = p.encodeNoHashTo(b, addMA)
 	if err != nil {
 		return
+	}
+
+	// an unset random authenticator is generated in the output only, leaving p unchanged
+	if p.Code.hasRandomAuthenticator() && p.Authenticator == zeroAuthenticator {
+		if _, err := rand.Read(b[4:packetHeaderLen]); err != nil {
+			return 0, err
+		}
 	}
 
 	// For non-Access requests (for example Accounting/CoA/Disconnect), the
@@ -235,10 +242,6 @@ func (p *Packet) EncodeTo(b []byte) (n int, err error) {
 		hasher.Write(b[:n])
 		hasher.Write([]byte(p.Secret))
 		copy(b[4:packetHeaderLen], hasher.Sum(nil))
-		// a request's Authenticator is an output: keep it for reply checks
-		if p.Code.IsRequest() {
-			copy(p.Authenticator[:], b[4:packetHeaderLen])
-		}
 	default:
 		return 0, fmt.Errorf("not handle p.Code %d", p.Code)
 	}

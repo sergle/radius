@@ -79,7 +79,8 @@ func (c *RadClient) SendContext(ctx context.Context, request *Packet) (*Packet, 
 		return nil, err
 	}
 
-	requestAuth := request.Authenticator
+	// the Authenticator sent, which may differ from request.Authenticator (computed or generated)
+	requestAuth := buf[4:packetHeaderLen]
 
 	dialer := &net.Dialer{}
 	conn, err := dialer.DialContext(ctx, "udp", c.server)
@@ -120,7 +121,7 @@ func (c *RadClient) SendContext(ctx context.Context, request *Packet) (*Packet, 
 			if n < packetHeaderLen || b[1] != request.Identifier {
 				continue
 			}
-			reply, derr := DecodeReplyWithOptions(c.secret, b[:n], requestAuth[:], &opts)
+			reply, derr := DecodeReplyWithOptions(c.secret, b[:n], requestAuth, &opts)
 			if derr == nil && !reply.Code.answers(request.Code) {
 				derr = fmt.Errorf("%w %v in reply to %v", ErrUnexpectedCode, reply.Code, request.Code)
 			}

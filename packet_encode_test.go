@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/md5"
+	"sync"
 	"testing"
 )
 
@@ -39,13 +40,14 @@ func TestEncodeReplyTwice(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Encode request: %v", err)
 			}
-			// a request keeps its wire authenticator, as Reply() and reply checks need it
-			if !bytes.Equal(req.Authenticator[:], reqBuf[4:packetHeaderLen]) {
-				t.Fatalf("request Authenticator %x, encoded %x", req.Authenticator, reqBuf[4:packetHeaderLen])
+			// the server replies to the request as sent
+			sent, err := DecodeRequest(secret, reqBuf)
+			if err != nil {
+				t.Fatalf("DecodeRequest: %v", err)
 			}
-			reqAuth := req.Authenticator[:]
+			reqAuth := reqBuf[4:packetHeaderLen]
 
-			reply := tc.reply(req)
+			reply := tc.reply(sent)
 			reply.AddAVP(AVP{Type: AttrReplyMessage, Value: []byte("hello")})
 			before := reply.Copy()
 
@@ -84,12 +86,8 @@ func TestEncodeAccountingRequestTwice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first Encode: %v", err)
 	}
-	if !bytes.Equal(req.Authenticator[:], b1[4:packetHeaderLen]) {
-		t.Errorf("request Authenticator %x, encoded %x", req.Authenticator, b1[4:packetHeaderLen])
-	}
-	before.Authenticator = req.Authenticator
 	if !samePacket(req, before) {
-		t.Errorf("Encode changed the AVPs: %v", req.AVPs)
+		t.Errorf("Encode changed the packet:\nbefore %+v\nafter  %+v", before, req)
 	}
 
 	b2, err := req.Encode()
@@ -109,7 +107,7 @@ func TestEncodeAccountingRequestTwice(t *testing.T) {
 	}
 }
 
-// An Access-Request without an authenticator gets a random one stored in the packet.
+// An Access-Request without an authenticator is sent with a random one; the packet is unchanged.
 func TestEncodeAccessRequestGeneratesAuthenticator(t *testing.T) {
 	const secret = "testing123"
 
@@ -118,14 +116,11 @@ func TestEncodeAccessRequestGeneratesAuthenticator(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
-	if req.Authenticator == [authenticatorLen]byte{} {
+	if [authenticatorLen]byte(b[4:packetHeaderLen]) == zeroAuthenticator {
 		t.Fatal("Authenticator not generated")
 	}
-	if !bytes.Equal(b[4:packetHeaderLen], req.Authenticator[:]) {
-		t.Errorf("encoded authenticator %x, packet has %x", b[4:packetHeaderLen], req.Authenticator)
-	}
-	if len(req.AVPs) != 0 {
-		t.Errorf("Encode added AVPs to the packet: %v", req.AVPs)
+	if req.Authenticator != zeroAuthenticator || len(req.AVPs) != 0 {
+		t.Errorf("Encode changed the packet: %+v", req)
 	}
 	if _, err := DecodeRequestWithOptions(secret, b, &DecodeOptions{RequireMessageAuthenticator: true}); err != nil {
 		t.Errorf("DecodeRequest: %v", err)
@@ -164,6 +159,49 @@ func TestRadClientVerifiesReplies(t *testing.T) {
 			if reply.Code != tc.want {
 				t.Errorf("%v send %d: got %v, want %v", tc.req.Code, i, reply.Code, tc.want)
 			}
+		}
+	}
+}
+
+// One request may be sent from several goroutines at once (go test -race).
+func TestRadClientConcurrentSend(t *testing.T) {
+	const (
+		secret  = "testing123"
+		senders = 4
+	)
+
+	handler := HandlerFunc(func(ctx context.Context, request *Packet) *Packet {
+		if request.Code == AccessRequest {
+			return request.ReplyAccept()
+		}
+		return request.ReplyAccountingResponse()
+	})
+	addr, _ := startTestServer(t, NewServer("127.0.0.1:0", secret, handler))
+
+	client := NewRadClient(addr, secret)
+	for _, req := range []*Packet{
+		{Code: AccessRequest, Secret: secret}, // authenticator generated at Encode
+		client.NewAccountingRequest(),
+	} {
+		before := req.Copy()
+		var wg sync.WaitGroup
+		errs := make(chan error, senders)
+		for range senders {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if _, err := client.Send(req); err != nil {
+					errs <- err
+				}
+			}()
+		}
+		wg.Wait()
+		close(errs)
+		for err := range errs {
+			t.Errorf("%v: %v", req.Code, err)
+		}
+		if !samePacket(req, before) {
+			t.Errorf("%v: Send changed the packet:\nbefore %+v\nafter  %+v", req.Code, before, req)
 		}
 	}
 }

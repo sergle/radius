@@ -401,7 +401,8 @@ func TestGetNilPacket(t *testing.T) {
 	}
 }
 
-// The sender reads its own encoded request, and the receiver decodes it, with the zero authenticator.
+// The sender reads its own request, and the receiver decodes it, with the zero authenticator;
+// Encode sends the computed authenticator and leaves p's.
 func TestEncryptZeroAuthenticatorRequest(t *testing.T) {
 	d := loadTLVDict(t, encTLVDict)
 	old := GetDefaultDictionary()
@@ -429,7 +430,7 @@ func TestEncryptZeroAuthenticatorRequest(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if wire := b[packetHeaderLen-authenticatorLen : packetHeaderLen]; !bytes.Equal(p.Authenticator[:], wire) || p.Authenticator == pre {
+		if wire := b[packetHeaderLen-authenticatorLen : packetHeaderLen]; bytes.Equal(p.Authenticator[:], wire) || p.Authenticator != pre {
 			t.Fatalf("%v: authenticator %x, encoded %x, before Encode %x", code, p.Authenticator, wire, pre)
 		}
 		got, err := DecodeRequest(encTLVSecret, b)

@@ -303,10 +303,10 @@ func TestEncodeFillsMessageAuthenticator(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !messageAuthenticatorOK(secret, rb, req.Authenticator[:]) {
+			if !messageAuthenticatorOK(secret, rb, b[4:packetHeaderLen]) {
 				t.Fatal("reply Message-Authenticator not computed with the Request Authenticator")
 			}
-			if _, err := DecodeReply(secret, rb, req.Authenticator[:]); err != nil {
+			if _, err := DecodeReply(secret, rb, b[4:packetHeaderLen]); err != nil {
 				t.Fatalf("DecodeReply: %v", err)
 			}
 		})
