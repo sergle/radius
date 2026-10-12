@@ -2,6 +2,7 @@ package radius
 
 import (
 	"bytes"
+	"crypto/hmac"
 	"crypto/md5"
 	"encoding/binary"
 	"testing"
@@ -201,6 +202,111 @@ func TestAuthenticatorCheckRejectsTampering(t *testing.T) {
 			}
 			if err != ErrAuthenticatorCheckFail {
 				t.Fatalf("got %v, want ErrAuthenticatorCheckFail", err)
+			}
+		})
+	}
+}
+
+// signRequest builds a request as FreeRADIUS signs it: Message-Authenticator first,
+// computed with a zero Request Authenticator, then the Request Authenticator (RFC 5176 section 3.5).
+func signRequest(code PacketCode, secret string, attrs []byte) []byte {
+	b := make([]byte, packetHeaderLen, packetHeaderLen+messageAuthenticatorLen+len(attrs))
+	b[0] = byte(code)
+	b[1] = 9
+	b = append(b, byte(AttrMessageAuthenticator), messageAuthenticatorLen)
+	b = append(b, make([]byte, md5.Size)...)
+	b = append(b, attrs...)
+	binary.BigEndian.PutUint16(b[2:4], uint16(len(b)))
+	h := hmac.New(md5.New, []byte(secret))
+	h.Write(b)
+	copy(b[packetHeaderLen+2:], h.Sum(nil))
+	m := md5.New()
+	m.Write(b)
+	m.Write([]byte(secret))
+	copy(b[4:packetHeaderLen], m.Sum(nil))
+	return b
+}
+
+// messageAuthenticatorOK checks the first attribute of b, a Message-Authenticator,
+// hashing auth in place of the authenticator field.
+func messageAuthenticatorOK(secret string, b, auth []byte) bool {
+	if b[packetHeaderLen] != byte(AttrMessageAuthenticator) {
+		return false
+	}
+	c := bytes.Clone(b)
+	copy(c[4:packetHeaderLen], auth)
+	value := c[packetHeaderLen+2 : packetHeaderLen+messageAuthenticatorLen]
+	want := bytes.Clone(value)
+	clear(value)
+	h := hmac.New(md5.New, []byte(secret))
+	h.Write(c)
+	return hmac.Equal(h.Sum(nil), want)
+}
+
+// Accounting, CoA and Disconnect requests hash a zero Request Authenticator into Message-Authenticator.
+func TestMessageAuthenticatorZeroVectorRequests(t *testing.T) {
+	const secret = "testing123"
+	userName := append([]byte{byte(AttrUserName), 7}, "alice"...)
+
+	for _, code := range []PacketCode{AccountingRequest, CoARequest, DisconnectRequest} {
+		t.Run(code.String(), func(t *testing.T) {
+			b := signRequest(code, secret, userName)
+			if _, err := DecodeRequest(secret, b); err != nil {
+				t.Fatalf("DecodeRequest: %v", err)
+			}
+			if _, err := DecodeRequestLazy(secret, b); err != nil {
+				t.Fatalf("DecodeRequestLazy: %v", err)
+			}
+
+			// a bad Message-Authenticator with a valid Request Authenticator
+			bad := bytes.Clone(b)
+			bad[packetHeaderLen+2] ^= 0xff
+			m := md5.New()
+			m.Write(bad[:4])
+			m.Write(zeroAuthenticator[:])
+			m.Write(bad[packetHeaderLen:])
+			m.Write([]byte(secret))
+			copy(bad[4:packetHeaderLen], m.Sum(nil))
+			if _, err := DecodeRequest(secret, bad); err != ErrMessageAuthenticatorCheckFail {
+				t.Fatalf("tampered: got %v, want %v", err, ErrMessageAuthenticatorCheckFail)
+			}
+		})
+	}
+}
+
+// A Message-Authenticator added to a non-Access packet is filled on encode.
+func TestEncodeFillsMessageAuthenticator(t *testing.T) {
+	const secret = "testing123"
+
+	for _, code := range []PacketCode{AccountingRequest, CoARequest, DisconnectRequest} {
+		t.Run(code.String(), func(t *testing.T) {
+			req := Request(code, secret)
+			req.AddAVP(AVP{Type: AttrMessageAuthenticator, Value: make([]byte, md5.Size)})
+			req.AddAVP(AVP{Type: AttrUserName, Value: []byte("alice")})
+			b, err := req.Encode()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !messageAuthenticatorOK(secret, b, zeroAuthenticator[:]) {
+				t.Fatal("request Message-Authenticator not computed with a zero Request Authenticator")
+			}
+			decoded, err := DecodeRequestWithOptions(secret, b, &DecodeOptions{RequireMessageAuthenticator: true})
+			if err != nil {
+				t.Fatalf("DecodeRequest: %v", err)
+			}
+
+			reply := decoded.Reply()
+			reply.Code = code + 1 // Accounting-Response, CoA-ACK, Disconnect-ACK
+			reply.AddAVP(AVP{Type: AttrMessageAuthenticator, Value: make([]byte, md5.Size)})
+			rb, err := reply.Encode()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !messageAuthenticatorOK(secret, rb, req.Authenticator[:]) {
+				t.Fatal("reply Message-Authenticator not computed with the Request Authenticator")
+			}
+			if _, err := DecodeReply(secret, rb, req.Authenticator[:]); err != nil {
+				t.Fatalf("DecodeReply: %v", err)
 			}
 		})
 	}

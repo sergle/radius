@@ -203,7 +203,7 @@ func (p *Packet) EncodeTo(b []byte) (n int, err error) {
 		clear(b[4:packetHeaderLen])
 	}
 
-	if p.Code.hasMessageAuthenticator() {
+	if addMA || p.HasAVP(AttrMessageAuthenticator) {
 		// an existing Message-Authenticator is filled in place
 		off := packetHeaderLen
 		if !addMA {
@@ -723,13 +723,17 @@ func (p *Packet) checkMessageAuthenticator(buf []byte, offset int, requestAuth [
 	value := buf[offset+2 : offset+messageAuthenticatorLen]
 
 	// HMAC-MD5 over the packet with the Message-Authenticator value zeroed;
-	// replies are hashed with the Request Authenticator in place of their own.
+	// replies are hashed with the Request Authenticator in place of their own,
+	// Accounting, CoA and Disconnect requests with zeros (RFC 5176 section 3.5).
 	var zero [md5.Size]byte
 	hasher := hmac.New(crypto.MD5.New, []byte(p.Secret))
 	hasher.Write(buf[0:4])
-	if p.Code.IsRequest() {
+	switch {
+	case p.Code.hasRandomAuthenticator():
 		hasher.Write(buf[4:packetHeaderLen])
-	} else {
+	case p.Code.IsRequest():
+		hasher.Write(zeroAuthenticator[:])
+	default:
 		hasher.Write(requestAuth)
 	}
 	hasher.Write(buf[packetHeaderLen : offset+2])
