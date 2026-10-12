@@ -66,6 +66,7 @@ type Packet struct {
 	ClientAddr    string
 
 	requestAuth [authenticatorLen]byte // set on decoded replies
+	salts       []uint16               // encrypt=2 salts generated for p, kept unique
 }
 
 // zeroAuthenticator hides values in requests whose Request Authenticator is computed (RFC 2866, 5176).
@@ -114,6 +115,22 @@ func (p *Packet) encryptAuthenticator(method int) ([]byte, error) {
 	return auth, nil
 }
 
+// encryptState is what hiding a value may change in p.
+type encryptState struct {
+	auth  [authenticatorLen]byte
+	salts int
+}
+
+func (p *Packet) saveEncrypt() encryptState {
+	return encryptState{auth: p.Authenticator, salts: len(p.salts)}
+}
+
+// restoreEncrypt undoes the Request Authenticator and salts generated for values not added.
+func (p *Packet) restoreEncrypt(s encryptState) {
+	p.Authenticator = s.auth
+	p.salts = p.salts[:s.salts]
+}
+
 var packetPool = newPool(func() *Packet {
 	return &Packet{
 		AVPs: make([]AVP, 0, 10),
@@ -140,6 +157,7 @@ func (p *Packet) Reset() {
 	p.AVPs = p.AVPs[:0]
 	p.RawAVPs = nil
 	p.ClientAddr = ""
+	p.salts = p.salts[:0]
 }
 
 // Copy returns a deep copy of the packet, including AVPs, RawAVPs and ClientAddr.
@@ -153,6 +171,7 @@ func (p *Packet) Copy() *Packet {
 		Authenticator: p.Authenticator,
 		ClientAddr:    p.ClientAddr,
 		requestAuth:   p.requestAuth,
+		salts:         slices.Clone(p.salts),
 	}
 	if p.AVPs != nil {
 		outP.AVPs = make([]AVP, len(p.AVPs))
@@ -373,11 +392,10 @@ func (p *Packet) AddVSA(vsa VSA) error {
 		return err
 	}
 	if vsa.enc != nil {
-		auth := p.Authenticator
+		s := p.saveEncrypt()
 		v, err := encryptHandlerValue(p, vsa.enc, vsa.tag, string(vsa.Value))
 		if err != nil {
-			// undo a Request Authenticator generated for the value
-			p.Authenticator = auth
+			p.restoreEncrypt(s)
 			return err
 		}
 		vsa.Value, vsa.enc = v, nil
@@ -852,11 +870,7 @@ func (p *Packet) GetPassword() (password string) {
 // A reply must be created with request.Reply(), else ErrNoRequestAuthenticator;
 // Access-Request and Status-Server can't carry it (ErrTunnelPasswordInRequest).
 func (p *Packet) AddTunnelPassword(tag uint8, password string) error {
-	auth, err := p.encryptAuthenticator(encryptTunnelPassword)
-	if err != nil {
-		return err
-	}
-	v, err := avpTunnelPassword.Encode(tag, password, p.Secret, auth)
+	v, err := p.encodeTunnelPassword(tag, password)
 	if err != nil {
 		return err
 	}

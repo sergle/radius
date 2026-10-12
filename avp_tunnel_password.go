@@ -3,7 +3,11 @@ package radius
 import (
 	"crypto/md5"
 	"crypto/rand"
+	"encoding/binary"
 	"errors"
+	"fmt"
+	"io"
+	"slices"
 )
 
 const (
@@ -11,6 +15,7 @@ const (
 	tunnelSaltLen   = 2
 	tunnelHeaderLen = tunnelTagLen + tunnelSaltLen
 	tunnelSaltBit   = 0x80 // RFC 2868: the salt's most significant bit must be set
+	maxSalts        = 1 << (8*tunnelSaltLen - 1)
 	maxAVPValueLen  = 255 - 2
 	// longest password whose padded length byte + data fits in one attribute
 	tunnelPasswordMaxLen = (maxAVPValueLen-tunnelHeaderLen)/blockSize*blockSize - 1
@@ -19,6 +24,9 @@ const (
 var ErrTunnelPasswordTooLong = errors.New("tunnel password too long")
 
 var avpTunnelPassword AvpTunnelPassword
+
+// saltRand is the source of salts; tests replace it.
+var saltRand io.Reader = rand.Reader
 
 // AvpTunnelPassword handles Tunnel-Password values (RFC 2868 section 3.5).
 type AvpTunnelPassword struct{}
@@ -42,6 +50,7 @@ func (s AvpTunnelPassword) FromString(v string) []byte {
 }
 
 // Encode encrypts password with a random salt; requestAuth is the Request Authenticator.
+// The salt may repeat one in the packet; Packet.AddTunnelPassword keeps them unique.
 func (s AvpTunnelPassword) Encode(tag uint8, password, secret string, requestAuth []byte) ([]byte, error) {
 	if len(password) > tunnelPasswordMaxLen {
 		return nil, ErrTunnelPasswordTooLong
@@ -55,11 +64,46 @@ func (s AvpTunnelPassword) Encode(tag uint8, password, secret string, requestAut
 
 // newTunnelSalt returns a random salt with the high bit set.
 func newTunnelSalt() (salt [tunnelSaltLen]byte, err error) {
-	if _, err = rand.Read(salt[:]); err != nil {
+	if _, err = io.ReadFull(saltRand, salt[:]); err != nil {
 		return salt, err
 	}
 	salt[0] |= tunnelSaltBit
 	return salt, nil
+}
+
+// encodeTunnelPassword is Encode with p's Secret, authenticator and a salt unique in p.
+func (p *Packet) encodeTunnelPassword(tag uint8, password string) ([]byte, error) {
+	auth, err := p.encryptAuthenticator(encryptTunnelPassword)
+	if err != nil {
+		return nil, err
+	}
+	if len(password) > tunnelPasswordMaxLen {
+		return nil, ErrTunnelPasswordTooLong
+	}
+	salt, err := p.newSalt()
+	if err != nil {
+		return nil, err
+	}
+	return tunnelPasswordEncrypt(tag, salt, password, p.Secret, auth), nil
+}
+
+// newSalt returns a random salt not generated for p before (RFC 2868 section 3.5, RFC 2548 section 2.4.2).
+func (p *Packet) newSalt() ([tunnelSaltLen]byte, error) {
+	if len(p.salts) >= maxSalts {
+		// far more encrypted values than a packet holds
+		return [tunnelSaltLen]byte{}, fmt.Errorf("%w: no unique salt left", ErrInvalidPacketLength)
+	}
+	for {
+		salt, err := newTunnelSalt()
+		if err != nil {
+			return salt, err
+		}
+		s := binary.BigEndian.Uint16(salt[:])
+		if !slices.Contains(p.salts, s) {
+			p.salts = append(p.salts, s)
+			return salt, nil
+		}
+	}
 }
 
 func tunnelPasswordEncrypt(tag uint8, salt [tunnelSaltLen]byte, password, secret string, requestAuth []byte) []byte {

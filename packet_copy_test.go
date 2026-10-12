@@ -15,6 +15,7 @@ func fullPacket() *Packet {
 		RawAVPs:     []byte{byte(AttrUserName), 5, 'b', 'o', 'b'},
 		ClientAddr:  "192.0.2.1:1812",
 		requestAuth: [authenticatorLen]byte{1, 2, 3},
+		salts:       []uint16{0x8123},
 	}
 	p.Authenticator = [authenticatorLen]byte{4, 5, 6}
 	return p
@@ -48,6 +49,7 @@ func TestPacketCopyIndependent(t *testing.T) {
 	src.ClientAddr = "198.51.100.1:1812"
 	src.Authenticator[0] = 0xff
 	src.requestAuth[0] = 0xff
+	src.salts[0] = 0xffff
 
 	if !reflect.DeepEqual(dst, want) {
 		t.Errorf("copy changed with original:\ngot  %+v\nwant %+v", dst, want)

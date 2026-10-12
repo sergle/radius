@@ -40,11 +40,10 @@ func (t *AttributeTemplate) Add(p *Packet, value string) {
 		return
 	}
 	if isEncrypted(t.handler) {
-		auth := p.Authenticator
+		s := p.saveEncrypt()
 		v, err := encryptHandlerValue(p, t.handler, t.tag, value)
 		if err != nil {
-			// undo a Request Authenticator generated for the value
-			p.Authenticator = auth
+			p.restoreEncrypt(s)
 			logger().Warn("radius: template skipped attribute", "attribute", t.attrType, "error", err)
 			return
 		}

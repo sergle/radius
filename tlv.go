@@ -191,7 +191,7 @@ func encryptValue(method int, p *Packet, v []byte) ([]byte, error) {
 	}
 	var salt [tunnelSaltLen]byte
 	if method == encryptTunnelPassword {
-		if salt, err = newTunnelSalt(); err != nil {
+		if salt, err = p.newSalt(); err != nil {
 			return nil, err
 		}
 	}
@@ -379,11 +379,11 @@ func (d *Dictionary) AddTLV(p *Packet, vendorName, attrName string, values ...TL
 	if p == nil {
 		return ErrNilPacket
 	}
-	auth := p.Authenticator
+	s := p.saveEncrypt()
 	avp, err := d.parseTLV(p, vendorName, attrName, values)
 	if err != nil {
-		// undo a Request Authenticator generated for an earlier value
-		p.Authenticator = auth
+		// undo what earlier values generated
+		p.restoreEncrypt(s)
 		return err
 	}
 	p.AddAVP(avp)

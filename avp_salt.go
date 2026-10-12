@@ -52,11 +52,7 @@ func encryptHandlerValue(p *Packet, handler avpDataType, tag uint8, value string
 	case avpPassword:
 		return encryptValue(encryptUserPassword, p, []byte(value))
 	case avpTunnelPassword:
-		auth, err := p.encryptAuthenticator(encryptTunnelPassword)
-		if err != nil {
-			return nil, err
-		}
-		return avpTunnelPassword.Encode(tag, value, p.Secret, auth)
+		return p.encodeTunnelPassword(tag, value)
 	case avpSaltString, avpSaltOctets:
 		return encryptValue(encryptTunnelPassword, p, []byte(value))
 	}
