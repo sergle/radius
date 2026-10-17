@@ -15,6 +15,8 @@ const DefaultMaxConcurrent = 1024
 // Service handles inbound RADIUS requests and returns a reply packet.
 // The server sets the reply's Identifier, Secret and Authenticator from the request.
 // Encrypted attributes (e.g. Tunnel-Password) need them when added, so use request.Reply().
+// The request is decoded lazily: read its attributes with EachAVP, GetAVP and the
+// Get* helpers, not request.AVPs, which is empty.
 type Service interface {
 	RadiusHandle(ctx context.Context, request *Packet) *Packet
 }
@@ -211,7 +213,10 @@ func (s *Server) Serve() error {
 			}
 
 			opts := DecodeOptions{RequireMessageAuthenticator: s.requireMA}
-			p, err := DecodeRequestPooledWithOptions(secret, buf[:n], &opts)
+			// Lazy: attributes stay in p.RawAVPs and p.AVPs is empty, so
+			// handlers must read them with EachAVP/GetAVP/HasAVP and the
+			// Get* helpers, not through the AVPs field.
+			p, err := DecodeRequestLazyPooledWithOptions(secret, buf[:n], &opts)
 			if err != nil {
 				logger().Warn("radius: decode packet", "client", addr, "error", err)
 				return

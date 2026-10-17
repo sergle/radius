@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -68,6 +69,8 @@ func decodeLengthTestCase(tc lengthTestCase, buf []byte, mode string, opts *Deco
 			return DecodeRequestWithOptions(secret, buf, opts)
 		case "pooled":
 			return DecodeRequestPooledWithOptions(secret, buf, opts)
+		case "lazy pooled":
+			return DecodeRequestLazyPooledWithOptions(secret, buf, opts)
 		default:
 			return DecodeRequestLazyWithOptions(secret, buf, opts)
 		}
@@ -77,12 +80,14 @@ func decodeLengthTestCase(tc lengthTestCase, buf []byte, mode string, opts *Deco
 		return DecodeReplyWithOptions(secret, buf, tc.requestAuth, opts)
 	case "pooled":
 		return DecodeReplyPooledWithOptions(secret, buf, tc.requestAuth, opts)
+	case "lazy pooled":
+		return DecodeReplyLazyPooledWithOptions(secret, buf, tc.requestAuth, opts)
 	default:
 		return DecodeReplyLazyWithOptions(secret, buf, tc.requestAuth, opts)
 	}
 }
 
-var lengthDecodeModes = []string{"normal", "pooled", "lazy"}
+var lengthDecodeModes = []string{"normal", "pooled", "lazy", "lazy pooled"}
 
 var requireMA = &DecodeOptions{RequireMessageAuthenticator: true}
 
@@ -101,7 +106,7 @@ func TestDecodeIgnoresPaddingPastLength(t *testing.T) {
 					t.Errorf("%s/%s/pad=%d: decode failed: %v", tc.name, mode, pad, err)
 					continue
 				}
-				if mode == "lazy" {
+				if strings.HasPrefix(mode, "lazy") {
 					if !bytes.Equal(got.RawAVPs, tc.buf[packetHeaderLen:]) {
 						t.Errorf("%s/%s/pad=%d: RawAVPs include padding: got %d bytes, want %d",
 							tc.name, mode, pad, len(got.RawAVPs), len(tc.buf)-packetHeaderLen)
@@ -109,7 +114,7 @@ func TestDecodeIgnoresPaddingPastLength(t *testing.T) {
 				} else if (len(got.AVPs) > 0 || len(want.AVPs) > 0) && !reflect.DeepEqual(got.AVPs, want.AVPs) {
 					t.Errorf("%s/%s/pad=%d: AVPs = %v, want %v", tc.name, mode, pad, got.AVPs, want.AVPs)
 				}
-				if mode == "pooled" {
+				if strings.HasSuffix(mode, "pooled") {
 					got.Release()
 				}
 			}

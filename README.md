@@ -479,6 +479,8 @@ defer packet.Release() // Crucial: Return packet to the pool
 log.Printf("User: %s", packet.GetUsername())
 ```
 
+`DecodeRequestLazyPooled`/`DecodeReplyLazyPooled` combine pooling with lazy decoding: attributes stay in `RawAVPs` and are read on access.
+
 ### Direct Encoding
 ```go
 // Encode directly into a provided buffer, avoiding allocations

@@ -48,11 +48,12 @@ func main() {
 		count := atomic.AddInt64(&cnt, 1)
 		log.Printf("[%d] [Authenticate] %s\n", count, request.String())
 
-		for _, avp := range request.AVPs {
+		request.EachAVP(func(avp radius.AVP) bool {
 			attrName := dict.GetAttributeName(avp.Type)
 			attrType := dict.GetAttributeType(attrName)
 			log.Printf("  AVP: name=%s type=%s value=%v\n", attrName, attrType, dict.DecodeAVPValue(request, avp))
-		}
+			return true
+		})
 
 		switch request.Code {
 		case radius.AccessRequest:

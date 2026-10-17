@@ -115,9 +115,10 @@ func TestMalformedPacketNoPanic(t *testing.T) {
 	}
 
 	decoders := map[string]func() (*Packet, error){
-		"DecodeRequest":       func() (*Packet, error) { return DecodeRequest(secret, buf) },
-		"DecodeRequestLazy":   func() (*Packet, error) { return DecodeRequestLazy(secret, buf) },
-		"DecodeRequestPooled": func() (*Packet, error) { return DecodeRequestPooled(secret, buf) },
+		"DecodeRequest":           func() (*Packet, error) { return DecodeRequest(secret, buf) },
+		"DecodeRequestLazy":       func() (*Packet, error) { return DecodeRequestLazy(secret, buf) },
+		"DecodeRequestPooled":     func() (*Packet, error) { return DecodeRequestPooled(secret, buf) },
+		"DecodeRequestLazyPooled": func() (*Packet, error) { return DecodeRequestLazyPooled(secret, buf) },
 	}
 	for name, decode := range decoders {
 		t.Run(name, func(t *testing.T) {

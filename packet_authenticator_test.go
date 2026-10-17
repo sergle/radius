@@ -370,12 +370,14 @@ func TestEAPMessageRequiresMessageAuthenticator(t *testing.T) {
 	copy(reply[4:packetHeaderLen], h.Sum(nil))
 
 	decoders := map[string]func() (*Packet, error){
-		"request":        func() (*Packet, error) { return DecodeRequest(secret, req) },
-		"request pooled": func() (*Packet, error) { return DecodeRequestPooled(secret, req) },
-		"request lazy":   func() (*Packet, error) { return DecodeRequestLazy(secret, req) },
-		"reply":          func() (*Packet, error) { return DecodeReply(secret, reply, reqAuth) },
-		"reply pooled":   func() (*Packet, error) { return DecodeReplyPooled(secret, reply, reqAuth) },
-		"reply lazy":     func() (*Packet, error) { return DecodeReplyLazy(secret, reply, reqAuth) },
+		"request":             func() (*Packet, error) { return DecodeRequest(secret, req) },
+		"request pooled":      func() (*Packet, error) { return DecodeRequestPooled(secret, req) },
+		"request lazy":        func() (*Packet, error) { return DecodeRequestLazy(secret, req) },
+		"request lazy pooled": func() (*Packet, error) { return DecodeRequestLazyPooled(secret, req) },
+		"reply":               func() (*Packet, error) { return DecodeReply(secret, reply, reqAuth) },
+		"reply pooled":        func() (*Packet, error) { return DecodeReplyPooled(secret, reply, reqAuth) },
+		"reply lazy":          func() (*Packet, error) { return DecodeReplyLazy(secret, reply, reqAuth) },
+		"reply lazy pooled":   func() (*Packet, error) { return DecodeReplyLazyPooled(secret, reply, reqAuth) },
 	}
 	for name, decode := range decoders {
 		if _, err := decode(); !errors.Is(err, ErrMessageAuthenticatorMissing) {

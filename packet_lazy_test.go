@@ -90,3 +90,46 @@ func TestLazyGetAVPMissNoAlloc(t *testing.T) {
 		t.Errorf("allocs = %v, want 0", allocs)
 	}
 }
+
+func TestDecodeLazyPooled(t *testing.T) {
+	const secret = "secret"
+	req := Request(AccessRequest, secret)
+	req.AddAVP(AVP{Type: AttrUserName, Value: []byte("bob")})
+	buf, err := req.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// a pooled packet used before must come back with no parsed AVPs
+	used, err := DecodeRequestPooled(secret, buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	used.Release()
+
+	p, err := DecodeRequestLazyPooled(secret, buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.AVPs) != 0 || len(p.RawAVPs) == 0 || p.GetUsername() != "bob" || p.Secret != secret {
+		t.Errorf("AVPs %v, RawAVPs %v, User-Name %q, Secret %q", p.AVPs, p.RawAVPs, p.GetUsername(), p.Secret)
+	}
+	p.Release()
+
+	// no Message-Authenticator: the HMAC check allocates
+	raw := getLargeRawPacket()
+	allocs := testing.AllocsPerRun(100, func() {
+		p, err := DecodeRequestLazyPooled(secret, raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p.Release()
+	})
+	if allocs != 0 {
+		t.Errorf("allocs = %v, want 0", allocs)
+	}
+
+	if p, err := DecodeRequestLazyPooled("wrong", buf[:10]); p != nil || err == nil {
+		t.Errorf("short packet: got %v, %v; want nil, error", p, err)
+	}
+}

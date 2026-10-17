@@ -64,6 +64,21 @@ func BenchmarkDecodePacketLazyLarge(b *testing.B) {
 	}
 }
 
+func BenchmarkDecodePacketLazyPooledLarge(b *testing.B) {
+	rawPacket := getLargeRawPacket()
+	secret := "secret"
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		p, err := DecodeRequestLazyPooled(secret, rawPacket)
+		if err != nil {
+			b.Fatal(err)
+		}
+		p.Release()
+	}
+}
+
 func BenchmarkEncodePacket(b *testing.B) {
 	p := Request(AccessRequest, "secret")
 	for i := 0; i < 20; i++ {

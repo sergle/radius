@@ -630,6 +630,28 @@ func DecodeReplyLazyWithOptions(secret string, buf []byte, requestAuth []byte, o
 	return decodePacketLazy(secret, buf, requestAuth, true, opts)
 }
 
+// DecodeRequestLazyPooled is like DecodeRequestLazy but returns a packet from
+// an internal pool. The returned packet must be released with (*Packet).Release.
+func DecodeRequestLazyPooled(secret string, buf []byte) (p *Packet, err error) {
+	return decodePacketLazyPooled(secret, buf, nil, false, nil)
+}
+
+// DecodeRequestLazyPooledWithOptions is like DecodeRequestLazyPooled but allows options.
+func DecodeRequestLazyPooledWithOptions(secret string, buf []byte, opts *DecodeOptions) (p *Packet, err error) {
+	return decodePacketLazyPooled(secret, buf, nil, false, opts)
+}
+
+// DecodeReplyLazyPooled is like DecodeReplyLazy but returns a packet from
+// an internal pool. The returned packet must be released with (*Packet).Release.
+func DecodeReplyLazyPooled(secret string, buf []byte, requestAuth []byte) (p *Packet, err error) {
+	return decodePacketLazyPooled(secret, buf, requestAuth, true, nil)
+}
+
+// DecodeReplyLazyPooledWithOptions is like DecodeReplyLazyPooled but allows options.
+func DecodeReplyLazyPooledWithOptions(secret string, buf []byte, requestAuth []byte, opts *DecodeOptions) (p *Packet, err error) {
+	return decodePacketLazyPooled(secret, buf, requestAuth, true, opts)
+}
+
 // decode request/reply
 func decodePacket(Secret string, buf []byte, requestAuth []byte, reply bool, opts *DecodeOptions) (p *Packet, err error) {
 	p = &Packet{Secret: Secret}
@@ -674,9 +696,24 @@ func decodePacketTo(p *Packet, Secret string, buf []byte, requestAuth []byte, re
 
 func decodePacketLazy(Secret string, buf []byte, requestAuth []byte, reply bool, opts *DecodeOptions) (p *Packet, err error) {
 	p = &Packet{Secret: Secret}
-	buf, err = decodePacketHeaderTo(p, Secret, buf, requestAuth, reply)
+	err = decodePacketLazyTo(p, Secret, buf, requestAuth, reply, opts)
+	return p, err
+}
+
+func decodePacketLazyPooled(Secret string, buf []byte, requestAuth []byte, reply bool, opts *DecodeOptions) (p *Packet, err error) {
+	p = packetPool.Get()
+	err = decodePacketLazyTo(p, Secret, buf, requestAuth, reply, opts)
 	if err != nil {
-		return p, err
+		p.Release()
+		return nil, err
+	}
+	return p, nil
+}
+
+func decodePacketLazyTo(p *Packet, Secret string, buf []byte, requestAuth []byte, reply bool, opts *DecodeOptions) error {
+	buf, err := decodePacketHeaderTo(p, Secret, buf, requestAuth, reply)
+	if err != nil {
+		return err
 	}
 	p.RawAVPs = buf[packetHeaderLen:]
 
@@ -684,11 +721,7 @@ func decodePacketLazy(Secret string, buf []byte, requestAuth []byte, reply bool,
 	// Note: Message-Authenticator verification requires walking the attributes
 	// if we want to be fully lazy, we could defer this, but it's safer to check now.
 	maOffset, hasEAP := findMessageAuthenticator(buf)
-	err = p.checkMessageAuthenticator(buf, maOffset, hasEAP, requestAuth, opts)
-	if err != nil {
-		return p, err
-	}
-	return p, nil
+	return p.checkMessageAuthenticator(buf, maOffset, hasEAP, requestAuth, opts)
 }
 
 // decodePacketHeaderTo verifies the header and returns buf cut to its Length field;
