@@ -42,7 +42,7 @@ func (s AvpTunnelPassword) String(p *Packet, a AVP) string {
 		return maskedValue
 	}
 	if _, password, ok := s.decrypt(p, a.Value); ok {
-		return password
+		return printable(password)
 	}
 	return avpBinary.String(p, a)
 }

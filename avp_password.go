@@ -48,7 +48,7 @@ func (s AvpPassword) String(p *Packet, a AVP) string {
 	if p.masks() {
 		return maskedValue
 	}
-	return s.Value(p, a).(string)
+	return printable(s.Value(p, a).(string))
 }
 
 func (s AvpPassword) FromString(v string) []byte {

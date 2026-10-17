@@ -84,3 +84,41 @@ func TestPacketStringAllocs(t *testing.T) {
 		}
 	}
 }
+
+// String escapes values that would add lines or terminal escapes to a log.
+func TestPacketStringEscapes(t *testing.T) {
+	const evil = "bob\nCode: AccessAccept\x1b[2J"
+	p := Request(AccessRequest, "secret")
+	p.AddAVP(AVP{Type: AttrUserName, Value: []byte(evil)})
+	p.AddAVP(AVP{Type: AttrReplyMessage, Value: []byte(`"quoted"`)})
+	p.AddAVP(AVP{Type: AttrCallingStationId, Value: []byte("a\u202eb")})
+	p.AddAVP(AVP{Type: AttrTunnelPrivateGroupID, Value: []byte("\x01vlan\r10")})
+	p.AddAVP(AVP{Type: AttrNASIdentifier, Value: []byte("nas 1, ok")})
+	if err := p.AddPassword("pw\n"); err != nil {
+		t.Fatal(err)
+	}
+	s := p.String()
+	for _, want := range []string{
+		`AVP type: User-Name "bob\nCode: AccessAccept\x1b[2J"`,
+		`AVP type: Reply-Message "\"quoted\""`,
+		`AVP type: Calling-Station-Id "a\u202eb"`,
+		`AVP type: Tunnel-Private-Group-ID "vlan\r10" (tag 1)`,
+		`AVP type: NAS-Identifier nas 1, ok`,
+		`AVP type: User-Password "pw\n"`,
+	} {
+		if !strings.Contains(s, want+"\n") {
+			t.Errorf("missing %s in\n%s", want, s)
+		}
+	}
+	if strings.Count(s, "\n") != 4+6 || strings.ContainsRune(s, '\x1b') {
+		t.Errorf("unescaped output:\n%s", s)
+	}
+
+	r := p.Reply()
+	if err := r.AddTunnelPassword(1, "tp\x00\x07"); err != nil {
+		t.Fatal(err)
+	}
+	if s, want := r.String(), `AVP type: Tunnel-Password "tp\x00\a"`; !strings.Contains(s, want+"\n") {
+		t.Errorf("missing %s in\n%s", want, s)
+	}
+}

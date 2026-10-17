@@ -49,7 +49,7 @@ func (s AvpTaggedString) Value(p *Packet, a AVP) interface{} {
 
 func (s AvpTaggedString) String(p *Packet, a AVP) string {
 	tag, v := splitTaggedString(a.Value)
-	return withTag(string(v), tag)
+	return withTag(printable(string(v)), tag)
 }
 
 func (s AvpTaggedString) FromString(v string) []byte {
