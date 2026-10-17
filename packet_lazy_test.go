@@ -78,3 +78,15 @@ func TestLazyPacketDeleteAVP(t *testing.T) {
 		t.Errorf("EachAVP = %v", got)
 	}
 }
+
+func TestLazyGetAVPMissNoAlloc(t *testing.T) {
+	p := lazyTestPacket(t)
+	allocs := testing.AllocsPerRun(100, func() {
+		if p.HasAVP(AttrNASIPAddress) || p.GetAVP(AttrNASIPAddress) != nil {
+			t.Fatal("unexpected attribute")
+		}
+	})
+	if allocs != 0 {
+		t.Errorf("allocs = %v, want 0", allocs)
+	}
+}

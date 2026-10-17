@@ -332,7 +332,9 @@ func (p *Packet) HasAVP(attrType AttributeType) bool {
 func (p *Packet) GetAVP(attrType AttributeType) *AVP {
 	for _, a := range rawAttrs(p.RawAVPs) {
 		if a.Type == attrType {
-			return &a
+			// copy, so a doesn't escape (heap-allocated per iteration)
+			found := a
+			return &found
 		}
 	}
 	for i := range p.AVPs {
@@ -643,6 +645,7 @@ func decodePacketTo(p *Packet, Secret string, buf []byte, requestAuth []byte, re
 
 	//read attributes, remembering where the first Message-Authenticator is
 	maOffset := -1
+	hasEAP := false
 	b := buf[packetHeaderLen:]
 	for pos := packetHeaderLen; len(b) >= 2; {
 		length := uint8(b[1])
@@ -656,12 +659,13 @@ func decodePacketTo(p *Packet, Secret string, buf []byte, requestAuth []byte, re
 		if attr.Type == AttrMessageAuthenticator && maOffset < 0 {
 			maOffset = pos
 		}
+		hasEAP = hasEAP || attr.Type == AttrEAPMessage
 		pos += int(length)
 		b = b[length:]
 	}
 
 	// Verify the Message-Authenticator
-	err = p.checkMessageAuthenticator(buf, maOffset, requestAuth, opts)
+	err = p.checkMessageAuthenticator(buf, maOffset, hasEAP, requestAuth, opts)
 	if err != nil {
 		return err
 	}
@@ -679,7 +683,8 @@ func decodePacketLazy(Secret string, buf []byte, requestAuth []byte, reply bool,
 	// Verify the Message-Authenticator
 	// Note: Message-Authenticator verification requires walking the attributes
 	// if we want to be fully lazy, we could defer this, but it's safer to check now.
-	err = p.checkMessageAuthenticator(buf, findAttributeOffset(buf, AttrMessageAuthenticator), requestAuth, opts)
+	maOffset, hasEAP := findMessageAuthenticator(buf)
+	err = p.checkMessageAuthenticator(buf, maOffset, hasEAP, requestAuth, opts)
 	if err != nil {
 		return p, err
 	}
@@ -752,9 +757,25 @@ func findAttributeOffset(buf []byte, attrType AttributeType) int {
 	return -1
 }
 
+// findMessageAuthenticator returns the offset in buf of the first
+// Message-Authenticator (or -1) and, if there is none, whether buf has an
+// EAP-Message, in one pass.
+func findMessageAuthenticator(buf []byte) (offset int, hasEAP bool) {
+	for off, a := range rawAttrs(buf[packetHeaderLen:]) {
+		switch a.Type {
+		case AttrMessageAuthenticator:
+			return packetHeaderLen + off, hasEAP
+		case AttrEAPMessage:
+			hasEAP = true
+		}
+	}
+	return -1, hasEAP
+}
+
 // check value of Message-Authenticator AVP against the received bytes in buf;
-// offset is the position of the attribute in buf, or -1 if it is absent
-func (p *Packet) checkMessageAuthenticator(buf []byte, offset int, requestAuth []byte, opts *DecodeOptions) (err error) {
+// offset is the position of the attribute in buf, or -1 if it is absent, and
+// hasEAP whether buf has an EAP-Message
+func (p *Packet) checkMessageAuthenticator(buf []byte, offset int, hasEAP bool, requestAuth []byte, opts *DecodeOptions) (err error) {
 	if offset < 0 {
 		// Status-Server requires it (RFC 5997 section 3)
 		if p.Code == StatusServer {
@@ -767,7 +788,7 @@ func (p *Packet) checkMessageAuthenticator(buf []byte, offset int, requestAuth [
 			return ErrMessageAuthenticatorMissing
 		}
 		// EAP-Message requires it (RFC 3579 section 3.2)
-		if findAttributeOffset(buf, AttrEAPMessage) >= 0 {
+		if hasEAP {
 			return ErrMessageAuthenticatorMissing
 		}
 		return nil
@@ -780,7 +801,6 @@ func (p *Packet) checkMessageAuthenticator(buf []byte, offset int, requestAuth [
 	// HMAC-MD5 over the packet with the Message-Authenticator value zeroed;
 	// replies are hashed with the Request Authenticator in place of their own,
 	// Accounting, CoA and Disconnect requests with zeros (RFC 5176 section 3.5).
-	var zero [md5.Size]byte
 	hasher := hmac.New(crypto.MD5.New, []byte(p.Secret))
 	hasher.Write(buf[0:4])
 	switch {
@@ -792,7 +812,7 @@ func (p *Packet) checkMessageAuthenticator(buf []byte, offset int, requestAuth [
 		hasher.Write(requestAuth)
 	}
 	hasher.Write(buf[packetHeaderLen : offset+2])
-	hasher.Write(zero[:])
+	hasher.Write(zeroAuthenticator[:]) // the zeroed value
 	hasher.Write(buf[offset+messageAuthenticatorLen:])
 	if !hmac.Equal(hasher.Sum(nil), value) {
 		return ErrMessageAuthenticatorCheckFail
