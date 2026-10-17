@@ -41,7 +41,11 @@ func (t *AttributeTemplate) Add(p *Packet, value string) {
 	}
 	if isEncrypted(t.handler) {
 		s := p.saveEncrypt()
-		v, err := encryptHandlerValue(p, t.handler, t.tag, value)
+		plain, err := hiddenValue(t.handler, t.names, value)
+		var v []byte
+		if err == nil {
+			v, err = encryptHandlerValue(p, t.handler, t.tag, plain)
+		}
 		if err != nil {
 			p.restoreEncrypt(s)
 			logger().Warn("radius: template skipped attribute", "attribute", t.attrType, "error", err)
@@ -74,8 +78,9 @@ func (t *vsaTemplate) Add(p *Packet, value string) {
 	var err error
 	if isEncrypted(t.handler) {
 		// AddVSA encrypts it
-		err = checkHiddenLen(t.handler, value)
-		vsa.Value, vsa.enc, vsa.tag = []byte(value), t.handler, t.tag
+		var plain string
+		plain, err = hiddenValue(t.handler, t.names, value)
+		vsa.Value, vsa.enc, vsa.tag = []byte(plain), t.handler, t.tag
 	} else {
 		vsa.Value, err = encodeValue(t.handler, t.names, t.tag, value)
 	}

@@ -227,3 +227,78 @@ func TestVSATemplateSaltEncrypted(t *testing.T) {
 		t.Fatalf("MS-MPPE-Recv-Key = %q, %v", got, ok)
 	}
 }
+
+const saltIntDict = `
+VENDOR Alcatel-Lucent-Service-Router 6527
+BEGIN-VENDOR Alcatel-Lucent-Service-Router
+ATTRIBUTE Alc-LI-Action 138 integer encrypt=2
+VALUE Alc-LI-Action No-Action 1
+VALUE Alc-LI-Action Enable 2
+ATTRIBUTE Alc-LI-Destination 140 ipaddr encrypt=2
+ATTRIBUTE Alc-Test-Signed 141 signed encrypt=2
+VALUE Alc-Test-Signed Minus-One -1
+ATTRIBUTE Alc-Test-Pw-Int 142 integer encrypt=1
+END-VENDOR Alcatel-Lucent-Service-Router
+`
+
+// encrypt=2 on non-string types decrypts, then decodes as the type.
+func TestSaltEncryptedNonString(t *testing.T) {
+	const secret = "testing123"
+	const vendor = "Alcatel-Lucent-Service-Router"
+	d := NewDictionary()
+	if err := d.loadReader("salt_int_test", strings.NewReader(saltIntDict)); err != nil {
+		t.Fatal(err)
+	}
+
+	req := Request(AccessRequest, secret)
+	reply := req.ReplyAccept()
+	for _, v := range [][2]string{{"Alc-LI-Action", "Enable"}, {"Alc-LI-Destination", "10.1.2.3"}, {"Alc-Test-Signed", "Minus-One"}} {
+		if err := addVSA(d, reply, vendor, v[0], v[1]); err != nil {
+			t.Fatalf("%s: %v", v[0], err)
+		}
+	}
+	// hand-built: decrypts to the integer 1
+	reply.AddVSA(VSA{Vendor: 6527, Type: 138, Value: saltEncrypt([]byte{0, 0, 0, 1}, secret, req.Authenticator[:])})
+	// encrypt=1 on an integer: not decrypted, shown as octets
+	pw := []byte{0x80, 0x01, 0xde, 0xad}
+	reply.AddVSA(VSA{Vendor: 6527, Type: 142, Value: pw})
+	b, err := reply.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodeReply(secret, b, req.Authenticator[:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := ToVSA(decoded.AVPs[1]).Value; len(v) != tunnelSaltLen+blockSize {
+		t.Errorf("Alc-LI-Action value is %d bytes, want %d", len(v), tunnelSaltLen+blockSize)
+	}
+	if got, ok := d.GetVSA(decoded, vendor, "Alc-LI-Action"); !ok || !bytes.Equal(got, []byte{0, 0, 0, 2}) {
+		t.Errorf("GetVSA Alc-LI-Action = %x, %v", got, ok)
+	}
+	want := []string{"Value: Enable}", "Value: 10.1.2.3}", "Value: Minus-One}", "Value: No-Action}", fmt.Sprintf("Value: %#v}", pw)}
+	for i, w := range want {
+		if s := d.DecodeAVPValue(decoded, decoded.AVPs[i+1]); !strings.Contains(s, w) {
+			t.Errorf("DecodeAVPValue = %s, want %s", s, w)
+		}
+	}
+	// without the packet the ciphertext is octets, not an integer
+	a := decoded.AVPs[1]
+	if s := d.DecodeAVPValue(nil, a); !strings.Contains(s, fmt.Sprintf("%#v}", ToVSA(a).Value)) {
+		t.Errorf("DecodeAVPValue without packet = %s", s)
+	}
+
+	// a VSA template encodes the integer, then encrypts it
+	tpl := &RequestTemplate{code: AccessAccept}
+	if err := tpl.AddVSAAttribute(d, vendor, "Alc-LI-Action"); err != nil {
+		t.Fatal(err)
+	}
+	r := req.ReplyAccept()
+	tpl.Fill(r, "No-Action")
+	if got, ok := d.GetVSA(r, vendor, "Alc-LI-Action"); !ok || !bytes.Equal(got, []byte{0, 0, 0, 1}) {
+		t.Errorf("template Alc-LI-Action = %x, %v", got, ok)
+	}
+	if _, err := d.ParseVSA(vendor, "Alc-LI-Action", "bogus"); !errors.Is(err, ErrInvalidValue) {
+		t.Errorf("ParseVSA bogus = %v, want ErrInvalidValue", err)
+	}
+}

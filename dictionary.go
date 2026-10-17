@@ -372,6 +372,13 @@ func (f attributeFlags) effectiveType(attrType string) string {
 		}
 		return attrType
 	}
+	if saltPlainTypes[attrType] {
+		// decrypted, then decoded as attrType; other methods aren't, don't present ciphertext as the type
+		if f.encrypt == encryptTunnelPassword && !f.hasTag {
+			return saltTypePrefix + attrType
+		}
+		return typeOctets
+	}
 	if attrType != typeString && attrType != typeOctets {
 		return attrType
 	}
@@ -658,7 +665,7 @@ func encryptMethod(attrType string, f attributeFlags) int {
 		return f.encrypt
 	case attrType == typePassword:
 		return encryptUserPassword
-	case attrType == typeTunnelPassword, attrType == typeSaltString, attrType == typeSaltOctets:
+	case attrType == typeTunnelPassword, strings.HasPrefix(attrType, saltTypePrefix):
 		return encryptTunnelPassword
 	}
 	return encryptNone
@@ -961,13 +968,29 @@ const (
 	typeOctets         = "octets"
 	typePassword       = "password"
 	typeTunnelPassword = "tunnel-password"
-	typeSaltString     = "salt-encrypted-string"
-	typeSaltOctets     = "salt-encrypted-octets"
+	typeSaltString     = saltTypePrefix + typeString
+	typeSaltOctets     = saltTypePrefix + typeOctets
 	typeTaggedInteger  = "tagged-integer"
 	typeTaggedString   = "tagged-string"
 	typeVSA            = "vsa"
 	typeEAPMessage     = "eapmessage"
 )
+
+// saltTypePrefix names untagged encrypt=2 types (RFC 2548), e.g. salt-encrypted-integer.
+const saltTypePrefix = "salt-encrypted-"
+
+// saltPlainTypes are the non-string types an untagged encrypt=2 value decrypts to.
+var saltPlainTypes = map[string]bool{
+	typeInteger: true, typeByte: true, typeShort: true, typeSigned: true,
+	typeIPAddr: true, typeIPv6Addr: true, typeIPv6Prefix: true,
+	typeIfid: true, typeEther: true, typeDate: true, typeComboIP: true,
+}
+
+func init() {
+	for t := range saltPlainTypes {
+		attrTypeHandlers[saltTypePrefix+t] = AvpSaltEncrypted{plain: attrTypeHandlers[t]}
+	}
+}
 
 // attribute type to handler mapping
 var attrTypeHandlers = map[string]avpDataType{
@@ -1058,12 +1081,12 @@ func (d *Dictionary) DecodeAVPValue(p *Packet, a AVP) string {
 			return fmt.Sprintf("{Vendor:%s #%d, Attr: %s #%d, Value: %s}",
 				vendorName, vsa.Vendor, attrName, vsa.Type, valStr)
 		}
-		handler := handlerForValue(d.vsaAttrType[vsa.Vendor][attrName], vsa.Value)
+		handler, v := plainValue(p, d.vsaAttrType[vsa.Vendor][attrName], vsa.Value)
 		// Try to lookup enum name for VSAs too
-		valStr, ok := enumName(handler, vsa.Value, d.vsaConstName[vsa.Vendor][attrName])
+		valStr, ok := enumName(handler, v, d.vsaConstName[vsa.Vendor][attrName])
 		d.mu.RUnlock()
 		if !ok {
-			valStr = handler.String(p, AVP{Value: vsa.Value})
+			valStr = handler.String(p, AVP{Value: v})
 		}
 
 		return fmt.Sprintf("{Vendor:%s #%d, Attr: %s #%d, Value: %s}",
@@ -1084,15 +1107,30 @@ func (d *Dictionary) DecodeAVPValue(p *Packet, a AVP) string {
 		d.mu.RUnlock()
 		return s
 	}
-	handler := handlerForValue(d.attrType[attrName], a.Value)
+	handler, v := plainValue(p, d.attrType[attrName], a.Value)
 	// Try to lookup enum name for standard attributes
-	name, ok := enumName(handler, a.Value, d.constName[attrName])
+	name, ok := enumName(handler, v, d.constName[attrName])
 	d.mu.RUnlock()
 	if ok {
 		return name
 	}
 
-	return handler.String(p, a)
+	return handler.String(p, AVP{Type: a.Type, Value: v})
+}
+
+// plainValue returns the handler for value of attrType and the value, decrypted with p if it is salt-encrypted;
+// ciphertext that can't be decrypted is octets.
+func plainValue(p *Packet, attrType string, value []byte) (avpDataType, []byte) {
+	handler := handlerForValue(attrType, value)
+	s, ok := handler.(AvpSaltEncrypted)
+	if !ok {
+		return handler, value
+	}
+	plain, ok := s.decrypt(p, value)
+	if !ok || !validValue(s.plain, plain) {
+		return avpBinary, value
+	}
+	return s.plain, plain
 }
 
 // enumName returns the VALUE name of an integer value, with its tag if any; caller holds the lock.
@@ -1310,10 +1348,11 @@ func (d *Dictionary) ParseVSA(vendorName string, attrName string, attrValue stri
 	vsa := VSA{Vendor: vendorID, Type: attrID, Format: d.formatOf(vendorID)}
 	if isEncrypted(handler) {
 		// Packet.AddVSA encrypts it
-		if err := checkHiddenLen(handler, attrValue); err != nil {
+		plain, err := hiddenValue(handler, d.vsaConstID[vendorID][attrName], attrValue)
+		if err != nil {
 			return VSA{}, fmt.Errorf("%w for attribute %s/%s", err, vendorName, attrName)
 		}
-		vsa.Value, vsa.enc, vsa.tag = []byte(attrValue), handler, tag
+		vsa.Value, vsa.enc, vsa.tag = []byte(plain), handler, tag
 	} else {
 		value, err := encodeValue(handler, d.vsaConstID[vendorID][attrName], tag, attrValue)
 		if err != nil {
@@ -1343,9 +1382,10 @@ func encryptedHint(err error, id AttributeType) string {
 
 // encodeValue encodes value with handler; integers accept a VALUE name from names or a number.
 func encodeValue(handler avpDataType, names map[string]uint32, tag uint8, value string) ([]byte, error) {
-	switch handler {
-	case avpPassword, avpTunnelPassword, avpSaltString, avpSaltOctets:
+	if isEncrypted(handler) {
 		return nil, ErrEncryptedAttribute
+	}
+	switch handler {
 	case avpTaggedString:
 		return encodeTaggedString(tag, value), nil
 	case avpUint32, avpTaggedUint32, avpUint8, avpUint16, avpInt32:
@@ -1397,6 +1437,9 @@ func encodeInteger(handler avpDataType, names map[string]uint32, tag uint8, valu
 
 // parseInteger parses a 32-bit number; "signed" accepts negatives, stored as two's complement.
 func parseInteger(handler avpDataType, value string) (uint32, error) {
+	if s, ok := handler.(AvpSaltEncrypted); ok {
+		handler = s.plain
+	}
 	if handler == avpInt32 {
 		n, err := strconv.ParseInt(value, 0, 32)
 		return uint32(n), err
