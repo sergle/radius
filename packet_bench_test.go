@@ -131,3 +131,46 @@ func BenchmarkLazyAccessors(b *testing.B) {
 		}
 	}
 }
+
+// stringBenchPackets are full-size packets of many small attributes (v3 #5).
+func stringBenchPackets() map[string]*Packet {
+	small := Request(AccessRequest, "secret")
+	small.AddAVP(AVP{Type: AttrUserName, Value: []byte("alice")})
+	small.AddAVP(AVP{Type: AttrNASIPAddress, Value: []byte{10, 0, 0, 1}})
+	small.AddAVP(AVP{Type: AttrNASPort, Value: []byte{0, 0, 0, 7}})
+	small.AddAVP(AVP{Type: AttrCallingStationId, Value: []byte("00-11-22-33-44-55")})
+
+	empty := Request(AccessRequest, "secret")
+	for range (maxPacketLen - packetHeaderLen) / 2 {
+		empty.AddAVP(AVP{Type: AttrClass})
+	}
+
+	// one long-extended chain of 1-byte fragments
+	long := Request(AccessRequest, "secret")
+	const n = (maxPacketLen - packetHeaderLen) / 5
+	for i := range n {
+		flags := byte(extMoreFlag)
+		if i == n-1 {
+			flags = 0
+		}
+		long.AddAVP(AVP{Type: 245, Value: []byte{1, flags, byte(i)}})
+	}
+	return map[string]*Packet{"Small": small, "Empty2038": empty, "LongExt815": long}
+}
+
+func BenchmarkPacketString(b *testing.B) {
+	for name, p := range stringBenchPackets() {
+		b.Run(name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				_ = p.String()
+			}
+		})
+		b.Run(name+"Masked", func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				_ = p.StringMasked()
+			}
+		})
+	}
+}

@@ -382,6 +382,9 @@ func chainStart(p *Packet, a AVP) ([]byte, bool) {
 	if p == nil || len(a.Value) == 0 {
 		return nil, false
 	}
+	if c := p.chain; c != nil && len(c.cur) == len(a.Value) && &c.cur[0] == &a.Value[0] {
+		return c.start, c.start != nil
+	}
 	var first []byte
 	var firstExt uint8
 	chained, found := false, false
@@ -404,6 +407,36 @@ func chainStart(p *Packet, a AVP) ([]byte, bool) {
 		return true
 	})
 	return first, found
+}
+
+// chainState follows long-extended chains through the AVPs of a packet in order,
+// as chainStart does for one AVP.
+type chainState struct {
+	typ   AttributeType
+	ext   uint8
+	first []byte // data of the open chain's first fragment, nil if none
+	cur   []byte // value of the last AVP passed to next
+	start []byte // first fragment of the chain cur continues, nil if none
+}
+
+func (c *chainState) next(a AVP) {
+	ext, more, data, ok := splitExtended(a.Value, true)
+	c.cur, c.start = a.Value, nil
+	if c.first != nil && a.Type == c.typ {
+		if !ok || ext != c.ext {
+			c.first = nil
+			return
+		}
+		c.start = c.first
+		if !more {
+			c.first = nil
+		}
+		return
+	}
+	c.first = nil
+	if ok && more {
+		c.typ, c.ext, c.first = a.Type, ext, data
+	}
 }
 
 // formatExtValue renders the value of extended attribute e; caller holds the lock.

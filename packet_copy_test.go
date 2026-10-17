@@ -27,6 +27,10 @@ func TestPacketCopyAllFields(t *testing.T) {
 	src := fullPacket()
 	sv := reflect.ValueOf(src).Elem()
 	for i := 0; i < sv.NumField(); i++ {
+		// chain is formatting state of the copy String makes, never copied
+		if sv.Type().Field(i).Name == "chain" {
+			continue
+		}
 		if sv.Field(i).IsZero() {
 			t.Fatalf("fullPacket leaves field %s zero", sv.Type().Field(i).Name)
 		}

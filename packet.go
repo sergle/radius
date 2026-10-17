@@ -12,6 +12,7 @@ import (
 	"net"
 	"slices"
 	"strconv"
+	"strings"
 )
 
 var ErrMessageAuthenticatorCheckFail = fmt.Errorf("RADIUS Message-Authenticator verification failed")
@@ -70,6 +71,7 @@ type Packet struct {
 	requestAuth [authenticatorLen]byte // set on decoded replies
 	salts       []uint16               // encrypt=2 salts generated for p, kept unique
 	masked      bool                   // String masks encrypted values; set on copies made by withMasked
+	chain       *chainState            // long-extended chains seen so far; set on copies made by String
 }
 
 // maskedValue replaces encrypted values in StringMasked output.
@@ -861,15 +863,21 @@ func (p *Packet) checkMessageAuthenticator(buf []byte, offset int, hasEAP bool, 
 }
 
 func (p *Packet) String() string {
-	s := "From: " + p.ClientAddr + "\n" +
+	var b strings.Builder
+	b.WriteString("From: " + p.ClientAddr + "\n" +
 		"Code: " + p.Code.String() + "\n" +
 		"Identifier: " + strconv.Itoa(int(p.Identifier)) + "\n" +
-		"Authenticator: " + fmt.Sprintf("%#v", p.Authenticator) + "\n"
-	p.EachAVP(func(avp AVP) bool {
-		s += avp.StringWithPacket(p) + "\n"
+		"Authenticator: " + fmt.Sprintf("%#v", p.Authenticator) + "\n")
+	// chainStart reads q.chain instead of scanning the packet for each AVP
+	q := *p
+	q.chain = &chainState{}
+	q.EachAVP(func(avp AVP) bool {
+		q.chain.next(avp)
+		b.WriteString(avp.StringWithPacket(&q))
+		b.WriteByte('\n')
 		return true
 	})
-	return s
+	return b.String()
 }
 
 // StringMasked is like String but shows encrypted values (e.g. User-Password) as *****.
