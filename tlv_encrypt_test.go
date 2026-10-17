@@ -113,19 +113,19 @@ func TestAddTLVReplyRoundTrip(t *testing.T) {
 	key := strings.Repeat("k", 32)
 	req := Request(AccessRequest, encTLVSecret)
 	reply := req.ReplyAccept()
-	err := d.AddTLV(reply, "", "Enc-TLV",
-		TLVValue{Name: "Enc-Pass", Value: "hunter2"},
-		TLVValue{Name: "Enc-Key", Value: "tunnel-pass"},
-		TLVValue{Name: "Enc-Num", Value: "5"},
-		TLVValue{Name: "Enc-Int", Value: "7"},
-		TLVValue{Name: "Enc-Nest-Key", Value: key},
+	err := addTLV(d, reply, "", "Enc-TLV",
+		tlvValue{Name: "Enc-Pass", Value: "hunter2"},
+		tlvValue{Name: "Enc-Key", Value: "tunnel-pass"},
+		tlvValue{Name: "Enc-Num", Value: "5"},
+		tlvValue{Name: "Enc-Int", Value: "7"},
+		tlvValue{Name: "Enc-Nest-Key", Value: key},
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := d.AddTLV(reply, "WiMAX", "WiMAX-hDHCP-Server-Parameters",
-		TLVValue{Name: "WiMAX-hDHCP-DHCP-RK", Value: key},
-		TLVValue{Name: "WiMAX-hDHCP-DHCP-RK-Key-Id", Value: "1"},
+	if err := addTLV(d, reply, "WiMAX", "WiMAX-hDHCP-Server-Parameters",
+		tlvValue{Name: "WiMAX-hDHCP-DHCP-RK", Value: key},
+		tlvValue{Name: "WiMAX-hDHCP-DHCP-RK-Key-Id", Value: "1"},
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +182,7 @@ func TestAddTLVRequestAuthenticator(t *testing.T) {
 		"manual":  {Code: AccessRequest, Secret: encTLVSecret},
 	}
 	for which, p := range packets {
-		if err := d.AddTLV(p, "", "Enc-TLV", TLVValue{Name: "Enc-Pass", Value: "hunter2"}); err != nil {
+		if err := addTLV(d, p, "", "Enc-TLV", tlvValue{Name: "Enc-Pass", Value: "hunter2"}); err != nil {
 			t.Fatal(err)
 		}
 		if p.Authenticator == zeroAuthenticator {
@@ -195,16 +195,16 @@ func TestAddTLVRequestAuthenticator(t *testing.T) {
 	}
 }
 
-// ParseTLV can't encrypt, so it refuses encrypted sub-attributes and points to AddTLV.
+// ToAVP can't encrypt, so it refuses encrypted sub-attributes and points to Packet.AddTLV.
 func TestParseTLVEncryptedRefused(t *testing.T) {
 	d := loadTLVDict(t, encTLVDict)
 	for _, name := range []string{"Enc-Pass", "Enc-Key", "Enc-Nest-Key"} {
-		_, err := d.ParseTLV("", "Enc-TLV", TLVValue{Name: name, Value: "pw"})
+		_, err := buildTLV(d, "", "Enc-TLV", tlvValue{Name: name, Value: "pw"})
 		if !errors.Is(err, ErrEncryptedAttribute) || !strings.Contains(err.Error(), "AddTLV") {
 			t.Errorf("ParseTLV %s: err = %v", name, err)
 		}
 	}
-	if err := d.AddTLV(nil, "", "Enc-TLV", TLVValue{Name: "Enc-Key", Value: "pw"}); !errors.Is(err, ErrNilPacket) {
+	if err := addTLV(d, nil, "", "Enc-TLV", tlvValue{Name: "Enc-Key", Value: "pw"}); !errors.Is(err, ErrNilPacket) {
 		t.Errorf("AddTLV(nil): err = %v", err)
 	}
 }
@@ -225,7 +225,7 @@ func TestAddTLVErrors(t *testing.T) {
 		{"WiMAX", "WiMAX-hDHCP-Server-Parameters", "WiMAX-hDHCP-DHCP-RK", strings.Repeat("k", wimaxFragmentData), ErrInvalidValue},
 	}
 	for _, c := range cases {
-		if err := d.AddTLV(p, c.vendor, c.attr, TLVValue{Name: c.name, Value: c.value}); !errors.Is(err, c.want) {
+		if err := addTLV(d, p, c.vendor, c.attr, tlvValue{Name: c.name, Value: c.value}); !errors.Is(err, c.want) {
 			t.Errorf("AddTLV %s (%d bytes): err = %v, want %v", c.name, len(c.value), err, c.want)
 		}
 	}
@@ -233,11 +233,11 @@ func TestAddTLVErrors(t *testing.T) {
 		t.Errorf("AVPs added on error: %d", len(p.AVPs))
 	}
 	for _, v := range []string{"", strings.Repeat("p", maxPasswordLen)} {
-		if err := d.AddTLV(p, "", "Enc-TLV", TLVValue{Name: "Enc-Pass", Value: v}); err != nil {
+		if err := addTLV(d, p, "", "Enc-TLV", tlvValue{Name: "Enc-Pass", Value: v}); err != nil {
 			t.Errorf("Enc-Pass %d bytes: %v", len(v), err)
 		}
 	}
-	if err := d.AddTLV(p, "", "Enc-TLV", TLVValue{Name: "Enc-Key", Value: strings.Repeat("k", 239)}); err != nil {
+	if err := addTLV(d, p, "", "Enc-TLV", tlvValue{Name: "Enc-Key", Value: strings.Repeat("k", 239)}); err != nil {
 		t.Errorf("Enc-Key 239 bytes: %v", err)
 	}
 }
@@ -282,11 +282,11 @@ func TestTLVEncryptedContainer(t *testing.T) {
 	reply := Request(AccessRequest, encTLVSecret).ReplyAccept()
 	// the error names the encrypted TLV
 	wantErr := map[string]string{"A-C-X": "A-C-X: parent A-C is encrypted", "A-C": "A-C is encrypted"}
-	for _, v := range []TLVValue{{Name: "A-C-X", Value: "1"}, {Name: "A-C"}} {
-		if _, err := d.ParseTLV("", "A", v); !errors.Is(err, ErrUnsupportedAttributeType) || !strings.Contains(err.Error(), wantErr[v.Name]) {
+	for _, v := range []tlvValue{{Name: "A-C-X", Value: "1"}, {Name: "A-C"}} {
+		if _, err := buildTLV(d, "", "A", v); !errors.Is(err, ErrUnsupportedAttributeType) || !strings.Contains(err.Error(), wantErr[v.Name]) {
 			t.Errorf("ParseTLV %s: err = %v, want %q", v.Name, err, wantErr[v.Name])
 		}
-		if err := d.AddTLV(reply, "", "A", v); !errors.Is(err, ErrUnsupportedAttributeType) {
+		if err := addTLV(d, reply, "", "A", v); !errors.Is(err, ErrUnsupportedAttributeType) {
 			t.Errorf("AddTLV %s: err = %v", v.Name, err)
 		}
 	}
@@ -312,11 +312,11 @@ func TestTLVEncryptNonString(t *testing.T) {
 		t.Errorf("no warning:\n%s", h.all())
 	}
 	reply := Request(AccessRequest, encTLVSecret).ReplyAccept()
-	for _, v := range []TLVValue{{Name: "R-Int1", Value: "256"}, {Name: "R-Oct1", Value: "ab"}} {
-		if _, err := d.ParseTLV("", "R", v); !errors.Is(err, ErrUnsupportedAttributeType) {
+	for _, v := range []tlvValue{{Name: "R-Int1", Value: "256"}, {Name: "R-Oct1", Value: "ab"}} {
+		if _, err := buildTLV(d, "", "R", v); !errors.Is(err, ErrUnsupportedAttributeType) {
 			t.Errorf("ParseTLV %s: err = %v", v.Name, err)
 		}
-		if err := d.AddTLV(reply, "", "R", v); !errors.Is(err, ErrUnsupportedAttributeType) {
+		if err := addTLV(d, reply, "", "R", v); !errors.Is(err, ErrUnsupportedAttributeType) {
 			t.Errorf("AddTLV %s: err = %v", v.Name, err)
 		}
 	}
@@ -324,10 +324,10 @@ func TestTLVEncryptNonString(t *testing.T) {
 		t.Fatalf("AVPs added: %v", reply.AVPs)
 	}
 	for _, name := range []string{"R-Str1", "R-Int2"} {
-		if _, err := d.ParseTLV("", "R", TLVValue{Name: name, Value: "1"}); !errors.Is(err, ErrEncryptedAttribute) {
+		if _, err := buildTLV(d, "", "R", tlvValue{Name: name, Value: "1"}); !errors.Is(err, ErrEncryptedAttribute) {
 			t.Errorf("ParseTLV %s: err = %v, want still encrypted", name, err)
 		}
-		if err := d.AddTLV(reply, "", "R", TLVValue{Name: name, Value: "1"}); err != nil {
+		if err := addTLV(d, reply, "", "R", tlvValue{Name: name, Value: "1"}); err != nil {
 			t.Errorf("AddTLV %s: %v", name, err)
 		}
 	}
@@ -349,24 +349,26 @@ func TestTLVEncryptNonString(t *testing.T) {
 	}
 }
 
-// Unsupported methods fail before touching the packet, and a failing AddTLV changes nothing.
+// Invalid values fail before touching the packet, and a failing AddTLV changes nothing.
 func TestAddTLVErrorNoSideEffects(t *testing.T) {
 	d := loadTLVDict(t, encTLVDict)
-	_, err := d.ParseTLV("", "Enc-TLV", TLVValue{Name: "Enc-Secret", Value: "x"})
+	_, err := buildTLV(d, "", "Enc-TLV", tlvValue{Name: "Enc-Secret", Value: "x"})
 	if !errors.Is(err, ErrUnsupportedAttributeType) || strings.Contains(err.Error(), "AddTLV") {
 		t.Errorf("ParseTLV Enc-Secret: err = %v", err)
 	}
 	bare := &Packet{Code: AccessAccept, Secret: encTLVSecret}
-	if err := d.AddTLV(bare, "", "Enc-TLV", TLVValue{Name: "Enc-Secret", Value: "x"}); !errors.Is(err, ErrUnsupportedAttributeType) {
+	if err := addTLV(d, bare, "", "Enc-TLV", tlvValue{Name: "Enc-Secret", Value: "x"}); !errors.Is(err, ErrUnsupportedAttributeType) {
 		t.Errorf("AddTLV Enc-Secret on a bare reply: err = %v", err)
 	}
-	for _, values := range [][]TLVValue{
+	for _, values := range [][]tlvValue{
 		{{Name: "Enc-Secret", Value: "x"}},
 		{{Name: "Enc-Pass", Value: "hunter2"}, {Name: "Enc-Num", Value: "x"}},
 		{{Name: "Enc-Pass", Value: "hunter2"}, {Name: "Enc-Pass", Value: strings.Repeat("p", maxPasswordLen+1)}},
+		// fails when encrypting, after Enc-Pass generated the authenticator
+		{{Name: "Enc-Pass", Value: "hunter2"}, {Name: "Enc-Key", Value: "k"}},
 	} {
 		p := &Packet{Code: AccessRequest, Secret: encTLVSecret}
-		if err := d.AddTLV(p, "", "Enc-TLV", values...); err == nil {
+		if err := addTLV(d, p, "", "Enc-TLV", values...); err == nil {
 			t.Errorf("%v: no error", values)
 		}
 		if p.Authenticator != zeroAuthenticator || len(p.AVPs) != 0 {
@@ -412,9 +414,9 @@ func TestEncryptZeroAuthenticatorRequest(t *testing.T) {
 	for _, code := range zeroAuthRequestCodes {
 		p := Request(code, encTLVSecret)
 		p.Authenticator[0] = 1 // ignored for hiding
-		if err := d.AddTLV(p, "", "Enc-TLV",
-			TLVValue{Name: "Enc-Pass", Value: "hunter2"},
-			TLVValue{Name: "Enc-Key", Value: "tunnel-pass"},
+		if err := addTLV(d, p, "", "Enc-TLV",
+			tlvValue{Name: "Enc-Pass", Value: "hunter2"},
+			tlvValue{Name: "Enc-Key", Value: "tunnel-pass"},
 		); err != nil {
 			t.Fatal(err)
 		}
@@ -465,14 +467,14 @@ func TestEncryptReplyWithoutRequest(t *testing.T) {
 		if err := p.AddTunnelPassword(0, "tp"); !errors.Is(err, ErrNoRequestAuthenticator) {
 			t.Errorf("%v: AddTunnelPassword err = %v", code, err)
 		}
-		if err := d.AddTLV(p, "", "Enc-TLV", TLVValue{Name: "Enc-Key", Value: "k"}); !errors.Is(err, ErrNoRequestAuthenticator) {
+		if err := addTLV(d, p, "", "Enc-TLV", tlvValue{Name: "Enc-Key", Value: "k"}); !errors.Is(err, ErrNoRequestAuthenticator) {
 			t.Errorf("%v: AddTLV err = %v", code, err)
 		}
 		tmpl.Add(p, "tp")
 		if len(p.AVPs) != 0 {
 			t.Errorf("%v: AVPs added: %v", code, p.AVPs)
 		}
-		if err := d.AddTLV(p, "", "Enc-TLV", TLVValue{Name: "Enc-Num", Value: "1"}); err != nil {
+		if err := addTLV(d, p, "", "Enc-TLV", tlvValue{Name: "Enc-Num", Value: "1"}); err != nil {
 			t.Errorf("%v: plain AddTLV: %v", code, err)
 		}
 
@@ -481,7 +483,7 @@ func TestEncryptReplyWithoutRequest(t *testing.T) {
 		if err := r.AddTunnelPassword(0, "tp"); err != nil {
 			t.Errorf("%v: Reply().AddTunnelPassword: %v", code, err)
 		}
-		if err := d.AddTLV(r, "", "Enc-TLV", TLVValue{Name: "Enc-Key", Value: "k"}); err != nil {
+		if err := addTLV(d, r, "", "Enc-TLV", tlvValue{Name: "Enc-Key", Value: "k"}); err != nil {
 			t.Errorf("%v: Reply() AddTLV: %v", code, err)
 		}
 	}
@@ -496,19 +498,19 @@ func TestTLVEncryptExtended(t *testing.T) {
 	key := strings.Repeat("k", tunnelPasswordMaxLen)
 	req := Request(AccessRequest, encTLVSecret)
 	reply := req.ReplyAccept()
-	if err := d.AddTLV(reply, "", "Ext-Enc",
-		TLVValue{Name: "Ext-Enc-Pass", Value: "hunter2"},
-		TLVValue{Name: "Ext-Enc-Key", Value: key},
+	if err := addTLV(d, reply, "", "Ext-Enc",
+		tlvValue{Name: "Ext-Enc-Pass", Value: "hunter2"},
+		tlvValue{Name: "Ext-Enc-Key", Value: key},
 	); !errors.Is(err, ErrInvalidValue) {
 		t.Fatalf("over-long Ext-Enc: err = %v, want ErrInvalidValue", err)
 	}
 	if len(reply.AVPs) != 0 {
 		t.Fatalf("AVPs added on error: %v", reply.AVPs)
 	}
-	if err := d.AddTLV(reply, "", "Ext-Enc", TLVValue{Name: "Ext-Enc-Pass", Value: "hunter2"}); err != nil {
+	if err := addTLV(d, reply, "", "Ext-Enc", tlvValue{Name: "Ext-Enc-Pass", Value: "hunter2"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := d.AddTLV(reply, "", "Ext-Enc", TLVValue{Name: "Ext-Enc-Key", Value: key}); err != nil {
+	if err := addTLV(d, reply, "", "Ext-Enc", tlvValue{Name: "Ext-Enc-Key", Value: key}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -634,7 +636,7 @@ func fuzzTLVEncryptRoundTrip(t *testing.T, d *Dictionary, plain []byte, code Pac
 	}
 	cases := all[:0:0]
 	for _, c := range all {
-		err := d.AddTLV(p, "", c.attr, TLVValue{Name: c.name, Value: c.want})
+		err := addTLV(d, p, "", c.attr, tlvValue{Name: c.name, Value: c.want})
 		if c.tunnel && code.hasRandomAuthenticator() {
 			if !errors.Is(err, ErrTunnelPasswordInRequest) {
 				t.Fatalf("%v: AddTLV %s: err = %v", code, c.name, err)
@@ -672,10 +674,10 @@ func fuzzTLVEncryptRoundTrip(t *testing.T, d *Dictionary, plain []byte, code Pac
 func TestTLVEncryptStatusServer(t *testing.T) {
 	d := loadTLVDict(t, encTLVDict)
 	req := Request(StatusServer, encTLVSecret)
-	if err := d.AddTLV(req, "", "Enc-TLV", TLVValue{Name: "Enc-Key", Value: "tunnel-pass"}); !errors.Is(err, ErrTunnelPasswordInRequest) {
+	if err := addTLV(d, req, "", "Enc-TLV", tlvValue{Name: "Enc-Key", Value: "tunnel-pass"}); !errors.Is(err, ErrTunnelPasswordInRequest) {
 		t.Errorf("AddTLV Enc-Key: err = %v, want ErrTunnelPasswordInRequest", err)
 	}
-	if err := d.AddTLV(req, "", "Enc-TLV", TLVValue{Name: "Enc-Pass", Value: "hunter2"}); err != nil {
+	if err := addTLV(d, req, "", "Enc-TLV", tlvValue{Name: "Enc-Pass", Value: "hunter2"}); err != nil {
 		t.Fatal(err)
 	}
 	pass, _ := findTLV(req.AVPs[0].Value, []uint8{1})
@@ -695,9 +697,9 @@ func TestTLVEncryptStatusServer(t *testing.T) {
 	}
 
 	reply := gotReq.ReplyAccept()
-	if err := d.AddTLV(reply, "", "Enc-TLV",
-		TLVValue{Name: "Enc-Pass", Value: "hunter2"},
-		TLVValue{Name: "Enc-Key", Value: "tunnel-pass"},
+	if err := addTLV(d, reply, "", "Enc-TLV",
+		tlvValue{Name: "Enc-Pass", Value: "hunter2"},
+		tlvValue{Name: "Enc-Key", Value: "tunnel-pass"},
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -727,7 +729,7 @@ func TestTLVAliasEncryptWarn(t *testing.T) {
 		if !strings.Contains(h.all(), "not supported") || !strings.Contains(h.all(), "attribute=B") {
 			t.Errorf("%s: no warning:\n%s", name, h.all())
 		}
-		if _, err := d.ParseTLV("", "B", TLVValue{Name: "A-1", Value: "1"}); err != nil {
+		if _, err := buildTLV(d, "", "B", tlvValue{Name: "A-1", Value: "1"}); err != nil {
 			t.Errorf("%s: ParseTLV through the alias: %v", name, err)
 		}
 	}

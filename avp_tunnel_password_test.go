@@ -197,7 +197,7 @@ func TestTunnelPasswordInAccessRequest(t *testing.T) {
 			if err := p.AddTunnelPassword(0, "tp"); !errors.Is(err, ErrTunnelPasswordInRequest) {
 				t.Errorf("%v %s: AddTunnelPassword err = %v", code, which, err)
 			}
-			if err := d.AddTLV(p, "", "Enc-TLV", TLVValue{Name: "Enc-Pass", Value: "pw"}, TLVValue{Name: "Enc-Key", Value: "k"}); !errors.Is(err, ErrTunnelPasswordInRequest) {
+			if err := addTLV(d, p, "", "Enc-TLV", tlvValue{Name: "Enc-Pass", Value: "pw"}, tlvValue{Name: "Enc-Key", Value: "k"}); !errors.Is(err, ErrTunnelPasswordInRequest) {
 				t.Errorf("%v %s: AddTLV err = %v", code, which, err)
 			}
 			tmpl.Add(p, "tp")

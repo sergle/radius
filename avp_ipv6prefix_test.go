@@ -142,14 +142,14 @@ END-VENDOR V
 	if got := td.DecodeAVPValue(nil, vsa.ToAVP()); got != "{Vendor:V #9999, Attr: P #1, Value: 2001:db8::/48}" {
 		t.Errorf("DecodeAVPValue VSA = %q", got)
 	}
-	tlv, err := td.ParseTLV("V", "A", TLVValue{Name: "A-P", Value: "2001:db8::/48"})
+	tlv, err := buildTLV(td, "V", "A", tlvValue{Name: "A-P", Value: "2001:db8::/48"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got, ok := td.GetTLVString(&Packet{AVPs: []AVP{tlv}}, "V", "A-P"); !ok || got != "2001:db8::/48" {
 		t.Errorf("GetTLVString = %q, %v", got, ok)
 	}
-	if _, err := td.ParseTLV("V", "A", TLVValue{Name: "A-P", Value: "garbage"}); !errors.Is(err, ErrInvalidValue) {
+	if _, err := buildTLV(td, "V", "A", tlvValue{Name: "A-P", Value: "garbage"}); !errors.Is(err, ErrInvalidValue) {
 		t.Errorf("ParseTLV invalid: err = %v", err)
 	}
 

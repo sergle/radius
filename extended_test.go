@@ -357,9 +357,9 @@ func TestExtendedDecodeAVPValue(t *testing.T) {
 
 func TestExtendedTLV(t *testing.T) {
 	d := loadExtTestDict(t)
-	avp, err := d.ParseTLV("", "Ext-Port-Info",
-		TLVValue{Name: "Ext-Port-Type", Value: "Static"},
-		TLVValue{Name: "Ext-Port-Addr", Value: "10.0.0.1"})
+	avp, err := buildTLV(d, "", "Ext-Port-Info",
+		tlvValue{Name: "Ext-Port-Type", Value: "Static"},
+		tlvValue{Name: "Ext-Port-Addr", Value: "10.0.0.1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -367,7 +367,7 @@ func TestExtendedTLV(t *testing.T) {
 	if avp.Type != 241 || !bytes.Equal(avp.Value, want) {
 		t.Errorf("ParseTLV = %v, want 241 %v", avp, want)
 	}
-	avp, err = d.ParseTLV("", "Long-TLV", TLVValue{Name: "Long-TLV-Id", Value: "7"})
+	avp, err = buildTLV(d, "", "Long-TLV", tlvValue{Name: "Long-TLV-Id", Value: "7"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -646,7 +646,7 @@ func TestExtendedEVSVendorZero(t *testing.T) {
 // TLVs in an Extended-Vendor-Specific block.
 func TestExtendedEVSTLV(t *testing.T) {
 	d := loadExtTestDict(t)
-	avp, err := d.ParseTLV("ExtVendor", "EV-T", TLVValue{Name: "EV-T-Id", Value: "7"})
+	avp, err := buildTLV(d, "ExtVendor", "EV-T", tlvValue{Name: "EV-T-Id", Value: "7"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -666,11 +666,11 @@ func TestExtendedEVSTLV(t *testing.T) {
 func TestExtendedTLVTooLong(t *testing.T) {
 	h := useRecordLogger(t)
 	d := loadExtTestDict(t)
-	values := make([]TLVValue, 43) // 258 bytes
+	values := make([]tlvValue, 43) // 258 bytes
 	for i := range values {
-		values[i] = TLVValue{Name: "Ext-Port-Type", Value: "1"}
+		values[i] = tlvValue{Name: "Ext-Port-Type", Value: "1"}
 	}
-	if _, err := d.ParseTLV("", "Ext-Port-Info", values...); !errors.Is(err, ErrInvalidValue) {
+	if _, err := buildTLV(d, "", "Ext-Port-Info", values...); !errors.Is(err, ErrInvalidValue) {
 		t.Errorf("err = %v", err)
 	}
 	if n := h.count(slog.LevelWarn, ""); n != 0 {

@@ -194,11 +194,11 @@ func TestTLVDecodeStandard(t *testing.T) {
 func TestParseTLV(t *testing.T) {
 	d := loadTLVTestDict(t)
 
-	avp, err := d.ParseTLV("TLVVendor", "TLV-Remote",
-		TLVValue{Name: "TLV-Remote-Addr", Value: "10.0.0.1"},
-		TLVValue{Name: "TLV-Remote-Qualifier", Value: "Exact"},
-		TLVValue{Name: "TLV-Remote-Nested-Name", Value: "abc"},
-		TLVValue{Name: "TLV-Remote-Nested-Count", Value: "7"},
+	avp, err := buildTLV(d, "TLVVendor", "TLV-Remote",
+		tlvValue{Name: "TLV-Remote-Addr", Value: "10.0.0.1"},
+		tlvValue{Name: "TLV-Remote-Qualifier", Value: "Exact"},
+		tlvValue{Name: "TLV-Remote-Nested-Name", Value: "abc"},
+		tlvValue{Name: "TLV-Remote-Nested-Count", Value: "7"},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -209,10 +209,10 @@ func TestParseTLV(t *testing.T) {
 	}
 
 	// non-consecutive children of a nested TLV go into separate instances
-	avp, err = d.ParseTLV("TLVVendor", "TLV-Remote",
-		TLVValue{Name: "TLV-Remote-Nested-Name", Value: "a"},
-		TLVValue{Name: "TLV-Remote-Mask", Value: "24"},
-		TLVValue{Name: "TLV-Remote-Nested-Count", Value: "1"},
+	avp, err = buildTLV(d, "TLVVendor", "TLV-Remote",
+		tlvValue{Name: "TLV-Remote-Nested-Name", Value: "a"},
+		tlvValue{Name: "TLV-Remote-Mask", Value: "24"},
+		tlvValue{Name: "TLV-Remote-Nested-Count", Value: "1"},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -223,7 +223,7 @@ func TestParseTLV(t *testing.T) {
 	}
 
 	// standard attribute
-	avp, err = d.ParseTLV("", "Test-Std-TLV", TLVValue{Name: "Test-Std-TLV-Addr", Value: "192.0.2.1"})
+	avp, err = buildTLV(d, "", "Test-Std-TLV", tlvValue{Name: "Test-Std-TLV-Addr", Value: "192.0.2.1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +232,7 @@ func TestParseTLV(t *testing.T) {
 	}
 
 	// BEGIN-TLV children
-	avp, err = d.ParseTLV("TLVVendor", "TLV-Block", TLVValue{Name: "TLV-Block-Inner-Name", Value: "x"})
+	avp, err = buildTLV(d, "TLVVendor", "TLV-Block", tlvValue{Name: "TLV-Block-Inner-Name", Value: "x"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -247,7 +247,7 @@ func TestParseTLVErrors(t *testing.T) {
 		name   string
 		vendor string
 		attr   string
-		values []TLVValue
+		values []tlvValue
 		want   error
 	}{
 		{"unknown vendor", "Nope", "TLV-Remote", nil, ErrUnknownVendor},
@@ -255,23 +255,20 @@ func TestParseTLVErrors(t *testing.T) {
 		{"child as root", "TLVVendor", "TLV-Remote-Nested", nil, ErrUnknownAttribute},
 		{"not a tlv", "TLVVendor", "TLV-Plain", nil, ErrUnsupportedAttributeType},
 		{"no values", "TLVVendor", "TLV-Remote", nil, ErrInvalidValue},
-		{"unknown child", "TLVVendor", "TLV-Remote", []TLVValue{{Name: "Nope", Value: "1"}}, ErrUnknownAttribute},
-		{"foreign child", "TLVVendor", "TLV-Remote", []TLVValue{{Name: "TLV-Block-Id", Value: "1"}}, ErrUnknownAttribute},
-		{"tlv child with value", "TLVVendor", "TLV-Remote", []TLVValue{{Name: "TLV-Remote-Nested", Value: "1"}}, ErrInvalidValue},
-		{"unsupported vendor format", "TLVWide", "TW-Capability", []TLVValue{{Name: "TW-Release", Value: "1"}}, ErrUnsupportedAttributeType},
-		{"bad value", "TLVVendor", "TLV-Remote", []TLVValue{{Name: "TLV-Remote-Mask", Value: "x"}}, ErrInvalidValue},
-		{"too long", "TLVVendor", "TLV-Remote", []TLVValue{{Name: "TLV-Remote-Nested-Name", Value: strings.Repeat("a", 254)}}, ErrInvalidValue},
+		{"unknown child", "TLVVendor", "TLV-Remote", []tlvValue{{Name: "Nope", Value: "1"}}, ErrUnknownAttribute},
+		{"foreign child", "TLVVendor", "TLV-Remote", []tlvValue{{Name: "TLV-Block-Id", Value: "1"}}, ErrUnknownAttribute},
+		{"tlv child with value", "TLVVendor", "TLV-Remote", []tlvValue{{Name: "TLV-Remote-Nested", Value: "1"}}, ErrInvalidValue},
+		{"unsupported vendor format", "TLVWide", "TW-Capability", []tlvValue{{Name: "TW-Release", Value: "1"}}, ErrUnsupportedAttributeType},
+		{"bad value", "TLVVendor", "TLV-Remote", []tlvValue{{Name: "TLV-Remote-Mask", Value: "x"}}, ErrInvalidValue},
+		{"too long", "TLVVendor", "TLV-Remote", []tlvValue{{Name: "TLV-Remote-Nested-Name", Value: strings.Repeat("a", 254)}}, ErrInvalidValue},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := d.ParseTLV(tt.vendor, tt.attr, tt.values...)
+			_, err := buildTLV(d, tt.vendor, tt.attr, tt.values...)
 			if !errors.Is(err, tt.want) {
 				t.Errorf("err = %v, want %v", err, tt.want)
 			}
 		})
-	}
-	if avp := d.NewTLV("Nope", "TLV-Remote"); avp.Type != 0 || avp.Value != nil {
-		t.Errorf("NewTLV on error = %#v, want zero AVP", avp)
 	}
 }
 
@@ -279,11 +276,11 @@ func TestTLVPacketRoundTrip(t *testing.T) {
 	d := loadTLVTestDict(t)
 	secret := "secret"
 	req := Request(AccessRequest, secret)
-	req.AddAVP(d.NewTLV("TLVVendor", "TLV-Remote",
-		TLVValue{Name: "TLV-Remote-Addr", Value: "10.0.0.1"},
-		TLVValue{Name: "TLV-Remote-Nested-Count", Value: "7"},
+	req.AddAVP(newTLV(d, "TLVVendor", "TLV-Remote",
+		tlvValue{Name: "TLV-Remote-Addr", Value: "10.0.0.1"},
+		tlvValue{Name: "TLV-Remote-Nested-Count", Value: "7"},
 	))
-	req.AddAVP(d.NewTLV("", "Test-Std-TLV", TLVValue{Name: "Test-Std-TLV-Len", Value: "24"}))
+	req.AddAVP(newTLV(d, "", "Test-Std-TLV", tlvValue{Name: "Test-Std-TLV-Len", Value: "24"}))
 	buf, err := req.Encode()
 	if err != nil {
 		t.Fatal(err)
@@ -372,6 +369,52 @@ func loadTLVDict(t testing.TB, dict string) *Dictionary {
 	return d
 }
 
+// tlvValue is a sub-attribute for fillTLV; a nested TLV's name without a value starts a new instance of it.
+type tlvValue struct{ Name, Value string }
+
+// fillTLV builds attr from values with TLV.Add, or TLV.AddTLV for a nested TLV without a value.
+func fillTLV(d *Dictionary, vendor, attr string, values ...tlvValue) (*TLV, error) {
+	b, err := d.ParseTLV(vendor, attr)
+	if err != nil {
+		return nil, err
+	}
+	for _, v := range values {
+		if v.Value == "" {
+			if _, err := b.AddTLV(v.Name); err == nil {
+				continue
+			}
+		}
+		if err := b.Add(v.Name, v.Value); err != nil {
+			return nil, err
+		}
+	}
+	return b, nil
+}
+
+// buildTLV is fillTLV encoded as one AVP.
+func buildTLV(d *Dictionary, vendor, attr string, values ...tlvValue) (AVP, error) {
+	b, err := fillTLV(d, vendor, attr, values...)
+	if err != nil {
+		return AVP{}, err
+	}
+	return b.toAVP()
+}
+
+// newTLV is buildTLV ignoring the error.
+func newTLV(d *Dictionary, vendor, attr string, values ...tlvValue) AVP {
+	avp, _ := buildTLV(d, vendor, attr, values...)
+	return avp
+}
+
+// addTLV is fillTLV added to p.
+func addTLV(d *Dictionary, p *Packet, vendor, attr string, values ...tlvValue) error {
+	b, err := fillTLV(d, vendor, attr, values...)
+	if err != nil {
+		return err
+	}
+	return p.AddTLV(b)
+}
+
 // Templates send a tlv attribute's value as raw octets.
 func TestTLVTemplateRawOctets(t *testing.T) {
 	d := loadTLVTestDict(t)
@@ -398,7 +441,7 @@ func TestTLVTemplateRawOctets(t *testing.T) {
 // Redeclaring a TLV parent keeps its sub-attributes.
 func TestTLVParentRedefinition(t *testing.T) {
 	d := loadTLVDict(t, "ATTRIBUTE A 200 tlv\nATTRIBUTE A-1 200.1 integer\nATTRIBUTE A 200 tlv\n")
-	avp, err := d.ParseTLV("", "A", TLVValue{Name: "A-1", Value: "1"})
+	avp, err := buildTLV(d, "", "A", tlvValue{Name: "A-1", Value: "1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -461,16 +504,16 @@ func writeFile(t *testing.T, name, content string) {
 	}
 }
 
-// ParseTLV can't build encrypted sub-attributes (they'd go out in clear); has_tag is ignored.
+// ToAVP can't encrypt sub-attributes (they'd go out in clear); has_tag is ignored.
 func TestTLVChildFlags(t *testing.T) {
 	h := useRecordLogger(t)
 	d := loadTLVDict(t, "ATTRIBUTE A 200 tlv\nATTRIBUTE A-P 200.1 string encrypt=1\nATTRIBUTE A-T 200.2 integer has_tag\nATTRIBUTE A-K 200.3 octets encrypt=2\n")
 	for _, name := range []string{"A-P", "A-K"} {
-		if _, err := d.ParseTLV("", "A", TLVValue{Name: name, Value: "pw"}); !errors.Is(err, ErrEncryptedAttribute) {
+		if _, err := buildTLV(d, "", "A", tlvValue{Name: name, Value: "pw"}); !errors.Is(err, ErrEncryptedAttribute) {
 			t.Errorf("ParseTLV %s: err = %v", name, err)
 		}
 	}
-	avp, err := d.ParseTLV("", "A", TLVValue{Name: "A-T", Value: "7"})
+	avp, err := buildTLV(d, "", "A", tlvValue{Name: "A-T", Value: "7"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -492,7 +535,7 @@ func TestTLVDuplicateChildNumber(t *testing.T) {
 	if got := d.DecodeAVPValue(nil, AVP{Type: 200, Value: []byte{1, 6, 0, 0, 0, 1}}); got != "{A-X: 1}" {
 		t.Errorf("DecodeAVPValue = %q, want first definition", got)
 	}
-	if _, err := d.ParseTLV("", "A", TLVValue{Name: "A-Y", Value: "1"}); !errors.Is(err, ErrUnknownAttribute) {
+	if _, err := buildTLV(d, "", "A", tlvValue{Name: "A-Y", Value: "1"}); !errors.Is(err, ErrUnknownAttribute) {
 		t.Errorf("ParseTLV duplicate: err = %v", err)
 	}
 	if !strings.Contains(h.all(), "duplicate sub-attribute number") {
@@ -524,32 +567,6 @@ END-VENDOR W
 	}
 	if n := strings.Count(all, "ignoring unsupported sub-attribute"); n != 1 {
 		t.Errorf("unsupported sub-attribute debug logs = %d, want 1 (W-T-1):\n%s", n, all)
-	}
-}
-
-// Naming a nested TLV with an empty value starts a new instance of it.
-func TestParseTLVNewNestedInstance(t *testing.T) {
-	d := loadTLVTestDict(t)
-	avp, err := d.ParseTLV("TLVVendor", "TLV-Remote",
-		TLVValue{Name: "TLV-Remote-Nested-Name", Value: "a"},
-		TLVValue{Name: "TLV-Remote-Nested"},
-		TLVValue{Name: "TLV-Remote-Nested-Name", Value: "b"},
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := vsaAVP(testTLVVendorID, 2, []byte{4, 5, 1, 3, 'a', 4, 5, 1, 3, 'b'})
-	if !bytes.Equal(avp.Value, want.Value) {
-		t.Errorf("ParseTLV = %v, want %v", avp.Value, want.Value)
-	}
-	// a nested TLV holds one or more sub-attributes (RFC 6929)
-	for _, values := range [][]TLVValue{
-		{{Name: "TLV-Remote-Nested"}},
-		{{Name: "TLV-Remote-Nested-Name", Value: "a"}, {Name: "TLV-Remote-Nested"}},
-	} {
-		if _, err := d.ParseTLV("TLVVendor", "TLV-Remote", values...); !errors.Is(err, ErrInvalidValue) {
-			t.Errorf("empty instance %v: err = %v", values, err)
-		}
 	}
 }
 
@@ -605,7 +622,7 @@ ATTRIBUTE A-1 200.1 integer
 ATTRIBUTE A-1 200.1 integer
 END-VENDOR V
 `)
-	if _, err := d.ParseTLV("V", "A", TLVValue{Name: "A-1", Value: "1"}); err != nil {
+	if _, err := buildTLV(d, "V", "A", tlvValue{Name: "A-1", Value: "1"}); err != nil {
 		t.Errorf("identical redeclaration: %v", err)
 	}
 }
@@ -617,7 +634,7 @@ ATTRIBUTE A 200 tlv
 ATTRIBUTE A-1 200.1 integer
 ATTRIBUTE B 200 integer
 `)
-	avp, err := d.ParseTLV("", "A", TLVValue{Name: "A-1", Value: "1"})
+	avp, err := buildTLV(d, "", "A", tlvValue{Name: "A-1", Value: "1"})
 	if err != nil {
 		t.Fatalf("ParseTLV old name: %v", err)
 	}
@@ -639,7 +656,7 @@ ATTRIBUTE A-3 200.3 integer
 `)
 	// both names build the same attribute; it decodes with all sub-attributes
 	for _, name := range []string{"A", "B"} {
-		avp, err := d.ParseTLV("", name, TLVValue{Name: "A-1", Value: "1"}, TLVValue{Name: "B-2", Value: "2"}, TLVValue{Name: "A-3", Value: "3"})
+		avp, err := buildTLV(d, "", name, tlvValue{Name: "A-1", Value: "1"}, tlvValue{Name: "B-2", Value: "2"}, tlvValue{Name: "A-3", Value: "3"})
 		if err != nil {
 			t.Fatalf("ParseTLV %s: %v", name, err)
 		}
@@ -698,10 +715,10 @@ ATTRIBUTE A-IP6 200.2 ipv6addr
 		{"2001:db8::1", "192.0.2.1"},
 	}
 	for _, tt := range tests {
-		if _, err := d.ParseTLV("", "A", TLVValue{Name: "A-IP", Value: tt.ipv4}); !errors.Is(err, ErrInvalidValue) {
+		if _, err := buildTLV(d, "", "A", tlvValue{Name: "A-IP", Value: tt.ipv4}); !errors.Is(err, ErrInvalidValue) {
 			t.Errorf("ParseTLV ipaddr %q: err = %v", tt.ipv4, err)
 		}
-		if _, err := d.ParseTLV("", "A", TLVValue{Name: "A-IP6", Value: tt.ipv6}); !errors.Is(err, ErrInvalidValue) {
+		if _, err := buildTLV(d, "", "A", tlvValue{Name: "A-IP6", Value: tt.ipv6}); !errors.Is(err, ErrInvalidValue) {
 			t.Errorf("ParseTLV ipv6addr %q: err = %v", tt.ipv6, err)
 		}
 		if _, err := d.ParseAVP("IP", tt.ipv4); !errors.Is(err, ErrInvalidValue) {
@@ -755,7 +772,7 @@ ATTRIBUTE S-T-1 1.1 integer
 END-VENDOR S
 `)
 	for _, c := range [][3]string{{"V", "V-T", "V-T-1"}, {"S", "S-T", "S-T-1"}} {
-		if _, err := d.ParseTLV(c[0], c[1], TLVValue{Name: c[2], Value: "1"}); err != nil {
+		if _, err := buildTLV(d, c[0], c[1], tlvValue{Name: c[2], Value: "1"}); err != nil {
 			t.Errorf("%s: %v", c[1], err)
 		}
 	}
@@ -796,9 +813,9 @@ ATTRIBUTE	3GPP2-Remote-IP-Address-Mask		59.2	integer
 ATTRIBUTE	3GPP2-Remote-IP-Qualifier		59.3	short
 END-VENDOR 3GPP2
 `)
-	avp, err := dict.ParseTLV("3GPP2", "3GPP2-Remote-IP-Address",
-		TLVValue{Name: "3GPP2-Remote-IP-Address-Value", Value: "10.1.2.3"},
-		TLVValue{Name: "3GPP2-Remote-IP-Qualifier", Value: "1"},
+	avp, err := buildTLV(dict, "3GPP2", "3GPP2-Remote-IP-Address",
+		tlvValue{Name: "3GPP2-Remote-IP-Address-Value", Value: "10.1.2.3"},
+		tlvValue{Name: "3GPP2-Remote-IP-Qualifier", Value: "1"},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -831,7 +848,7 @@ ATTRIBUTE A-Name a.b integer
 		t.Errorf("invalid id warnings = %d, want 3:\n%s", n, h.all())
 	}
 	for _, name := range []string{"A-Big", "A-Empty", "A-Name"} {
-		if _, err := d.ParseTLV("", "A", TLVValue{Name: name, Value: "1"}); !errors.Is(err, ErrUnknownAttribute) {
+		if _, err := buildTLV(d, "", "A", tlvValue{Name: name, Value: "1"}); !errors.Is(err, ErrUnknownAttribute) {
 			t.Errorf("ParseTLV %s: err = %v", name, err)
 		}
 	}
@@ -840,25 +857,25 @@ ATTRIBUTE A-Name a.b integer
 // Many small sub-attributes can exceed the attribute length; a VSA has less room.
 func TestParseTLVTooManyChildren(t *testing.T) {
 	d := loadTLVTestDict(t)
-	masks := func(n int) []TLVValue { // 6 bytes each
-		v := make([]TLVValue, n)
+	masks := func(n int) []tlvValue { // 6 bytes each
+		v := make([]tlvValue, n)
 		for i := range v {
-			v[i] = TLVValue{Name: "TLV-Remote-Mask", Value: "1"}
+			v[i] = tlvValue{Name: "TLV-Remote-Mask", Value: "1"}
 		}
 		return v
 	}
-	if _, err := d.ParseTLV("TLVVendor", "TLV-Remote", masks(41)...); err != nil {
+	if _, err := buildTLV(d, "TLVVendor", "TLV-Remote", masks(41)...); err != nil {
 		t.Errorf("246 bytes: %v", err)
 	}
 	// 252 bytes fit a standard attribute but not a VSA
-	if _, err := d.ParseTLV("TLVVendor", "TLV-Remote", masks(42)...); !errors.Is(err, ErrInvalidValue) {
+	if _, err := buildTLV(d, "TLVVendor", "TLV-Remote", masks(42)...); !errors.Is(err, ErrInvalidValue) {
 		t.Errorf("252 bytes in VSA: err = %v", err)
 	}
-	lens := make([]TLVValue, 43) // 258 bytes
+	lens := make([]tlvValue, 43) // 258 bytes
 	for i := range lens {
-		lens[i] = TLVValue{Name: "Test-Std-TLV-Len", Value: "1"}
+		lens[i] = tlvValue{Name: "Test-Std-TLV-Len", Value: "1"}
 	}
-	if _, err := d.ParseTLV("", "Test-Std-TLV", lens...); !errors.Is(err, ErrInvalidValue) {
+	if _, err := buildTLV(d, "", "Test-Std-TLV", lens...); !errors.Is(err, ErrInvalidValue) {
 		t.Errorf("258 bytes: err = %v", err)
 	}
 }
@@ -915,7 +932,7 @@ func TestTLVConcurrentLoad(t *testing.T) {
 			for range 50 {
 				d.DecodeAVPValue(p, p.AVPs[0])
 				d.GetTLVString(p, "TLVVendor", "TLV-Remote-Nested")
-				d.ParseTLV("", "B", TLVValue{Name: "B-1", Value: "1"})
+				buildTLV(d, "", "B", tlvValue{Name: "B-1", Value: "1"})
 			}
 		}()
 	}
@@ -929,7 +946,7 @@ func TestTLVPacketString(t *testing.T) {
 	SetDefaultDictionary(d)
 	t.Cleanup(func() { SetDefaultDictionary(old) })
 	p := Request(AccessRequest, "secret")
-	p.AddAVP(d.NewTLV("", "Test-Std-TLV", TLVValue{Name: "Test-Std-TLV-Len", Value: "24"}))
+	p.AddAVP(newTLV(d, "", "Test-Std-TLV", tlvValue{Name: "Test-Std-TLV-Len", Value: "24"}))
 	want := "AVP type: Test-Std-TLV {Test-Std-TLV-Len: 24}\n"
 	if got := p.String(); !strings.Contains(got, want) {
 		t.Errorf("Packet.String = %q, want %q", got, want)
@@ -950,7 +967,7 @@ func TestVSAString(t *testing.T) {
 	SetDefaultDictionary(d)
 	t.Cleanup(func() { SetDefaultDictionary(old) })
 
-	tlv := d.NewTLV("TLVVendor", "TLV-Remote", TLVValue{Name: "TLV-Remote-Qualifier", Value: "Exact"})
+	tlv := newTLV(d, "TLVVendor", "TLV-Remote", tlvValue{Name: "TLV-Remote-Qualifier", Value: "Exact"})
 	plain := vsaAVP(testTLVVendorID, 1, []byte{0, 0, 0, 5})
 	tests := []struct {
 		avp  AVP
@@ -1026,7 +1043,7 @@ func TestDictionaryRedeclareAliasDecodes(t *testing.T) {
 // TLV aliases share sub-attributes even with a non-TLV alias between them.
 func TestTLVAliasAfterNonTLVAlias(t *testing.T) {
 	d := loadTLVDict(t, "ATTRIBUTE A 200 tlv\nATTRIBUTE A-1 200.1 integer\nATTRIBUTE B 200 octets\nATTRIBUTE C 200 tlv\n")
-	avp, err := d.ParseTLV("", "C", TLVValue{Name: "A-1", Value: "1"})
+	avp, err := buildTLV(d, "", "C", tlvValue{Name: "A-1", Value: "1"})
 	if err != nil {
 		t.Fatal(err)
 	}

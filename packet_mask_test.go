@@ -17,7 +17,7 @@ func TestStringMasked(t *testing.T) {
 	if err := req.AddPassword("pw-user"); err != nil {
 		t.Fatal(err)
 	}
-	if err := d.AddTLV(req, "", "Enc-TLV", TLVValue{Name: "Enc-Pass", Value: "pw-tlv"}); err != nil {
+	if err := addTLV(d, req, "", "Enc-TLV", tlvValue{Name: "Enc-Pass", Value: "pw-tlv"}); err != nil {
 		t.Fatal(err)
 	}
 	reply := req.ReplyAccept()
@@ -27,7 +27,7 @@ func TestStringMasked(t *testing.T) {
 	if err := addVSA(d, reply, "Test", "Test-Secret", "pw-salt"); err != nil {
 		t.Fatal(err)
 	}
-	if err := d.AddTLV(reply, "", "Enc-TLV", TLVValue{Name: "Enc-Key", Value: "pw-tlv2"}); err != nil {
+	if err := addTLV(d, reply, "", "Enc-TLV", tlvValue{Name: "Enc-Key", Value: "pw-tlv2"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := addVSA(d, reply, "Alcatel-Lucent-Service-Router", "Alc-LI-Destination", "10.9.8.7"); err != nil {

@@ -330,14 +330,14 @@ func TestGetVSAContinuationInterrupted(t *testing.T) {
 // WiMAX TLVs are built with the continuation byte.
 func TestWiMAXParseTLV(t *testing.T) {
 	d := loadVSAFormatDict(t)
-	avp, err := d.ParseTLV("WiMAX", "WiMAX-Capability", TLVValue{Name: "WiMAX-Release", Value: "2.1"})
+	avp, err := buildTLV(d, "WiMAX", "WiMAX-Capability", tlvValue{Name: "WiMAX-Release", Value: "2.1"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if want := []byte{0, 0, 0x60, 0xb5, 1, 8, 0, 1, 5, '2', '.', '1'}; !bytes.Equal(avp.Value, want) {
 		t.Errorf("ParseTLV = %v, want %v", avp.Value, want)
 	}
-	if _, err := d.ParseTLV("WiMAX", "WiMAX-Capability", TLVValue{Name: "WiMAX-Release", Value: strings.Repeat("a", wimaxFragmentData-tlvHeaderLen+1)}); !errors.Is(err, ErrInvalidValue) {
+	if _, err := buildTLV(d, "WiMAX", "WiMAX-Capability", tlvValue{Name: "WiMAX-Release", Value: strings.Repeat("a", wimaxFragmentData-tlvHeaderLen+1)}); !errors.Is(err, ErrInvalidValue) {
 		t.Errorf("too long: err = %v", err)
 	}
 }

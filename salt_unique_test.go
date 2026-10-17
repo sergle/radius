@@ -3,6 +3,7 @@ package radius
 import (
 	"bytes"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -51,7 +52,7 @@ func TestSaltsUniqueInPacket(t *testing.T) {
 			func(a AVP) []byte { return ToVSA(a).Value[:tunnelSaltLen] }},
 		{"AddVSA tagged", func(p *Packet) error { return addVSA(salts, p, "Test", "Test-Tunnel:3", "pw") },
 			func(a AVP) []byte { return ToVSA(a).Value[tunnelTagLen:tunnelHeaderLen] }},
-		{"AddTLV", func(p *Packet) error { return tlvs.AddTLV(p, "", "Enc-TLV", TLVValue{Name: "Enc-Key", Value: "key"}) },
+		{"AddTLV", func(p *Packet) error { return addTLV(tlvs, p, "", "Enc-TLV", tlvValue{Name: "Enc-Key", Value: "key"}) },
 			func(a AVP) []byte { return a.Value[tlvHeaderLen : tlvHeaderLen+tunnelSaltLen] }},
 		{"template", func(p *Packet) error { tunnelTmpl.Add(p, "pw"); return nil },
 			func(a AVP) []byte { return a.Value[tunnelTagLen:tunnelHeaderLen] }},
@@ -123,9 +124,10 @@ func TestSaltsExhausted(t *testing.T) {
 func TestSaltsRestoredOnError(t *testing.T) {
 	d := loadTLVDict(t, encTLVDict)
 	p := Request(AccessRequest, "testing123").ReplyAccept()
-	err := d.AddTLV(p, "", "Enc-TLV", TLVValue{Name: "Enc-Key", Value: "key"}, TLVValue{Name: "Enc-Num", Value: "x"})
-	if err == nil {
-		t.Fatal("AddTLV accepted an invalid integer")
+	// too long only once encrypted
+	key := tlvValue{Name: "Enc-Key", Value: strings.Repeat("k", 120)}
+	if err := addTLV(d, p, "", "Enc-TLV", key, key); err == nil {
+		t.Fatal("AddTLV accepted a value too long")
 	}
 	if len(p.salts) != 0 || len(p.AVPs) != 0 {
 		t.Errorf("packet changed: salts %x, AVPs %v", p.salts, p.AVPs)

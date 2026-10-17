@@ -322,29 +322,35 @@ log.Print(dict.DecodeAVPValue(reply, *tt)) // "VLAN (tag 1)"
 ```
 
 ## TLV Attributes
-Attributes of type `tlv` (e.g. 3GPP2, FreeRADIUS EAP-FAST) hold sub-attributes, declared with dotted ids (`59.1`) or `BEGIN-TLV` blocks. Build them with `ParseTLV`/`NewTLV` or `AddTLV` (use keyed `TLVValue` fields) and read them with `GetTLV`/`GetTLVString`; `DecodeAVPValue` renders them:
+Attributes of type `tlv` (e.g. 3GPP2, FreeRADIUS EAP-FAST) hold sub-attributes, declared with dotted ids (`59.1`) or `BEGIN-TLV` blocks. Build them with `ParseTLV`, which returns a `*TLV` builder, add sub-attributes with `Add`, and add the result with `Packet.AddTLV`. Read them with `GetTLV`/`GetTLVString`; `DecodeAVPValue` renders them:
 
 ```go
-avp, err := dict.ParseTLV("3GPP2", "3GPP2-Remote-IP-Address",
-	radius.TLVValue{Name: "3GPP2-Remote-IP-Address-Value", Value: "10.1.2.3"},
-	radius.TLVValue{Name: "3GPP2-Remote-IP-Qualifier", Value: "1"},
-)
-req.AddAVP(avp)
+tlv, err := dict.ParseTLV("3GPP2", "3GPP2-Remote-IP-Address")
+err = tlv.Add("3GPP2-Remote-IP-Address-Value", "10.1.2.3")
+err = tlv.Add("3GPP2-Remote-IP-Qualifier", "1")
+err = req.AddTLV(tlv)
 
 q, ok := dict.GetTLVString(p, "3GPP2", "3GPP2-Remote-IP-Qualifier") // "1", true
 ```
 
 Notes:
-- Sub-attributes listed one after another go into the same nested TLV. To start a second instance of a nested TLV, pass its own name with an empty `Value`.
-- Sub-attributes whose type has no handler (e.g. `abinary`) are shown as raw bytes and can't be built with `ParseTLV`.
-- Encrypted sub-attributes (`encrypt=1` or `encrypt=2` in the dictionary, e.g. `WiMAX-hDHCP-DHCP-RK`) need the packet's secret and authenticator, so build them with `AddTLV`, which encrypts them and adds the attribute to the packet. `ParseTLV` refuses them, because it would send them unencrypted. For a reply, create the packet with `request.Reply()` (or `ReplyAccept()` etc.) first, otherwise `AddTLV` (like `AddTunnelPassword`) returns `ErrNoRequestAuthenticator`. Accounting, CoA and Disconnect requests hide values with an all-zero authenticator (RFC 2866, RFC 5176; as FreeRADIUS). `encrypt=2` values (like Tunnel-Password, RFC 2868) can't go in an Access-Request or Status-Server: `AddTLV` and `AddTunnelPassword` return `ErrTunnelPasswordInRequest`. A failing `AddTLV` leaves the packet unchanged. For example:
+- `Add` takes sub-attributes at any depth, checks the name, type, VALUE names and length, and returns the error right away.
+- Sub-attributes of a nested TLV go into its last instance. `AddTLV(name)` starts a new instance and returns a builder for it:
 
   ```go
+  n, err := tlv.AddTLV("Example-Nested")
+  err = n.Add("Example-Nested-Name", "b")
+  ```
+- `Packet.AddTLV` doesn't change the builder, so one `TLV` can go into several packets. It splits a long value over several attributes for WiMAX and long extended attributes (245, 246). `ToAVP` returns the value as one attribute without a packet; it logs a warning and returns the zero AVP if the value doesn't fit one attribute or needs encryption.
+- Sub-attributes whose type has no handler (e.g. `abinary`) are shown as raw bytes and can't be built.
+- Encrypted sub-attributes (`encrypt=1` or `encrypt=2` in the dictionary, e.g. `WiMAX-hDHCP-DHCP-RK`) need the packet's secret and authenticator. `Add` keeps their plaintext, and `Packet.AddTLV` encrypts them. For a reply, create the packet with `request.Reply()` (or `ReplyAccept()` etc.) first, otherwise `Packet.AddTLV` (like `AddTunnelPassword`) returns `ErrNoRequestAuthenticator`. Accounting, CoA and Disconnect requests hide values with an all-zero authenticator (RFC 2866, RFC 5176). `encrypt=2` values (like Tunnel-Password, RFC 2868) can't go in an Access-Request or Status-Server: `Packet.AddTLV` and `AddTunnelPassword` return `ErrTunnelPasswordInRequest`. A failing `Packet.AddTLV` leaves the packet unchanged. For example:
+
+  ```go
+  tlv, err := dict.ParseTLV("WiMAX", "WiMAX-hDHCP-Server-Parameters")
+  err = tlv.Add("WiMAX-hDHCP-DHCP-RK", string(key))
+  err = tlv.Add("WiMAX-hDHCP-DHCP-RK-Key-Id", "1")
   reply := req.ReplyAccept()
-  err := dict.AddTLV(reply, "WiMAX", "WiMAX-hDHCP-Server-Parameters",
-  	radius.TLVValue{Name: "WiMAX-hDHCP-DHCP-RK", Value: string(key)},
-  	radius.TLVValue{Name: "WiMAX-hDHCP-DHCP-RK-Key-Id", Value: "1"},
-  )
+  err = reply.AddTLV(tlv)
   ```
 
   `GetTLV`, `GetTLVString`, `DecodeAVPValue` and `Packet.String` decrypt them with the packet they are given. `Packet.StringMasked` and `AVP.StringMasked` show them as `*****`, for logs. If the ciphertext is malformed, `GetTLV` doesn't find it and the others show the raw bytes; `DecodeAVPValue(nil, …)` shows the raw bytes too (`GetTLV` and `GetTLVString` find nothing in a nil packet). A wrong secret or authenticator isn't detected: it decrypts to garbage. Only `encrypt=1` on `string` sub-attributes and `encrypt=2` on non-TLV ones are supported. Those others, and `encrypt=3`, are loaded with a warning but can't be built (`ErrUnsupportedAttributeType`) or decrypted: they are shown as raw bytes and `GetTLV` doesn't find them (nor the sub-attributes of such an encrypted TLV).
@@ -368,7 +374,7 @@ v, ok := dict.GetExtended(p, "", "Frag-Status") // the whole value, fragments jo
 Templates (`CreateRequestTemplate`, `AddVSAAttribute` for vendor ones) accept extended names, `ParseTLV`/`GetTLV` work for TLVs among them, and `DecodeAVPValue`/`Packet.String` show them by name. Notes:
 - The builtin dictionary declares 241–246 only; load the FreeRADIUS dictionaries for the attributes in them.
 - `ParseAVP` returns one attribute, so it refuses a value too long for it; use `ParseExtended` and `AddExtended`.
-- `ParseTLV` also returns one attribute, and `ParseExtended` doesn't build TLVs, so a TLV value over 251 bytes can't be built from sub-attributes yet.
+- `Packet.AddTLV` splits a long-extended TLV value over several attributes.
 - Values can't be empty (RFC 6929).
 - Fragments are joined only if they follow each other; a broken chain is ignored. `DecodeAVPValue` shows each fragment separately and marks the ones after the first as `Continued`.
 - The only `BEGIN-VENDOR` option is `format=` (or `parent=`) naming an Extended-Vendor-Specific attribute; anything else is a load error.
@@ -379,7 +385,7 @@ Most vendors use the standard VSA layout: a 1-byte attribute number and a 1-byte
 - `L`: length field size, 0, 1 or 2 bytes.
 - `c`: WiMAX continuation byte, which lets a long value span several attributes.
 
-`ParseVSA`, templates and `ParseTLV` encode with the vendor's format, and `DecodeAVPValue` and `ToVSA` decode with it. For WiMAX, `AddVSA` splits a long value over several Vendor-Specific attributes, and `GetVSA`/`GetTLV` join it back:
+`ParseVSA`, templates and TLV builders encode with the vendor's format, and `DecodeAVPValue` and `ToVSA` decode with it. For WiMAX, `AddVSA` splits a long value over several Vendor-Specific attributes, and `GetVSA`/`GetTLV` join it back:
 
 ```go
 vsa, _ := dict.ParseVSA("WiMAX", "WiMAX-Hotline-Indicator", longValue)

@@ -16,7 +16,8 @@ const (
 	tunnelHeaderLen = tunnelTagLen + tunnelSaltLen
 	tunnelSaltBit   = 0x80 // RFC 2868: the salt's most significant bit must be set
 	maxSalts        = 1 << (8*tunnelSaltLen - 1)
-	maxAVPValueLen  = 255 - 2
+	avpHeaderLen    = 2 // type + length
+	maxAVPValueLen  = 255 - avpHeaderLen
 	// longest password whose padded length byte + data fits in one attribute
 	tunnelPasswordMaxLen = (maxAVPValueLen-tunnelHeaderLen)/blockSize*blockSize - 1
 )

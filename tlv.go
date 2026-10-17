@@ -19,7 +19,7 @@ type tlvAttr struct {
 	name      string
 	num       uint8
 	attrType  string
-	encrypt   int           // encrypt= method; AddTLV encrypts, readers decrypt with the packet, if canEncrypt
+	encrypt   int           // encrypt= method; Packet.AddTLV encrypts, readers decrypt with the packet, if canEncrypt
 	parent    *tlvAttr      // nil for a top-level attribute
 	outer     AttributeType // top-level extended attribute (241-246) holding it, 0 if none
 	children  map[uint8]*tlvAttr
@@ -31,14 +31,6 @@ type tlvAttr struct {
 type tlvBlock struct {
 	name string
 	attr *tlvAttr
-}
-
-// TLVValue is a sub-attribute name and value for ParseTLV; use keyed fields,
-// e.g. TLVValue{Name: "X", Value: "1"}. A nested TLV's own name with an empty
-// Value starts a new instance of it.
-type TLVValue struct {
-	Name  string
-	Value string
 }
 
 var avpTLV AvpTLV
@@ -261,28 +253,18 @@ func findTLV(value []byte, path []uint8) ([]byte, bool) {
 	return found, ok
 }
 
-// tlvNode is a sub-attribute being encoded; containers hold children instead of a value.
+// tlvNode is a sub-attribute being built; containers hold children instead of a value.
 type tlvNode struct {
 	num       uint8
+	name      string
 	container bool
-	value     []byte
+	encrypt   int    // encrypt= method of value, kept as plaintext
+	value     []byte // encoded
 	children  []*tlvNode
 }
 
-// add appends value at path, reusing the last container on each level if it has the same number.
-func (n *tlvNode) add(path []uint8, value []byte) {
-	p := n.parent(path)
-	p.children = append(p.children, &tlvNode{num: path[len(path)-1], value: value})
-}
-
-// addContainer appends a new, empty container at path.
-func (n *tlvNode) addContainer(path []uint8) {
-	p := n.parent(path)
-	p.children = append(p.children, &tlvNode{num: path[len(path)-1], container: true})
-}
-
-// parent returns the container for the last element of path, creating missing ones.
-func (n *tlvNode) parent(path []uint8) *tlvNode {
+// add appends c at path, reusing the last container on each level if it has the same number.
+func (n *tlvNode) add(path []uint8, c *tlvNode) *tlvNode {
 	for _, num := range path[:len(path)-1] {
 		k := len(n.children)
 		if k == 0 || !n.children[k-1].container || n.children[k-1].num != num {
@@ -291,28 +273,39 @@ func (n *tlvNode) parent(path []uint8) *tlvNode {
 		}
 		n = n.children[k-1]
 	}
-	return n
+	c.num = path[len(path)-1]
+	n.children = append(n.children, c)
+	return c
 }
 
-// appendChildren appends the encoded children of n to b.
-func (n *tlvNode) appendChildren(b []byte) ([]byte, error) {
+// appendChildren appends the encoded children of n to b, hiding encrypted values with enc (nil refuses them).
+func (n *tlvNode) appendChildren(b []byte, enc func(*tlvNode) ([]byte, error)) ([]byte, error) {
 	for _, c := range n.children {
 		start := len(b)
 		b = append(b, c.num, 0)
-		if c.container {
+		var err error
+		switch {
+		case c.container:
 			if len(c.children) == 0 {
-				return nil, fmt.Errorf("%w: empty nested TLV %d", ErrInvalidValue, c.num)
+				return nil, fmt.Errorf("%w: empty nested TLV %s", ErrInvalidValue, c.name)
 			}
-			var err error
-			if b, err = c.appendChildren(b); err != nil {
-				return nil, err
+			b, err = c.appendChildren(b, enc)
+		case c.encrypt != encryptNone && enc == nil:
+			err = fmt.Errorf("%w, use Packet.AddTLV: %s", ErrEncryptedAttribute, c.name)
+		case c.encrypt != encryptNone:
+			var v []byte
+			if v, err = enc(c); err == nil {
+				b = append(b, v...)
 			}
-		} else {
+		default:
 			b = append(b, c.value...)
+		}
+		if err != nil {
+			return nil, err
 		}
 		l := len(b) - start
 		if l > maxTLVLen {
-			return nil, fmt.Errorf("%w: sub-attribute %d too long", ErrInvalidValue, c.num)
+			return nil, fmt.Errorf("%w: sub-attribute %s too long", ErrInvalidValue, c.name)
 		}
 		b[start+1] = uint8(l)
 	}
@@ -353,48 +346,31 @@ func (d *Dictionary) rootTLV(vendorID VendorID, attrName string) *tlvAttr {
 	return t
 }
 
-// NewTLV is like ParseTLV but logs the error and returns the zero AVP.
-func (d *Dictionary) NewTLV(vendorName, attrName string, values ...TLVValue) AVP {
-	avp, err := d.ParseTLV(vendorName, attrName, values...)
-	if err != nil {
-		logger().Warn("radius: NewTLV", "error", err)
-	}
-	return avp
+// TLV builds a "tlv" attribute from sub-attributes; get one from Dictionary.ParseTLV.
+// Packet.AddTLV doesn't change it, so one TLV can go into several packets; Add and AddTLV
+// must not run concurrently with other uses.
+type TLV struct {
+	d    *Dictionary
+	def  *tlvAttr // the TLV this builds; read under d.mu
+	node *tlvNode
+	attr *tlvTop
 }
 
-// ParseTLV encodes sub-attributes (at any depth) of the "tlv" attribute attrName into one AVP.
-//
-// vendorName is "" for standard attributes, otherwise a Vendor-Specific AVP is returned.
-// Consecutive values under the same nested TLV share one instance of it; the
-// nested TLV's own name with an empty value starts a new instance.
-// It refuses encrypted sub-attributes: build encrypt=1 (string) and encrypt=2 (non-tlv) ones
-// with AddTLV; other encrypt= methods can't be built.
-func (d *Dictionary) ParseTLV(vendorName, attrName string, values ...TLVValue) (AVP, error) {
-	return d.parseTLV(nil, vendorName, attrName, values)
+// tlvTop is the top-level attribute a TLV builds, resolved by ParseTLV.
+type tlvTop struct {
+	name     string
+	vendorID VendorID
+	vsa      bool
+	num      uint8
+	format   VendorFormat
+	ext      *ExtendedAttr // set for extended attributes (241-246)
+	root     tlvNode
 }
 
-// AddTLV is like ParseTLV but adds the AVP to p, encrypting encrypt= sub-attributes
-// with p's Secret and the Request Authenticator (as AddTunnelPassword does).
-// For a reply, create p with request.Reply(), else encrypting returns ErrNoRequestAuthenticator;
-// encrypt=2 in an Access-Request or Status-Server returns ErrTunnelPasswordInRequest.
-// On error p is unchanged.
-func (d *Dictionary) AddTLV(p *Packet, vendorName, attrName string, values ...TLVValue) error {
-	if p == nil {
-		return ErrNilPacket
-	}
-	s := p.saveEncrypt()
-	avp, err := d.parseTLV(p, vendorName, attrName, values)
-	if err != nil {
-		// undo what earlier values generated
-		p.restoreEncrypt(s)
-		return err
-	}
-	p.AddAVP(avp)
-	return nil
-}
-
-// parseTLV implements ParseTLV; encrypted sub-attributes need p.
-func (d *Dictionary) parseTLV(p *Packet, vendorName, attrName string, values []TLVValue) (AVP, error) {
+// ParseTLV returns a builder for the "tlv" attribute attrName; vendorName is "" for standard attributes.
+// Fill it with Add and AddTLV, then add it to a packet with Packet.AddTLV (which encrypts
+// encrypt= sub-attributes), or encode it with ToAVP if none are encrypted.
+func (d *Dictionary) ParseTLV(vendorName, attrName string) (*TLV, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	vendorID, root, err := d.lookupTLV(vendorName, attrName)
@@ -404,82 +380,189 @@ func (d *Dictionary) parseTLV(p *Packet, vendorName, attrName string, values []T
 			attrType = d.vsaAttrType[vendorID][attrName]
 		}
 		if attrType != "" {
-			return AVP{}, fmt.Errorf("%w %q for attribute %s", ErrUnsupportedAttributeType, attrType, qualifiedName(vendorName, attrName))
+			return nil, fmt.Errorf("%w %q for attribute %s", ErrUnsupportedAttributeType, attrType, qualifiedName(vendorName, attrName))
 		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	if root.parent != nil {
+		return nil, fmt.Errorf("%w: %s is a sub-attribute", ErrUnknownAttribute, attrName)
+	}
+	top := &tlvTop{name: attrName, vendorID: vendorID, vsa: vendorName != "", num: root.num, format: d.formatOf(vendorID)}
+	if root.outer != 0 {
+		e := d.extAttrs[vendorID][root.name].id
+		top.ext = &e
+	}
+	return &TLV{d: d, def: root, node: &top.root, attr: top}, nil
+}
+
+// Add adds sub-attribute name (at any depth below t) with value as text, VALUE names included.
+// A value under a nested TLV goes into its last instance (AddTLV starts a new one).
+// encrypt= sub-attributes keep the plaintext until Packet.AddTLV encrypts them.
+func (t *TLV) Add(name, value string) error {
+	t.d.mu.RLock()
+	defer t.d.mu.RUnlock()
+	c, path, err := t.lookup(name)
+	if err != nil {
+		return err
+	}
+	if c.attrType == typeTLV {
+		return fmt.Errorf("%w: nested TLV %s takes no value, use AddTLV", ErrInvalidValue, name)
+	}
+	handler := attrTypeHandlers[c.attrType]
+	if handler == nil {
+		return fmt.Errorf("%w %q for attribute %s", ErrUnsupportedAttributeType, c.attrType, name)
+	}
+	b, err := encodeValue(handler, c.constID, 0, value)
+	if err == nil {
+		err = checkTLVValueLen(c.encrypt, len(b))
+	}
+	if err != nil {
+		return fmt.Errorf("%w for attribute %s", err, name)
+	}
+	t.node.add(path, &tlvNode{name: name, encrypt: c.encrypt, value: b})
+	return nil
+}
+
+// AddTLV starts a new instance of nested TLV name (at any depth below t) and returns its builder.
+func (t *TLV) AddTLV(name string) (*TLV, error) {
+	t.d.mu.RLock()
+	defer t.d.mu.RUnlock()
+	c, path, err := t.lookup(name)
+	if err != nil {
+		return nil, err
+	}
+	if c.attrType != typeTLV {
+		return nil, fmt.Errorf("%w: %s is not a TLV", ErrInvalidValue, name)
+	}
+	n := t.node.add(path, &tlvNode{name: name, container: true})
+	return &TLV{d: t.d, def: c, node: n, attr: t.attr}, nil
+}
+
+// lookup returns sub-attribute name below t and its path from t; caller holds the lock.
+func (t *TLV) lookup(name string) (*tlvAttr, []uint8, error) {
+	c := t.d.tlvAttrs[t.attr.vendorID][name]
+	depth := 0
+	a := c
+	for ; a != nil && a != t.def; a = a.parent {
+		depth++
+	}
+	if a == nil || depth == 0 {
+		return nil, nil, fmt.Errorf("%w: %s in %s", ErrUnknownAttribute, name, t.def.name)
+	}
+	if u := c.unsupportedEncryption(); u == c {
+		return nil, nil, fmt.Errorf("%w: %s is encrypted with an unsupported method", ErrUnsupportedAttributeType, name)
+	} else if u != nil {
+		return nil, nil, fmt.Errorf("%w: %s: parent %s is encrypted with an unsupported method", ErrUnsupportedAttributeType, name, u.name)
+	}
+	path := c.path()
+	return c, path[len(path)-depth:], nil
+}
+
+// checkTLVValueLen checks the length n of an encoded sub-attribute value (plaintext if encrypted with method).
+func checkTLVValueLen(method, n int) error {
+	switch {
+	case method == encryptUserPassword && n > maxPasswordLen:
+		return fmt.Errorf("%w: longer than %d bytes", ErrInvalidValue, maxPasswordLen)
+	case method == encryptTunnelPassword && n > tunnelPasswordMaxLen:
+		return fmt.Errorf("%w: longer than %d bytes", ErrInvalidValue, tunnelPasswordMaxLen)
+	case tlvHeaderLen+n > maxTLVLen:
+		return fmt.Errorf("%w: longer than %d bytes", ErrInvalidValue, maxTLVLen-tlvHeaderLen)
+	}
+	return nil
+}
+
+// ToAVP encodes t as one AVP. Encrypted sub-attributes (use Packet.AddTLV), a value too long
+// for one AVP or an empty nested TLV is logged and gives the zero AVP.
+func (t *TLV) ToAVP() AVP {
+	avp, err := t.toAVP()
+	if err != nil {
+		logger().Warn("radius: TLV.ToAVP", "error", err)
+	}
+	return avp
+}
+
+// toAVP implements ToAVP.
+func (t *TLV) toAVP() (AVP, error) {
+	avps, err := t.encode(nil)
+	if err == nil && len(avps) != 1 {
+		err = fmt.Errorf("%w: %s too long for one attribute, use Packet.AddTLV", ErrInvalidValue, t.attr.name)
 	}
 	if err != nil {
 		return AVP{}, err
 	}
-	if root.parent != nil {
-		return AVP{}, fmt.Errorf("%w: %s is a sub-attribute", ErrUnknownAttribute, attrName)
-	}
-	if len(values) == 0 {
-		return AVP{}, fmt.Errorf("%w: no sub-attributes for %s", ErrInvalidValue, attrName)
-	}
+	return avps[0], nil
+}
 
-	var top tlvNode
-	for _, v := range values {
-		t := d.tlvAttrs[vendorID][v.Name]
-		if t == nil || t.parent == nil || t.root() != root {
-			return AVP{}, fmt.Errorf("%w: %s in %s", ErrUnknownAttribute, v.Name, attrName)
-		}
-		if u := t.unsupportedEncryption(); u == t {
-			return AVP{}, fmt.Errorf("%w: %s is encrypted with an unsupported method", ErrUnsupportedAttributeType, v.Name)
-		} else if u != nil {
-			return AVP{}, fmt.Errorf("%w: %s: parent %s is encrypted with an unsupported method", ErrUnsupportedAttributeType, v.Name, u.name)
-		}
-		if t.encrypt != encryptNone && p == nil {
-			return AVP{}, fmt.Errorf("%w, use AddTLV: %s", ErrEncryptedAttribute, v.Name)
-		}
-		if t.attrType == typeTLV {
-			if v.Value != "" {
-				return AVP{}, fmt.Errorf("%w: nested TLV %s takes no value", ErrInvalidValue, v.Name)
-			}
-			top.addContainer(t.path())
-			continue
-		}
-		handler := attrTypeHandlers[t.attrType]
-		if handler == nil {
-			return AVP{}, fmt.Errorf("%w %q for attribute %s", ErrUnsupportedAttributeType, t.attrType, v.Name)
-		}
-		b, err := encodeValue(handler, t.constID, 0, v.Value)
-		if err == nil && t.encrypt != encryptNone {
-			b, err = encryptValue(t.encrypt, p, b)
-		}
-		if err != nil {
-			return AVP{}, fmt.Errorf("%w for attribute %s", err, v.Name)
-		}
-		top.add(t.path(), b)
+// AddTLV adds the attribute built by tlv, encrypting encrypt= sub-attributes with p's Secret and
+// authenticator (as AddTunnelPassword does), split over several AVPs if needed (WiMAX, long extended).
+// For a reply, create p with request.Reply(), else encrypting returns ErrNoRequestAuthenticator;
+// encrypt=2 in an Access-Request or Status-Server returns ErrTunnelPasswordInRequest.
+// tlv must come from Dictionary.ParseTLV, not AddTLV; it isn't changed, and on error p is unchanged.
+func (p *Packet) AddTLV(tlv *TLV) error {
+	if p == nil {
+		return ErrNilPacket
 	}
-	value, err := top.appendChildren(nil)
+	if tlv == nil {
+		return fmt.Errorf("%w: nil TLV", ErrInvalidValue)
+	}
+	s := p.saveEncrypt()
+	avps, err := tlv.encode(func(n *tlvNode) ([]byte, error) {
+		return encryptValue(n.encrypt, p, n.value)
+	})
 	if err != nil {
-		return AVP{}, fmt.Errorf("%w in %s", err, attrName)
+		// undo what earlier values generated
+		p.restoreEncrypt(s)
+		return err
 	}
+	p.AddAVP(avps...)
+	return nil
+}
 
-	if root.outer != 0 {
-		e := d.extAttrs[vendorID][root.name].id
+// encode returns the AVPs of t's attribute, hiding encrypted values with enc (nil refuses them).
+func (t *TLV) encode(enc func(*tlvNode) ([]byte, error)) ([]AVP, error) {
+	top := t.attr
+	if t.node != &top.root {
+		return nil, fmt.Errorf("%w: %s is nested, add %s", ErrInvalidValue, t.node.name, top.name)
+	}
+	if len(top.root.children) == 0 {
+		return nil, fmt.Errorf("%w: no sub-attributes for %s", ErrInvalidValue, top.name)
+	}
+	value, err := top.root.appendChildren(nil, enc)
+	if err != nil {
+		return nil, fmt.Errorf("%w in %s", err, top.name)
+	}
+	tooLong := func() error { return fmt.Errorf("%w: %s too long", ErrInvalidValue, top.name) }
+	var avps []AVP
+	switch {
+	case top.ext != nil:
+		e := *top.ext
 		e.Value = value
 		if err := e.check(); err != nil {
-			return AVP{}, fmt.Errorf("%w in %s", err, attrName)
+			return nil, fmt.Errorf("%w in %s", err, top.name)
 		}
-		avps := e.ToAVPList()
-		if len(avps) != 1 {
-			return AVP{}, fmt.Errorf("%w: %s too long", ErrInvalidValue, attrName)
-		}
-		return avps[0], nil
-	}
-
-	if vendorName == "" {
+		avps = e.ToAVPList()
+	case !top.vsa:
 		if len(value) > maxAVPValueLen {
-			return AVP{}, fmt.Errorf("%w: %s too long", ErrInvalidValue, attrName)
+			return nil, tooLong()
 		}
-		return AVP{Type: AttributeType(root.num), Value: value}, nil
+		avps = []AVP{{Type: AttributeType(top.num), Value: value}}
+	default:
+		f := top.format.norm()
+		if !f.Continuation && len(value) > f.maxValueLen() {
+			return nil, tooLong()
+		}
+		avps = VSA{Vendor: top.vendorID, Type: VendorAttr(top.num), Value: value, Format: top.format}.ToAVPList()
 	}
-	f := d.formatOf(vendorID)
-	if len(value) > f.maxValueLen() {
-		return AVP{}, fmt.Errorf("%w: %s too long", ErrInvalidValue, attrName)
+	n := packetHeaderLen
+	for _, a := range avps {
+		n += avpHeaderLen + len(a.Value)
 	}
-	return VSA{Vendor: vendorID, Type: VendorAttr(root.num), Value: value, Format: f}.ToAVP(), nil
+	if n > maxPacketLen {
+		return nil, tooLong()
+	}
+	return avps, nil
 }
 
 // GetTLV returns a copy of the first value of TLV sub-attribute attrName in p.
