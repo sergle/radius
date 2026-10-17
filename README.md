@@ -433,6 +433,12 @@ packet.EachAVP(func(attr radius.AVP) bool {
 })
 ```
 
+The lazy decoders don't check attribute lengths by default: accessors stop at a malformed attribute, so the ones after it are hidden (also from the Message-Authenticator check) while `Encode` forwards them. Proxies and other code that forwards packets should set `ValidateAttributes`, which rejects such a packet with `ErrInvalidAttributeLength` and doesn't allocate:
+
+```go
+packet, err := radius.DecodeRequestLazyWithOptions(secret, buf, &radius.DecodeOptions{ValidateAttributes: true})
+```
+
 ## Security: Message-Authenticator (Blast-RADIUS)
 RADIUS "Response Authenticator" integrity is based on an MD5 construction that is vulnerable to modern collision attacks in certain on-path (MITM) threat models (CVE-2024-3596, see [BLAST RADIUS – Attack Details](https://www.blastradius.fail/attack-details)).
 

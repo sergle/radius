@@ -79,6 +79,19 @@ func BenchmarkDecodePacketLazyPooledLarge(b *testing.B) {
 	}
 }
 
+func BenchmarkDecodePacketLazyPooledValidateLarge(b *testing.B) {
+	raw := getLargeRawPacket()
+	opts := &DecodeOptions{ValidateAttributes: true}
+	b.ReportAllocs()
+	for b.Loop() {
+		p, err := DecodeRequestLazyPooledWithOptions("secret", raw, opts)
+		if err != nil {
+			b.Fatal(err)
+		}
+		p.Release()
+	}
+}
+
 func BenchmarkEncodePacket(b *testing.B) {
 	p := Request(AccessRequest, "secret")
 	for i := 0; i < 20; i++ {

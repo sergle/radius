@@ -24,6 +24,7 @@ var ErrTunnelPasswordInRequest = fmt.Errorf("RADIUS Access-Request and Status-Se
 var ErrUnexpectedCode = fmt.Errorf("RADIUS packet code unexpected")
 var ErrBufferTooSmall = fmt.Errorf("RADIUS encode buffer too small")
 var ErrPacketTooLarge = fmt.Errorf("RADIUS packet over 4096 bytes")
+var ErrInvalidAttributeLength = fmt.Errorf("RADIUS attribute length is invalid")
 
 // the size of the RADIUS packet header (RFC 2865 section 3)
 // Code (1), Identifier (1), Length (2) and Authenticator (16)
@@ -47,6 +48,14 @@ type DecodeOptions struct {
 	// Default: false (accept packets without Message-Authenticator, unless they
 	// carry EAP-Message, RFC 3579 section 3.2).
 	RequireMessageAuthenticator bool
+
+	// ValidateAttributes makes the lazy decoders check the attribute lengths, so a
+	// malformed attribute (ErrInvalidAttributeLength) can't hide the ones after it
+	// from accessors and the Message-Authenticator check, while Encode forwards them.
+	// The other decoders always check them.
+	//
+	// Default: false (accessors stop at a malformed attribute).
+	ValidateAttributes bool
 }
 
 // Packet represents a RADIUS packet as defined by RFC 2865/RFC 2866.
@@ -390,6 +399,19 @@ func rawAttrs(b []byte) iter.Seq2[int, AVP] {
 	}
 }
 
+// validAttrs reports whether b is a list of attributes with valid lengths and nothing after them.
+func validAttrs(b []byte) bool {
+	off := 0
+	for len(b)-off >= 2 {
+		length := int(b[off+1])
+		if length > len(b)-off || length < 2 {
+			return false
+		}
+		off += length
+	}
+	return off == len(b)
+}
+
 // SetAVP removes all attributes of the same type and then adds avp.
 func (p *Packet) SetAVP(avp AVP) {
 	p.deleteAllType(avp.Type)
@@ -681,7 +703,7 @@ func decodePacketTo(p *Packet, Secret string, buf []byte, requestAuth []byte, re
 	for pos := packetHeaderLen; len(b) >= 2; {
 		length := uint8(b[1])
 		if int(length) > len(b) || length < 2 {
-			return errors.New("invalid length")
+			return ErrInvalidAttributeLength
 		}
 		attr := AVP{}
 		attr.Type = AttributeType(b[0])
@@ -693,6 +715,9 @@ func decodePacketTo(p *Packet, Secret string, buf []byte, requestAuth []byte, re
 		hasEAP = hasEAP || attr.Type == AttrEAPMessage
 		pos += int(length)
 		b = b[length:]
+	}
+	if len(b) != 0 {
+		return ErrInvalidAttributeLength // a stray byte after the last attribute
 	}
 
 	// Verify the Message-Authenticator
@@ -725,6 +750,9 @@ func decodePacketLazyTo(p *Packet, Secret string, buf []byte, requestAuth []byte
 		return err
 	}
 	p.RawAVPs = buf[packetHeaderLen:]
+	if opts != nil && opts.ValidateAttributes && !validAttrs(p.RawAVPs) {
+		return ErrInvalidAttributeLength
+	}
 
 	// Verify the Message-Authenticator
 	// Note: Message-Authenticator verification requires walking the attributes
