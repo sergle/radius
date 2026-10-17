@@ -118,7 +118,10 @@ func TestPacketStringEscapes(t *testing.T) {
 	if err := r.AddTunnelPassword(1, "tp\x00\x07"); err != nil {
 		t.Fatal(err)
 	}
-	if s, want := r.String(), `AVP type: Tunnel-Password "tp\x00\a"`; !strings.Contains(s, want+"\n") {
+	if s, want := r.String(), `AVP type: Tunnel-Password "tp\x00\a" (tag 1)`; !strings.Contains(s, want+"\n") {
+		t.Errorf("missing %s in\n%s", want, s)
+	}
+	if s, want := r.StringMasked(), `AVP type: Tunnel-Password ***** (tag 1)`; !strings.Contains(s, want+"\n") {
 		t.Errorf("missing %s in\n%s", want, s)
 	}
 }

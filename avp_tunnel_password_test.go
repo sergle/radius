@@ -32,8 +32,8 @@ func TestTunnelPasswordDecodeVector(t *testing.T) {
 		if got := a.Decode(p); got != "tunnel-pass" {
 			t.Errorf("Decode = %#v, want %q", got, "tunnel-pass")
 		}
-		if got := d.DecodeAVPValue(p, a); got != "tunnel-pass" {
-			t.Errorf("DecodeAVPValue = %q, want %q", got, "tunnel-pass")
+		if got := d.DecodeAVPValue(p, a); got != "tunnel-pass (tag 1)" {
+			t.Errorf("DecodeAVPValue = %q, want %q", got, "tunnel-pass (tag 1)")
 		}
 	}
 	t.Run("builtin", func(t *testing.T) { check(t, GetDefaultDictionary()) })

@@ -39,10 +39,13 @@ func (s AvpTunnelPassword) Value(p *Packet, a AVP) interface{} {
 
 func (s AvpTunnelPassword) String(p *Packet, a AVP) string {
 	if p.masks() {
-		return maskedValue
+		if len(a.Value) < tunnelTagLen {
+			return maskedValue
+		}
+		return withTag(maskedValue, a.Value[0])
 	}
-	if _, password, ok := s.decrypt(p, a.Value); ok {
-		return printable(password)
+	if tag, password, ok := s.decrypt(p, a.Value); ok {
+		return withTag(printable(password), tag)
 	}
 	return avpBinary.String(p, a)
 }
