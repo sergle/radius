@@ -21,6 +21,8 @@ var ErrInvalidPacketLength = fmt.Errorf("RADIUS packet Length field is invalid")
 var ErrNoRequestAuthenticator = fmt.Errorf("RADIUS reply has no request authenticator, create it with request.Reply()")
 var ErrTunnelPasswordInRequest = fmt.Errorf("RADIUS Access-Request and Status-Server can't carry Tunnel-Password (encrypt=2) values")
 var ErrUnexpectedCode = fmt.Errorf("RADIUS packet code unexpected")
+var ErrBufferTooSmall = fmt.Errorf("RADIUS encode buffer too small")
+var ErrPacketTooLarge = fmt.Errorf("RADIUS packet over 4096 bytes")
 
 // the size of the RADIUS packet header (RFC 2865 section 3)
 // Code (1), Identifier (1), Length (2) and Authenticator (16)
@@ -211,8 +213,8 @@ func (p *Packet) Encode() (b []byte, err error) {
 // EncodeTo serializes the packet into b and returns the number of bytes written.
 // Like Encode, it doesn't modify p.
 //
-// The provided buffer must be large enough for the full packet; this package
-// commonly uses 4096 bytes (the RADIUS maximum packet size).
+// A packet over 4096 bytes (the RADIUS maximum) is ErrPacketTooLarge, a smaller
+// one that doesn't fit b ErrBufferTooSmall.
 func (p *Packet) EncodeTo(b []byte) (n int, err error) {
 	// a new Message-Authenticator goes first (Blast-RADIUS, CVE-2024-3596)
 	addMA := p.Code.hasMessageAuthenticator() && !p.HasAVP(AttrMessageAuthenticator)
@@ -285,8 +287,12 @@ func (p *Packet) encodeNoHash() (b []byte, err error) {
 // encodeNoHashTo writes the packet without hashing; withMA reserves a zeroed
 // Message-Authenticator as the first attribute.
 func (p *Packet) encodeNoHashTo(b []byte, withMA bool) (n int, err error) {
+	errFull := ErrBufferTooSmall
+	if len(b) >= maxPacketLen {
+		b, errFull = b[:maxPacketLen], ErrPacketTooLarge
+	}
 	if len(b) < packetHeaderLen {
-		return 0, errors.New("buffer too small")
+		return 0, errFull
 	}
 	b[0] = uint8(p.Code)
 	b[1] = uint8(p.Identifier)
@@ -295,7 +301,7 @@ func (p *Packet) encodeNoHashTo(b []byte, withMA bool) (n int, err error) {
 
 	if withMA {
 		if len(b) < written+messageAuthenticatorLen {
-			return 0, errors.New("buffer too small")
+			return 0, errFull
 		}
 		b[written] = uint8(AttrMessageAuthenticator)
 		b[written+1] = messageAuthenticatorLen
@@ -304,17 +310,18 @@ func (p *Packet) encodeNoHashTo(b []byte, withMA bool) (n int, err error) {
 	}
 
 	if len(b) < written+len(p.RawAVPs) {
-		return 0, errors.New("buffer too small")
+		return 0, errFull
 	}
 	written += copy(b[written:], p.RawAVPs)
-	bb := b[written:]
 	for i := range p.AVPs {
-		n, err := p.AVPs[i].Encode(bb)
-		written += n
+		n, err := p.AVPs[i].Encode(b[written:])
+		if errors.Is(err, ErrBufferTooSmall) {
+			return 0, errFull
+		}
 		if err != nil {
 			return 0, err
 		}
-		bb = bb[n:]
+		written += n
 	}
 
 	binary.BigEndian.PutUint16(b[2:4], uint16(written))

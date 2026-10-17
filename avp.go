@@ -23,13 +23,15 @@ func (a AVP) Copy() AVP {
 	}
 }
 
-// Encode writes the AVP to b and returns the number of bytes written.
-//
-// The caller must ensure b is large enough to hold the encoded AVP.
+// Encode writes the AVP to b and returns the number of bytes written,
+// or ErrBufferTooSmall if it doesn't fit.
 func (a AVP) Encode(b []byte) (n int, err error) {
 	fullLen := len(a.Value) + 2 //type and length
 	if fullLen > 255 || fullLen < 2 {
 		return 0, errors.New("value too big for attribute")
+	}
+	if len(b) < fullLen {
+		return 0, ErrBufferTooSmall
 	}
 	b[0] = uint8(a.Type)
 	b[1] = uint8(fullLen)
