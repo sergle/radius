@@ -16,6 +16,7 @@ func fullPacket() *Packet {
 		ClientAddr:  "192.0.2.1:1812",
 		requestAuth: [authenticatorLen]byte{1, 2, 3},
 		salts:       []uint16{0x8123},
+		masked:      true,
 	}
 	p.Authenticator = [authenticatorLen]byte{4, 5, 6}
 	return p

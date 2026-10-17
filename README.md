@@ -347,7 +347,7 @@ Notes:
   )
   ```
 
-  `GetTLV`, `GetTLVString`, `DecodeAVPValue` and `Packet.String` decrypt them with the packet they are given. If the ciphertext is malformed, `GetTLV` doesn't find it and the others show the raw bytes; `DecodeAVPValue(nil, …)` shows the raw bytes too (`GetTLV` and `GetTLVString` find nothing in a nil packet). A wrong secret or authenticator isn't detected: it decrypts to garbage. Only `encrypt=1` on `string` sub-attributes and `encrypt=2` on non-TLV ones are supported. Those others, and `encrypt=3`, are loaded with a warning but can't be built (`ErrUnsupportedAttributeType`) or decrypted: they are shown as raw bytes and `GetTLV` doesn't find them (nor the sub-attributes of such an encrypted TLV).
+  `GetTLV`, `GetTLVString`, `DecodeAVPValue` and `Packet.String` decrypt them with the packet they are given. `Packet.StringMasked` and `AVP.StringMasked` show them as `*****`, for logs. If the ciphertext is malformed, `GetTLV` doesn't find it and the others show the raw bytes; `DecodeAVPValue(nil, …)` shows the raw bytes too (`GetTLV` and `GetTLVString` find nothing in a nil packet). A wrong secret or authenticator isn't detected: it decrypts to garbage. Only `encrypt=1` on `string` sub-attributes and `encrypt=2` on non-TLV ones are supported. Those others, and `encrypt=3`, are loaded with a warning but can't be built (`ErrUnsupportedAttributeType`) or decrypted: they are shown as raw bytes and `GetTLV` doesn't find them (nor the sub-attributes of such an encrypted TLV).
 - Not supported yet: sub-attributes of vendors with a format other than `1,1` or `1,1,c` (WiMAX).
 
 ## Extended Attributes (RFC 6929)

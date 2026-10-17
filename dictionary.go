@@ -1123,7 +1123,8 @@ func (d *Dictionary) DecodeAVPValue(p *Packet, a AVP) string {
 func plainValue(p *Packet, attrType string, value []byte) (avpDataType, []byte) {
 	handler := handlerForValue(attrType, value)
 	s, ok := handler.(AvpSaltEncrypted)
-	if !ok {
+	if !ok || p.masks() {
+		// AvpSaltEncrypted.String masks it
 		return handler, value
 	}
 	plain, ok := s.decrypt(p, value)

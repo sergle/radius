@@ -164,9 +164,12 @@ func (t *tlvAttr) format(p *Packet, value []byte) string {
 	return b.String()
 }
 
-// formatValue renders value of sub-attribute t, decrypted with p; caller holds the lock.
+// formatValue renders value of sub-attribute t, decrypted with p (or masked); caller holds the lock.
 func (t *tlvAttr) formatValue(p *Packet, v []byte) string {
 	if t.encrypt != encryptNone {
+		if t.canEncrypt() && p.masks() {
+			return maskedValue
+		}
 		plain, ok := t.decrypt(p, v)
 		if !ok {
 			return avpBinary.String(p, AVP{Value: v})

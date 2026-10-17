@@ -45,6 +45,9 @@ func passwordDecrypt(secret string, authenticator, b []byte) ([]byte, bool) {
 }
 
 func (s AvpPassword) String(p *Packet, a AVP) string {
+	if p.masks() {
+		return maskedValue
+	}
 	return s.Value(p, a).(string)
 }
 

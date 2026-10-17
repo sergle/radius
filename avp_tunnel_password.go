@@ -37,6 +37,9 @@ func (s AvpTunnelPassword) Value(p *Packet, a AVP) interface{} {
 }
 
 func (s AvpTunnelPassword) String(p *Packet, a AVP) string {
+	if p.masks() {
+		return maskedValue
+	}
 	if _, password, ok := s.decrypt(p, a.Value); ok {
 		return password
 	}

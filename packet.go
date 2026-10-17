@@ -67,7 +67,11 @@ type Packet struct {
 
 	requestAuth [authenticatorLen]byte // set on decoded replies
 	salts       []uint16               // encrypt=2 salts generated for p, kept unique
+	masked      bool                   // String masks encrypted values; set on copies made by withMasked
 }
+
+// maskedValue replaces encrypted values in StringMasked output.
+const maskedValue = "*****"
 
 // zeroAuthenticator hides values in requests whose Request Authenticator is computed (RFC 2866, 5176).
 var zeroAuthenticator [authenticatorLen]byte
@@ -172,6 +176,7 @@ func (p *Packet) Copy() *Packet {
 		ClientAddr:    p.ClientAddr,
 		requestAuth:   p.requestAuth,
 		salts:         slices.Clone(p.salts),
+		masked:        p.masked,
 	}
 	if p.AVPs != nil {
 		outP.AVPs = make([]AVP, len(p.AVPs))
@@ -805,6 +810,26 @@ func (p *Packet) String() string {
 		return true
 	})
 	return s
+}
+
+// StringMasked is like String but shows encrypted values (e.g. User-Password) as *****.
+func (p *Packet) StringMasked() string {
+	return p.withMasked().String()
+}
+
+// withMasked returns a shallow copy of p whose formatting masks encrypted values.
+func (p *Packet) withMasked() *Packet {
+	q := &Packet{}
+	if p != nil {
+		*q = *p
+	}
+	q.masked = true
+	return q
+}
+
+// masks reports whether formatting with p masks encrypted values.
+func (p *Packet) masks() bool {
+	return p != nil && p.masked
 }
 
 // decodeAVP decodes the first attribute of type t, or returns nil if absent.

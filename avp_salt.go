@@ -26,6 +26,9 @@ func (s AvpSaltEncrypted) Value(p *Packet, a AVP) interface{} {
 }
 
 func (s AvpSaltEncrypted) String(p *Packet, a AVP) string {
+	if p.masks() {
+		return maskedValue
+	}
 	if plain, ok := s.decrypt(p, a.Value); ok && validValue(s.plain, plain) {
 		return s.plain.String(p, AVP{Value: plain})
 	}

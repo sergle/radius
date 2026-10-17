@@ -54,6 +54,11 @@ func (a AVP) StringWithPacket(p *Packet) string {
 	return "AVP type: " + desc.name + " " + desc.dataType.String(p, a)
 }
 
+// StringMasked is like StringWithPacket but shows encrypted values as *****.
+func (a AVP) StringMasked(p *Packet) string {
+	return a.StringWithPacket(p.withMasked())
+}
+
 type avpDataType interface {
 	Value(p *Packet, a AVP) interface{}
 	String(p *Packet, a AVP) string
