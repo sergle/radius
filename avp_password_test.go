@@ -154,3 +154,36 @@ func TestAddPasswordTooLong(t *testing.T) {
 		t.Fatal("template added a too long password")
 	}
 }
+
+// A hand-built reply has no request authenticator to hide User-Password with,
+// as AddTunnelPassword (it was hidden with zeros the receiver can't undo).
+func TestAddPasswordHandBuiltReply(t *testing.T) {
+	const secret, pw = "s", "reply-pw"
+	p := &Packet{Code: AccessAccept, Secret: secret}
+	if err := p.AddPassword(pw); !errors.Is(err, ErrNoRequestAuthenticator) {
+		t.Fatalf("err = %v, want ErrNoRequestAuthenticator", err)
+	}
+	if p.HasAVP(AttrUserPassword) {
+		t.Fatal("User-Password added on error")
+	}
+
+	req := Request(AccessRequest, secret)
+	if err := req.ensureAuthenticator(); err != nil {
+		t.Fatal(err)
+	}
+	reply := req.ReplyAccept()
+	if err := reply.AddPassword(pw); err != nil {
+		t.Fatal(err)
+	}
+	b, err := reply.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := DecodeReply(secret, b, req.Authenticator[:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.GetPassword() != pw {
+		t.Errorf("User-Password = %q, want %q", got.GetPassword(), pw)
+	}
+}

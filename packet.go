@@ -1047,17 +1047,19 @@ func (p *Packet) GetTunnelPassword() (tag uint8, password string, ok bool) {
 
 // AddPassword adds (or replaces) the User-Password attribute, encrypting it as
 // required by the RADIUS protocol using the packet Secret and Authenticator.
-// A password longer than 128 bytes is ErrInvalidValue; p is unchanged on error.
+// A password longer than 128 bytes is ErrInvalidValue, and a reply not made with
+// request.Reply() ErrNoRequestAuthenticator; p is unchanged on error.
 func (p *Packet) AddPassword(password string) error {
 	if err := checkHiddenLen(avpPassword, password); err != nil {
 		return err
 	}
-	if err := p.ensureAuthenticator(); err != nil {
+	auth, err := p.encryptAuthenticator(encryptUserPassword)
+	if err != nil {
 		return err
 	}
 	p.SetAVP(AVP{
 		Type:  AttrUserPassword,
-		Value: avpPassword.Encode(password, p.Secret, p.cryptAuthenticator(encryptUserPassword)),
+		Value: avpPassword.Encode(password, p.Secret, auth),
 	})
 	return nil
 }
