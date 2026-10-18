@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"sync/atomic"
 	"syscall"
 
@@ -16,8 +17,9 @@ import (
 func main() {
 	dictPath := flag.String("dict", os.Getenv("RADIUS_DICT"), "Path to additional vendor dictionary file (optional)")
 	addr := flag.String("addr", "127.0.0.1:1812", "Address to listen on")
-	secret := flag.String("secret", "gopher", "RADIUS shared secret")
+	secretFile := flag.String("secret-file", "", "File with the RADIUS shared secret (default: $RADIUS_SECRET)")
 	flag.Parse()
+	secret := readSecret(*secretFile)
 
 	dict := radius.NewDictionary()
 	if err := dict.LoadBuiltin(); err != nil {
@@ -80,7 +82,7 @@ func main() {
 		}
 	})
 
-	s := radius.NewServer(*addr, *secret, handler)
+	s := radius.NewServer(*addr, secret, handler)
 
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
@@ -101,4 +103,21 @@ func main() {
 	case err := <-errChan:
 		log.Fatalf("Server error: %v", err)
 	}
+}
+
+// readSecret returns the shared secret from file, else $RADIUS_SECRET. It's not a
+// flag, so it stays out of ps output and shell history, and has no default.
+func readSecret(file string) string {
+	s := os.Getenv("RADIUS_SECRET")
+	if file != "" {
+		b, err := os.ReadFile(file)
+		if err != nil {
+			log.Fatalf("Failed to read secret: %v", err)
+		}
+		s = strings.TrimSpace(string(b))
+	}
+	if s == "" {
+		log.Fatal("Set RADIUS_SECRET or -secret-file")
+	}
+	return s
 }

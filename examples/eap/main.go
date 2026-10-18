@@ -18,12 +18,19 @@
 //	NAS → Supplicant   EAP-Request/MSCHAPv2-Challenge
 //	Supplicant → NAS   EAP-Response/MSCHAPv2-Response
 //	NAS → Server       Access-Request   EAP-Response/MSCHAPv2-Response + State
-//	Server → NAS       Access-Accept    EAP-Success   (or Access-Reject + EAP-Failure)
+//	Server → NAS       Access-Challenge EAP-Request/MSCHAPv2-Success (S=) + State
+//	                   (or Access-Reject + EAP-Failure)
+//	NAS → Supplicant   EAP-Request/MSCHAPv2-Success
+//	Supplicant → NAS   EAP-Response/MSCHAPv2-Success  (S= checked: the server knows the password too)
+//	NAS → Server       Access-Request   EAP-Response/MSCHAPv2-Success + State
+//	Server → NAS       Access-Accept    EAP-Success
 //	NAS → Supplicant   EAP-Success, port authorized
 //	Supplicant → NAS   EAPOL-Logoff
 //
-// Simplified: the MSCHAPv2 Success/Failure round (authenticator response),
-// MPPE key derivation and the EAPOL-Key 4-way handshake are omitted.
+// Simplified: the MSCHAPv2 Failure round, the MPPE keys (MS-MPPE-Send-Key and
+// MS-MPPE-Recv-Key in the Access-Accept, from MSCHAPv2MPPEKeys; they need
+// FreeRADIUS dictionary.microsoft, see README) and the EAPOL-Key 4-way
+// handshake are omitted.
 package main
 
 import (
@@ -33,15 +40,22 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/sergle/radius/v2"
 )
 
+// secret is random per run: the server and the NAS share this process.
+// A real one comes from configuration, never from the source.
+var secret = fmt.Sprintf("%x", randBytes(16))
+
 const (
-	secret     = "shared-secret"
 	serverName = "example-server"
+
+	sessionTTL  = 30 * time.Second // a conversation must finish within this
+	maxSessions = 1000             // Access-Reject beyond this many open conversations
 
 	challengeLen    = 16 // MSCHAPv2 Authenticator/Peer-Challenge
 	ntResponseLen   = 24
@@ -186,6 +200,8 @@ func nas(port link, server string) {
 type session struct {
 	user      string
 	challenge []byte
+	expires   time.Time
+	verified  bool // NT-Response checked and Success sent; waiting for the peer's ack
 }
 
 // eapServer keeps per-conversation state keyed by the State attribute.
@@ -198,6 +214,39 @@ func newEAPServer() *eapServer {
 	return &eapServer{sessions: map[string]session{}}
 }
 
+// put stores sess under a new State; false if too many conversations are open.
+// Expired sessions are dropped first, so abandoned ones don't pile up.
+func (s *eapServer) put(sess session) (state string, ok bool) {
+	now := time.Now()
+	sess.expires = now.Add(sessionTTL)
+	state = fmt.Sprintf("%x", randBytes(16))
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for k, v := range s.sessions {
+		if now.After(v.expires) {
+			delete(s.sessions, k)
+		}
+	}
+	if len(s.sessions) >= maxSessions {
+		return "", false
+	}
+	s.sessions[state] = sess
+	return state, true
+}
+
+// take removes and returns the session of req's State, if it hasn't expired.
+func (s *eapServer) take(req *radius.Packet) (session, bool) {
+	state := req.GetAVP(radius.AttrState)
+	if state == nil {
+		return session{}, false
+	}
+	s.mu.Lock()
+	sess, ok := s.sessions[string(state.Value)]
+	delete(s.sessions, string(state.Value))
+	s.mu.Unlock()
+	return sess, ok && time.Now().Before(sess.expires)
+}
+
 func (s *eapServer) RadiusHandle(ctx context.Context, req *radius.Packet) *radius.Packet {
 	eap := req.GetEAPMessage()
 	if eap == nil || eap.Code != radius.EapCodeResponse {
@@ -207,7 +256,14 @@ func (s *eapServer) RadiusHandle(ctx context.Context, req *radius.Packet) *radiu
 	case radius.EapTypeIdentity:
 		return s.challenge(req, eap)
 	case radius.EapTypeMSCHAPV2:
-		return s.verify(req, eap)
+		sess, ok := s.take(req)
+		if !ok {
+			return reject(req, eap)
+		}
+		if sess.verified {
+			return s.finish(req, eap, sess)
+		}
+		return s.verify(req, eap, sess)
 	}
 	return req.ReplyReject()
 }
@@ -216,10 +272,10 @@ func (s *eapServer) RadiusHandle(ctx context.Context, req *radius.Packet) *radiu
 func (s *eapServer) challenge(req *radius.Packet, eap *radius.EapPacket) *radius.Packet {
 	user := string(eap.Data)
 	ch := randBytes(challengeLen)
-	state := fmt.Sprintf("%x", randBytes(8))
-	s.mu.Lock()
-	s.sessions[state] = session{user: user, challenge: ch}
-	s.mu.Unlock()
+	state, ok := s.put(session{user: user, challenge: ch})
+	if !ok {
+		return reject(req, eap)
+	}
 	log.Printf("radius: identity %q → MSCHAPv2 challenge", user)
 
 	// Challenge data: Value-Size, Challenge, Name
@@ -236,20 +292,13 @@ func (s *eapServer) challenge(req *radius.Packet, eap *radius.EapPacket) *radius
 	return reply
 }
 
-// verify checks the NT-Response against the stored challenge and password.
-func (s *eapServer) verify(req *radius.Packet, eap *radius.EapPacket) *radius.Packet {
-	state := req.GetAVP(radius.AttrState)
-	if state == nil {
-		return req.ReplyReject()
-	}
-	s.mu.Lock()
-	sess, ok := s.sessions[string(state.Value)]
-	delete(s.sessions, string(state.Value))
-	s.mu.Unlock()
-
+// verify checks the NT-Response against the stored challenge and password and
+// answers with the authenticator response (S=), which proves the server knows
+// the password too.
+func (s *eapServer) verify(req *radius.Packet, eap *radius.EapPacket, sess session) *radius.Packet {
 	ms, err := radius.MsChapV2PacketFromEap(eap)
-	if !ok || err != nil || ms.OpCode != radius.MsChapV2OpCodeResponse || len(ms.Data) < 1+responseValLen {
-		return req.ReplyReject()
+	if err != nil || ms.OpCode != radius.MsChapV2OpCodeResponse || len(ms.Data) < 1+responseValLen {
+		return reject(req, eap)
 	}
 	// Response data: Value-Size, Peer-Challenge, Reserved, NT-Response, Flags, Name
 	peer := ms.Data[1 : 1+challengeLen]
@@ -259,13 +308,42 @@ func (s *eapServer) verify(req *radius.Packet, eap *radius.EapPacket) *radius.Pa
 	want, err := radius.MSCHAPv2NTResponse(sess.challenge, peer, sess.user, pass)
 	if !known || err != nil || subtle.ConstantTimeCompare(got, want) != 1 {
 		log.Printf("radius: %q bad NT-Response → Access-Reject", sess.user)
-		reply := req.ReplyReject()
-		reply.SetEAPMessage(&radius.EapPacket{Code: radius.EapCodeFailure, Identifier: eap.Identifier})
-		return reply
+		return reject(req, eap)
 	}
-	log.Printf("radius: %q NT-Response OK → Access-Accept", sess.user)
+	auth := radius.MSCHAPv2AuthenticatorResponse(sess.challenge, peer, got, sess.user, pass)
+	sess.verified = true
+	state, ok := s.put(sess)
+	if !ok {
+		return reject(req, eap)
+	}
+	log.Printf("radius: %q NT-Response OK → MSCHAPv2 Success", sess.user)
+
+	success := &radius.MsChapV2Packet{
+		Eap:    &radius.EapPacket{Code: radius.EapCodeRequest, Identifier: eap.Identifier + 1, Type: radius.EapTypeMSCHAPV2},
+		OpCode: radius.MsChapV2OpCodeSuccess,
+		Data:   []byte(auth + " M=Welcome"),
+	}
+	reply := req.ReplyChallenge()
+	reply.SetEAPMessage(success.ToEap())
+	reply.AddAVP(radius.AVP{Type: radius.AttrState, Value: []byte(state)})
+	return reply
+}
+
+// finish accepts the peer once it has acknowledged the Success (and so checked S=).
+func (s *eapServer) finish(req *radius.Packet, eap *radius.EapPacket, sess session) *radius.Packet {
+	if len(eap.Data) < 1 || radius.MsChapV2OpCode(eap.Data[0]) != radius.MsChapV2OpCodeSuccess {
+		return reject(req, eap)
+	}
+	log.Printf("radius: %q acknowledged Success → Access-Accept", sess.user)
 	reply := req.ReplyAccept()
 	reply.SetEAPMessage(&radius.EapPacket{Code: radius.EapCodeSuccess, Identifier: eap.Identifier})
+	return reply
+}
+
+// reject answers with Access-Reject and EAP-Failure.
+func reject(req *radius.Packet, eap *radius.EapPacket) *radius.Packet {
+	reply := req.ReplyReject()
+	reply.SetEAPMessage(&radius.EapPacket{Code: radius.EapCodeFailure, Identifier: eap.Identifier})
 	return reply
 }
 
@@ -284,6 +362,7 @@ func supplicant(port link, user, pass string) bool {
 		}
 	}()
 
+	var wantAuth string // S= the server must send, from our response
 	send(eapol{Type: eapolStart}, "")
 	for f := range port.toSupplicant {
 		in, err := radius.EapDecode(f.Body)
@@ -299,13 +378,23 @@ func supplicant(port link, user, pass string) bool {
 			return false
 		case in.Type == radius.EapTypeIdentity:
 			send(eapFrame(&radius.EapPacket{Code: radius.EapCodeResponse, Identifier: in.Identifier, Type: radius.EapTypeIdentity, Data: []byte(user)}), " Identity")
-		case in.Type == radius.EapTypeMSCHAPV2:
-			out, err := mschapResponse(in, user, pass)
+		case in.Type == radius.EapTypeMSCHAPV2 && wantAuth == "":
+			out, auth, err := mschapResponse(in, user, pass)
 			if err != nil {
 				log.Printf("supplicant: %v", err)
 				return false
 			}
+			wantAuth = auth
 			send(eapFrame(out), " MSCHAPv2-Response")
+		case in.Type == radius.EapTypeMSCHAPV2:
+			ms, err := radius.MsChapV2PacketFromEap(in)
+			if err != nil || ms.OpCode != radius.MsChapV2OpCodeSuccess || !strings.HasPrefix(string(ms.Data), wantAuth) {
+				log.Printf("supplicant: bad authenticator response, the server doesn't know the password")
+				return false
+			}
+			ack := &radius.EapPacket{Code: radius.EapCodeResponse, Identifier: in.Identifier, Type: radius.EapTypeMSCHAPV2,
+				Data: []byte{byte(radius.MsChapV2OpCodeSuccess)}}
+			send(eapFrame(ack), " MSCHAPv2-Success")
 		default:
 			log.Printf("supplicant: unsupported EAP type %s", in.Type)
 			return false
@@ -314,17 +403,18 @@ func supplicant(port link, user, pass string) bool {
 	return false
 }
 
-// mschapResponse answers an EAP-Request/MSCHAPv2-Challenge (RFC 2759).
-func mschapResponse(in *radius.EapPacket, user, pass string) (*radius.EapPacket, error) {
+// mschapResponse answers an EAP-Request/MSCHAPv2-Challenge (RFC 2759) and
+// returns the authenticator response (S=) the server must send back.
+func mschapResponse(in *radius.EapPacket, user, pass string) (*radius.EapPacket, string, error) {
 	ms, err := radius.MsChapV2PacketFromEap(in)
 	if err != nil || ms.OpCode != radius.MsChapV2OpCodeChallenge || len(ms.Data) < 1+challengeLen {
-		return nil, errors.New("bad MSCHAPv2 challenge")
+		return nil, "", errors.New("bad MSCHAPv2 challenge")
 	}
 	authChallenge := ms.Data[1 : 1+challengeLen]
 	peer := randBytes(challengeLen)
 	nt, err := radius.MSCHAPv2NTResponse(authChallenge, peer, user, pass)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	// Value-Size, Peer-Challenge, Reserved (zero), NT-Response, Flags (zero), Name
@@ -338,7 +428,7 @@ func mschapResponse(in *radius.EapPacket, user, pass string) (*radius.EapPacket,
 		OpCode: radius.MsChapV2OpCodeResponse,
 		Data:   data,
 	}
-	return resp.ToEap(), nil
+	return resp.ToEap(), radius.MSCHAPv2AuthenticatorResponse(authChallenge, peer, nt, user, pass), nil
 }
 
 func randBytes(n int) []byte {
