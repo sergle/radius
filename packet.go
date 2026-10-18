@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"log/slog"
 	"net"
 	"slices"
 	"strconv"
@@ -69,7 +70,7 @@ type DecodeOptions struct {
 // A reply built by hand has no request authenticator, so encrypting fails with
 // ErrNoRequestAuthenticator.
 type Packet struct {
-	Secret        string
+	Secret        string `json:"-"` // kept out of JSON, slog and %#v output
 	Code          PacketCode
 	Identifier    uint8
 	Authenticator [authenticatorLen]byte
@@ -896,6 +897,25 @@ func (p *Packet) checkMessageAuthenticator(buf []byte, offset int, hasEAP bool, 
 	return nil
 }
 
+// LogValue makes slog log p as StringMasked: without the shared secret or encrypted values.
+func (p *Packet) LogValue() slog.Value {
+	if p == nil {
+		return slog.StringValue("<nil>")
+	}
+	return slog.StringValue(p.StringMasked())
+}
+
+// GoString formats p for %#v without the shared secret.
+func (p *Packet) GoString() string {
+	if p == nil {
+		return "(*radius.Packet)(nil)"
+	}
+	return fmt.Sprintf("&radius.Packet{Code:%#v, Identifier:%#v, Authenticator:%#v, AVPs:%#v, RawAVPs:%#v, ClientAddr:%#v}",
+		p.Code, p.Identifier, p.Authenticator, p.AVPs, p.RawAVPs, p.ClientAddr)
+}
+
+// String formats the packet with the default dictionary. It decrypts encrypted
+// values (e.g. User-Password), so it isn't meant for logs: use StringMasked.
 func (p *Packet) String() string {
 	var b strings.Builder
 	b.WriteString("From: " + p.ClientAddr + "\n" +
@@ -932,6 +952,17 @@ func (p *Packet) withMasked() *Packet {
 // masks reports whether formatting with p masks encrypted values.
 func (p *Packet) masks() bool {
 	return p != nil && p.masked
+}
+
+// masksAttr reports whether formatting with p hides attribute t: a password
+// equivalent (Digest-HA1) or a response open to offline guessing.
+func (p *Packet) masksAttr(t AttributeType) bool {
+	return p.masks() && (t == AttrCHAPPassword || t == AttrDigestResponse || t == AttrDigestHA1)
+}
+
+// masksVSA is masksAttr for the MS-CHAP responses.
+func (p *Packet) masksVSA(vendor VendorID, t VendorAttr) bool {
+	return p.masks() && vendor == vendorMicrosoft && (t == msCHAPResponse || t == msCHAP2Response)
 }
 
 // decodeAVP decodes the first attribute of type t, or returns nil if absent.

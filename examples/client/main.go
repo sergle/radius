@@ -27,6 +27,7 @@ func main() {
 		}
 		log.Printf("Loaded dictionary from %s", *dictPath)
 	}
+	radius.SetDefaultDictionary(dict) // used by StringMasked
 
 	client := radius.NewRadClient(*addr, *secret)
 
@@ -62,5 +63,5 @@ func main() {
 		log.Fatalf("Error sending request: %v", err)
 	}
 
-	log.Printf("Received reply:\n%s", reply.String())
+	log.Printf("Received reply:\n%s", reply.StringMasked())
 }

@@ -688,11 +688,14 @@ func (d *Dictionary) formatOf(vendor VendorID) VendorFormat {
 }
 
 // rawVSAString formats a VSA of an unknown attribute, naming the vendor if known.
-func rawVSAString(vsa *VSA, vendorName string, vendorOK bool) string {
+func rawVSAString(p *Packet, vsa *VSA, vendorName string, vendorOK bool) string {
 	// as AvpVendor without a dictionary
 	vendor := " " + strconv.FormatUint(uint64(vsa.Vendor), 10)
 	if vendorOK {
 		vendor = vendorName + " #" + vendor[1:]
+	}
+	if p.masksVSA(vsa.Vendor, vsa.Type) {
+		return fmt.Sprintf("{Vendor:%s, Attr: %d, Value: %s}", vendor, vsa.Type, maskedValue)
 	}
 	return fmt.Sprintf("{Vendor:%s, Attr: %d, Value: %#v}", vendor, vsa.Type, vsa.Value)
 }
@@ -1057,8 +1060,12 @@ func validValue(handler avpDataType, value []byte) bool {
 // DecodeAVPValue returns a human-readable string for the given AVP.
 //
 // When possible, DecodeAVPValue uses dictionary type information and enum
-// mappings (including VSA enums) to format values.
+// mappings (including VSA enums) to format values. Encrypted values (e.g.
+// User-Password) are decrypted with p; use DecodeAVPValueMasked for logs.
 func (d *Dictionary) DecodeAVPValue(p *Packet, a AVP) string {
+	if p.masksAttr(a.Type) {
+		return maskedValue
+	}
 	if a.Type == AttrUserPassword {
 		return avpPassword.String(p, a)
 	} else if a.Type == AttrVendorSpecific {
@@ -1073,7 +1080,12 @@ func (d *Dictionary) DecodeAVPValue(p *Packet, a AVP) string {
 		attrName, attrOK := d.vsaAttrName[vsa.Vendor][vsa.Type]
 		if !attrOK {
 			d.mu.RUnlock()
-			return rawVSAString(vsa, vendorName, vendorOK)
+			return rawVSAString(p, vsa, vendorName, vendorOK)
+		}
+		if p.masksVSA(vsa.Vendor, vsa.Type) {
+			d.mu.RUnlock()
+			return fmt.Sprintf("{Vendor:%s #%d, Attr: %s #%d, Value: %s}",
+				vendorName, vsa.Vendor, attrName, vsa.Type, maskedValue)
 		}
 		if t := d.rootTLV(vsa.Vendor, attrName); t != nil {
 			valStr := t.format(p, vsa.Value)
@@ -1116,6 +1128,11 @@ func (d *Dictionary) DecodeAVPValue(p *Packet, a AVP) string {
 	}
 
 	return handler.String(p, AVP{Type: a.Type, Value: v})
+}
+
+// DecodeAVPValueMasked is like DecodeAVPValue but shows encrypted values as *****.
+func (d *Dictionary) DecodeAVPValueMasked(p *Packet, a AVP) string {
+	return d.DecodeAVPValue(p.withMasked(), a)
 }
 
 // plainValue returns the handler for value of attrType and the value, decrypted with p if it is salt-encrypted;

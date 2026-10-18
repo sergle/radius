@@ -20,6 +20,9 @@ func (s AvpEapMessage) String(p *Packet, a AVP) string {
 	if err != nil {
 		return avpBinary.String(p, a)
 	}
+	if p.masks() {
+		return eap.stringMasked()
+	}
 	return eap.String()
 }
 

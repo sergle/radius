@@ -180,6 +180,13 @@ func MSCHAPv2MPPEKeys(ntResponse []byte, password string) (sendKey, recvKey []by
 	return msChapV2StartKey(master, mppeSendMagic), msChapV2StartKey(master, mppeRecvMagic)
 }
 
+// Microsoft VSAs (RFC 2548) that StringMasked hides: MS-CHAP responses allow offline password guessing.
+const (
+	vendorMicrosoft VendorID   = 311
+	msCHAPResponse  VendorAttr = 1
+	msCHAP2Response VendorAttr = 25
+)
+
 type MsChapV2Packet struct {
 	Eap    *EapPacket //The eap information when decrypting, does not use the data inside
 	OpCode MsChapV2OpCode

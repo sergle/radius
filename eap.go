@@ -86,7 +86,27 @@ func (a *EapPacket) String() string {
 	if a.Code == EapCodeSuccess || a.Code == EapCodeFailure {
 		return fmt.Sprintf("Eap Code:%s id:%d", a.Code.String(), a.Identifier)
 	}
-	return fmt.Sprintf("Eap Code:%s id:%d Type:%s Data:[%s]", a.Code.String(), a.Identifier, a.Type.String(), a.valueString())
+	return a.format(a.valueString())
+}
+
+func (a *EapPacket) format(data string) string {
+	return fmt.Sprintf("Eap Code:%s id:%d Type:%s Data:[%s]", a.Code.String(), a.Identifier, a.Type.String(), data)
+}
+
+// stringMasked is String for StringMasked: only Identity, Notification and Nak
+// data is shown, other types' data (e.g. an MS-CHAPv2 or MD5 response, a GTC
+// password) as its length, with the MS-CHAPv2 opcode.
+func (a *EapPacket) stringMasked() string {
+	switch {
+	case a.Code == EapCodeSuccess || a.Code == EapCodeFailure,
+		a.Type == EapTypeIdentity || a.Type == EapTypeNotification || a.Type == EapTypeNak:
+		return a.String()
+	}
+	data := strconv.Itoa(len(a.Data)) + " bytes"
+	if a.Type == EapTypeMSCHAPV2 && len(a.Data) > 0 {
+		data = "OpCode:" + MsChapV2OpCode(a.Data[0]).String() + " " + data
+	}
+	return a.format(data)
 }
 
 func (a *EapPacket) valueString() string {

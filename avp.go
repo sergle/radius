@@ -50,9 +50,13 @@ func (a AVP) String() string {
 }
 
 // StringWithPacket returns a human-readable representation of the AVP that may
-// depend on packet context (for example User-Password decryption).
+// depend on packet context. It decrypts encrypted values (e.g. User-Password)
+// with p, so it isn't meant for logs: use StringMasked.
 func (a AVP) StringWithPacket(p *Packet) string {
 	desc := getAttributeTypeDesc(a.Type)
+	if p.masksAttr(a.Type) {
+		return "AVP type: " + desc.name + " " + maskedValue
+	}
 	return "AVP type: " + desc.name + " " + desc.dataType.String(p, a)
 }
 

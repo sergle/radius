@@ -1,6 +1,10 @@
 package radius
 
-import "sync"
+import (
+	"fmt"
+	"log/slog"
+	"sync"
+)
 
 // NewClientList returns a ClientList initialized with cs.
 func NewClientList(cs []Client) *ClientList {
@@ -81,7 +85,22 @@ func NewClient(host, secret string) Client {
 // DefaultClient is the default Client implementation.
 type DefaultClient struct {
 	Host   string
-	Secret string
+	Secret string `json:"-"` // kept out of JSON, slog and fmt output
+}
+
+// String returns the host, so %v and %+v don't print the secret.
+func (cl *DefaultClient) String() string {
+	return cl.Host
+}
+
+// GoString formats cl for %#v without the secret.
+func (cl *DefaultClient) GoString() string {
+	return fmt.Sprintf("&radius.DefaultClient{Host:%q}", cl.Host)
+}
+
+// LogValue makes slog log cl without the secret.
+func (cl *DefaultClient) LogValue() slog.Value {
+	return slog.GroupValue(slog.String("host", cl.Host))
 }
 
 // GetSecret returns the client's shared secret.

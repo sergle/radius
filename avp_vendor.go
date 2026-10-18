@@ -99,7 +99,7 @@ func (s AvpVendor) String(p *Packet, a AVP) string {
 		return avpBinary.String(p, a)
 	}
 
-	return rawVSAString(vsa, "", false)
+	return rawVSAString(p, vsa, "", false)
 }
 
 func (s AvpVendor) FromString(v string) []byte {

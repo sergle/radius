@@ -29,6 +29,7 @@ func main() {
 		}
 		log.Printf("Loaded dictionary from %s", *dictPath)
 	}
+	radius.SetDefaultDictionary(dict) // used by StringMasked
 
 	// Pre-resolve a reusable reply template: Reply-Message + Cisco h323-remote-address VSA.
 	// Fill() only populates as many slots as values provided, so single-value calls
@@ -46,12 +47,13 @@ func main() {
 	// Create the handler as a closure to keep it clean and avoid struct clutter
 	handler := radius.HandlerFunc(func(ctx context.Context, request *radius.Packet) *radius.Packet {
 		count := atomic.AddInt64(&cnt, 1)
-		log.Printf("[%d] [Authenticate] %s\n", count, request.String())
+		// String and DecodeAVPValue decrypt passwords and keys; log the masked forms.
+		log.Printf("[%d] [Authenticate] %s\n", count, request.StringMasked())
 
 		request.EachAVP(func(avp radius.AVP) bool {
 			attrName := dict.GetAttributeName(avp.Type)
 			attrType := dict.GetAttributeType(attrName)
-			log.Printf("  AVP: name=%s type=%s value=%v\n", attrName, attrType, dict.DecodeAVPValue(request, avp))
+			log.Printf("  AVP: name=%s type=%s value=%v\n", attrName, attrType, dict.DecodeAVPValueMasked(request, avp))
 			return true
 		})
 
@@ -70,7 +72,7 @@ func main() {
 		case radius.DisconnectRequest:
 			npac := request.ReplyDisconnectAccept()
 			replyTemplate.Fill(npac, "Session disconnected", "10.20.30.41")
-			log.Printf("[%d] Reply: %s\n", count, npac.String())
+			log.Printf("[%d] Reply: %s\n", count, npac.StringMasked())
 			return npac
 		default:
 			log.Printf("[%d] [WRN] Received unknown packet code: %d\n", count, request.Code)
