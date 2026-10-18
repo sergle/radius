@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/rand"
 	"flag"
 	"log"
 	"os"
@@ -35,7 +36,10 @@ func main() {
 	req.AddAVP(radius.AVP{Type: radius.AttrUserName, Value: []byte(*user)})
 
 	chapID := uint8(1)
-	challenge := []byte("1234567890abcdef") // RFC 2865: 1..253 bytes
+	challenge := make([]byte, 16) // RFC 2865: 5..253 bytes, random
+	if _, err := rand.Read(challenge); err != nil {
+		log.Fatal(err)
+	}
 	if err := req.SetCHAPPasswordFromSecret(chapID, *pass, challenge); err != nil {
 		log.Fatalf("Failed to set CHAP attributes: %v", err)
 	}

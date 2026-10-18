@@ -273,3 +273,41 @@ func TestCHAPClientServerRoundTrip(t *testing.T) {
 		})
 	}
 }
+
+// RFC 2865 section 5.40: CHAP-Challenge Length >= 7, so at least 5 bytes.
+func TestCHAPShortChallengeRejected(t *testing.T) {
+	const rfcMin = 5
+	if minCHAPChallengeLen != rfcMin {
+		t.Errorf("minCHAPChallengeLen = %d, want %d", minCHAPChallengeLen, rfcMin)
+	}
+	for n := 1; n < rfcMin; n++ {
+		challenge := bytes.Repeat([]byte{0xab}, n)
+		if _, err := ComputeCHAPResponse(1, "pw", challenge); !errors.Is(err, ErrInvalidCHAPChallengeLength) {
+			t.Errorf("len %d: ComputeCHAPResponse error = %v", n, err)
+		}
+		p := &Packet{}
+		if err := p.SetCHAPChallenge(challenge); !errors.Is(err, ErrInvalidCHAPChallengeLength) {
+			t.Errorf("len %d: SetCHAPChallenge error = %v", n, err)
+		}
+		if err := p.SetCHAPPasswordFromSecret(1, "pw", challenge); !errors.Is(err, ErrInvalidCHAPChallengeLength) {
+			t.Errorf("len %d: SetCHAPPasswordFromSecret error = %v", n, err)
+		}
+		if p.HasAVP(AttrCHAPChallenge) || p.HasAVP(AttrCHAPPassword) {
+			t.Errorf("len %d: attributes added", n)
+		}
+		// as received from a NAS
+		p.AddAVP(AVP{Type: AttrCHAPChallenge, Value: challenge})
+		p.SetCHAPPassword(1, [chapResponseLen]byte{})
+		if _, err := p.VerifyCHAP("pw"); !errors.Is(err, ErrInvalidCHAPChallengeLength) {
+			t.Errorf("len %d: VerifyCHAP error = %v", n, err)
+		}
+	}
+
+	p := &Packet{}
+	if err := p.SetCHAPPasswordFromSecret(1, "pw", bytes.Repeat([]byte{0xab}, rfcMin)); err != nil {
+		t.Fatalf("minimum length: %v", err)
+	}
+	if ok, err := p.VerifyCHAP("pw"); !ok || err != nil {
+		t.Errorf("minimum length: VerifyCHAP = %v, %v", ok, err)
+	}
+}

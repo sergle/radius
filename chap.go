@@ -11,7 +11,9 @@ const (
 	chapIDLen       = 1
 	chapResponseLen = md5.Size
 	chapPasswordLen = chapIDLen + chapResponseLen
-	// RFC 2865 bounds the challenge only by the attribute value size
+	// RFC 2865 section 5.40: Length >= 7, so at least 5 bytes after the 2-byte header;
+	// the upper bound is the attribute value size
+	minCHAPChallengeLen = 5
 	maxCHAPChallengeLen = maxAVPValueLen
 )
 
@@ -24,7 +26,7 @@ type CHAPPassword struct {
 }
 
 var (
-	ErrInvalidCHAPChallengeLength = errors.New("invalid CHAP-Challenge length (must be 1..253 bytes)")
+	ErrInvalidCHAPChallengeLength = errors.New("invalid CHAP-Challenge length (must be 5..253 bytes)")
 	ErrInvalidCHAPPasswordLength  = errors.New("invalid CHAP-Password length (must be 17 bytes)")
 	ErrCHAPPasswordMissing        = errors.New("CHAP-Password missing")
 )
@@ -43,8 +45,9 @@ func (p *Packet) GetCHAPChallenge() []byte {
 }
 
 // SetCHAPChallenge adds or replaces the CHAP-Challenge attribute.
+// The challenge must be 5..253 bytes; use 16 random bytes.
 func (p *Packet) SetCHAPChallenge(challenge []byte) error {
-	if len(challenge) < 1 || len(challenge) > maxCHAPChallengeLen {
+	if len(challenge) < minCHAPChallengeLen || len(challenge) > maxCHAPChallengeLen {
 		return ErrInvalidCHAPChallengeLength
 	}
 	value := make([]byte, len(challenge))
@@ -79,7 +82,7 @@ func (p *Packet) SetCHAPPassword(chapID uint8, response [chapResponseLen]byte) {
 
 // ComputeCHAPResponse computes the CHAP response as MD5(chapID || password || challenge).
 func ComputeCHAPResponse(chapID uint8, password string, challenge []byte) ([chapResponseLen]byte, error) {
-	if len(challenge) < 1 || len(challenge) > maxCHAPChallengeLen {
+	if len(challenge) < minCHAPChallengeLen || len(challenge) > maxCHAPChallengeLen {
 		return [chapResponseLen]byte{}, ErrInvalidCHAPChallengeLength
 	}
 
@@ -109,7 +112,13 @@ func (p *Packet) SetCHAPPasswordFromSecret(chapID uint8, password string, challe
 // VerifyCHAP checks CHAP-Password against password (RFC 2865 section 2.2).
 //
 // The challenge is CHAP-Challenge if present, otherwise the Request Authenticator.
-// An error is returned for a missing or malformed CHAP-Password or CHAP-Challenge.
+// An error is returned for a missing or malformed CHAP-Password or CHAP-Challenge
+// (shorter than 5 bytes, RFC 2865 section 5.40).
+//
+// The NAS picks the challenge, so VerifyCHAP can't detect a replayed request.
+// CHAP doesn't use the shared secret: without Message-Authenticator
+// (Server.SetRequireMessageAuthenticator) anyone who can spoof the NAS address
+// can also guess passwords online.
 func (p *Packet) VerifyCHAP(password string) (bool, error) {
 	avp := p.GetAVP(AttrCHAPPassword)
 	if avp == nil {

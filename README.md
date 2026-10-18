@@ -132,6 +132,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"log"
 	"time"
 
@@ -145,7 +146,10 @@ func main() {
 	req.AddAVP(radius.AVP{Type: radius.AttrUserName, Value: []byte("admin")})
 
 	chapID := uint8(1)
-	challenge := []byte("1234567890abcdef") // RFC 2865: 1..253 bytes
+	challenge := make([]byte, 16) // RFC 2865: 5..253 bytes, random
+	if _, err := rand.Read(challenge); err != nil {
+		log.Fatal(err)
+	}
 	if err := req.SetCHAPPasswordFromSecret(chapID, "secret", challenge); err != nil {
 		log.Fatal(err)
 	}
@@ -161,7 +165,7 @@ func main() {
 }
 ```
 
-On the server, `request.VerifyCHAP(password)` checks the response; without `CHAP-Challenge` the Request Authenticator is used as the challenge.
+On the server, `request.VerifyCHAP(password)` checks the response; without `CHAP-Challenge` the Request Authenticator is used as the challenge. A challenge under 5 bytes is refused (`ErrInvalidCHAPChallengeLength`). The NAS picks the challenge, so a replayed request can't be detected; require Message-Authenticator (`SetRequireMessageAuthenticator`), since CHAP doesn't use the shared secret.
 
 ## MS-CHAPv2 (RFC 2548, RFC 2759)
 MS-CHAPv2 travels in Microsoft VSAs, so load a dictionary that includes `dictionary.microsoft` (see [Dictionaries](#dictionaries-loading-external-vendor-dictionaries-cisco-microsoft-)). The client sends `MS-CHAP-Challenge` and `MS-CHAP2-Response`; the server checks the NT-Response and answers with `MS-CHAP2-Success`, which proves to the client that the server knows the password too, and the MPPE keys (RFC 3079).
