@@ -23,7 +23,7 @@ var avpIPv6Prefix AvpIPv6Prefix
 // or the zero Prefix if the value is malformed.
 type AvpIPv6Prefix struct{}
 
-func (s AvpIPv6Prefix) Value(p *Packet, a AVP) interface{} {
+func (s AvpIPv6Prefix) Value(p *Packet, a AVP) any {
 	prefix, _ := decodeIPv6Prefix(a.Value)
 	return prefix
 }

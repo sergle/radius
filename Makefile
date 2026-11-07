@@ -1,6 +1,6 @@
 FUZZTIME ?= 10s
 
-.PHONY: build test bench fuzz clean
+.PHONY: build test bench fuzz fix clean
 
 build:
 	go build ./...
@@ -11,10 +11,10 @@ build:
 	go build -o examples/dictload/dictload   ./examples/dictload/
 
 test:
-	go test -v ./...
+	go test -v -p 1 ./...
 
 bench:
-	go test -v -bench=. -run=^$$ ./...
+	go test -v -p 1 -bench=. -run=^$$ ./...
 
 fuzz:
 	go test -fuzz=^FuzzDecodeRequest$$ -fuzztime=$(FUZZTIME) .
@@ -26,6 +26,9 @@ fuzz:
 	go test -fuzz=^FuzzTLVEncryptedDecode$$ -fuzztime=$(FUZZTIME) .
 	go test -fuzz=^FuzzVSAFormatDecode$$ -fuzztime=$(FUZZTIME) .
 	go test -fuzz=^FuzzExtendedDecode$$ -fuzztime=$(FUZZTIME) .
+
+fix:
+	go fix ./...
 
 clean:
 	go clean

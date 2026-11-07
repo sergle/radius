@@ -15,7 +15,7 @@ var avpDate AvpDate
 // AvpDate handles "date" attributes, e.g. Event-Timestamp; Value returns a UTC time.Time.
 type AvpDate struct{}
 
-func (s AvpDate) Value(p *Packet, a AVP) interface{} {
+func (s AvpDate) Value(p *Packet, a AVP) any {
 	if len(a.Value) != dateLen {
 		return time.Time{}
 	}

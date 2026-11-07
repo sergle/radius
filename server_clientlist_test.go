@@ -133,7 +133,7 @@ func TestServerSetClientListWhileServing(t *testing.T) {
 	}()
 	old := NewRadClient(addr, "old")
 	old.SetTimeout(time.Second)
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		if _, err := old.Send(old.NewAccessRequest()); err != nil {
 			close(stop)
 			t.Fatalf("send %d: %v", i, err)

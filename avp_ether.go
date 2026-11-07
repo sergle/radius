@@ -10,7 +10,7 @@ var avpEther AvpEther
 // AvpEther handles "ether" attributes; Value returns a net.HardwareAddr.
 type AvpEther struct{}
 
-func (s AvpEther) Value(p *Packet, a AVP) interface{} {
+func (s AvpEther) Value(p *Packet, a AVP) any {
 	return net.HardwareAddr(a.Value)
 }
 

@@ -14,7 +14,7 @@ var avpPassword AvpPassword
 
 type AvpPassword struct{}
 
-func (s AvpPassword) Value(p *Packet, a AVP) interface{} {
+func (s AvpPassword) Value(p *Packet, a AVP) any {
 	if p == nil {
 		return ""
 	}
@@ -35,7 +35,7 @@ func passwordDecrypt(secret string, authenticator, b []byte) ([]byte, bool) {
 		hash.Write(last)
 		digest := hash.Sum(nil)
 		hash.Reset()
-		for j := 0; j < blockSize; j++ {
+		for j := range blockSize {
 			password[i+j] = b[i+j] ^ digest[j]
 		}
 		// next block
@@ -85,7 +85,7 @@ func (s AvpPassword) Encode(password, secret string, authenticator []byte) []byt
 		digest := hash.Sum(nil)
 		hash.Reset()
 
-		for j := 0; j < blockSize; j++ {
+		for j := range blockSize {
 			c[i+j] = padded[i+j] ^ digest[j]
 		}
 		// Next block's vector is the previous ciphertext block

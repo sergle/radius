@@ -116,7 +116,7 @@ func TestPacketCopyPooledSurvivesRelease(t *testing.T) {
 		buf[i] = 0
 	}
 	// reuse the released packet's slots
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		q, err := DecodeRequestPooled(secret, encodedRequest(t, secret))
 		if err != nil {
 			t.Fatalf("DecodeRequestPooled: %v", err)

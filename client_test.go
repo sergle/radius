@@ -103,12 +103,12 @@ func TestClientListSetHerdReplaces(t *testing.T) {
 func TestClientListConcurrent(t *testing.T) {
 	var cls ClientList
 	var wg sync.WaitGroup
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
 			host := fmt.Sprintf("10.0.0.%d", i)
-			for j := 0; j < 100; j++ {
+			for range 100 {
 				cls.AddOrUpdate(NewClient(host, "s"))
 				cls.Get(host)
 				cls.GetHerd()

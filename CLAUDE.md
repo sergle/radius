@@ -10,9 +10,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 make build          # go build ./... plus the three example binaries
-make test           # go test -v ./...
+make test           # go test -v -p 1 ./... (-p 1 streams output)
 make bench          # benchmarks only (-run=^$)
 make fuzz           # runs each Fuzz* target for FUZZTIME (default 10s); e.g. make fuzz FUZZTIME=1m
+make fix            # go fix ./... (modernize code to the go.mod Go version)
 
 go test -run TestName -v .                 # single test
 go test -bench=BenchmarkName -run=^$ .     # single benchmark

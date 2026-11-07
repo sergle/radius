@@ -335,7 +335,7 @@ func parseAttributeFlags(attrName string, flags string) attributeFlags {
 	if flags == "" {
 		return f
 	}
-	for _, opt := range strings.Split(flags, ",") {
+	for opt := range strings.SplitSeq(flags, ",") {
 		name, value, _ := strings.Cut(opt, "=")
 		switch name {
 		case "has_tag":
@@ -575,7 +575,7 @@ func dottedEVS(attrID string) bool {
 // parseOID parses a dotted attribute number such as "59.1".
 func parseOID(attrID string) ([]uint8, error) {
 	var oid []uint8
-	for _, s := range strings.Split(attrID, ".") {
+	for s := range strings.SplitSeq(attrID, ".") {
 		n, err := strconv.ParseUint(s, 0, 8)
 		if err != nil {
 			return nil, err

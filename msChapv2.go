@@ -23,14 +23,14 @@ func md4(msg []byte) []byte {
 		m = append(m, 0)
 	}
 	l := uint64(origLen) * 8
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		m = append(m, byte(l>>(uint(i)*8)))
 	}
 
 	h := [4]uint32{0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476}
 	for i := 0; i < len(m); i += 64 {
 		var X [16]uint32
-		for k := 0; k < 16; k++ {
+		for k := range 16 {
 			X[k] = binary.LittleEndian.Uint32(m[i+k*4:])
 		}
 		a, b, c, d := h[0], h[1], h[2], h[3]
@@ -113,7 +113,7 @@ func MSCHAPv2NTResponse(authChallenge, peerChallenge []byte, username, password 
 	padded := make([]byte, 21) // NT-Hash (16 bytes) zero-padded to 21
 	copy(padded, hash)
 	out := make([]byte, 24)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		block, err := des.NewCipher(msChapDESKey(padded[i*7 : i*7+7]))
 		if err != nil {
 			return nil, err

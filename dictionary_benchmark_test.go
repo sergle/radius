@@ -11,7 +11,7 @@ import (
 
 func generateBenchmarkDictionary(b *testing.B, dir string, numAttributes int) string {
 	content := ""
-	for i := 0; i < numAttributes; i++ {
+	for i := range numAttributes {
 		// Recycle IDs to avoid parsing errors (dictionary.go enforces 8-bit IDs)
 		id := i%255 + 1
 		content += fmt.Sprintf("ATTRIBUTE Attr-%d %d string\n", i, id)

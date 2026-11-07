@@ -48,7 +48,7 @@ func TestServerConcurrentAddrStop(t *testing.T) {
 	go func() { done <- srv.ListenAndServe() }()
 
 	var wg sync.WaitGroup
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

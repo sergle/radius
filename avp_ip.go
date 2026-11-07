@@ -9,7 +9,7 @@ var avpIP AvpIP
 
 type AvpIP struct{}
 
-func (s AvpIP) Value(p *Packet, a AVP) interface{} {
+func (s AvpIP) Value(p *Packet, a AVP) any {
 	return net.IP(a.Value)
 }
 func (s AvpIP) String(p *Packet, a AVP) string {

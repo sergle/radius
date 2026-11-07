@@ -10,7 +10,7 @@ var avpString AvpString
 
 type AvpString struct{}
 
-func (s AvpString) Value(p *Packet, a AVP) interface{} {
+func (s AvpString) Value(p *Packet, a AVP) any {
 	return string(a.Value)
 }
 func (s AvpString) String(p *Packet, a AVP) string {

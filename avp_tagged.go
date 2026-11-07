@@ -19,7 +19,7 @@ var (
 // AvpTaggedUint32 handles RFC 2868 tagged integers: a 1-byte tag and a 24-bit value.
 type AvpTaggedUint32 struct{}
 
-func (s AvpTaggedUint32) Value(p *Packet, a AVP) interface{} {
+func (s AvpTaggedUint32) Value(p *Packet, a AVP) any {
 	if len(a.Value) < uint32Size {
 		return uint32(0)
 	}
@@ -42,7 +42,7 @@ func (s AvpTaggedUint32) FromString(v string) []byte {
 // AvpTaggedString handles RFC 2868 tagged strings, where the tag byte is optional.
 type AvpTaggedString struct{}
 
-func (s AvpTaggedString) Value(p *Packet, a AVP) interface{} {
+func (s AvpTaggedString) Value(p *Packet, a AVP) any {
 	_, v := splitTaggedString(a.Value)
 	return string(v)
 }

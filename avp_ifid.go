@@ -19,7 +19,7 @@ var avpIfid AvpIfid
 // AvpIfid handles "ifid" attributes (RFC 3162), e.g. Framed-Interface-Id; Value returns the raw bytes.
 type AvpIfid struct{}
 
-func (s AvpIfid) Value(p *Packet, a AVP) interface{} {
+func (s AvpIfid) Value(p *Packet, a AVP) any {
 	return a.Value
 }
 

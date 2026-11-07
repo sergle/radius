@@ -6,7 +6,7 @@ type AvpEapMessage struct{}
 
 // Value returns the decoded *EapPacket, or the raw []byte if the value is not
 // a complete EAP packet (e.g. one RFC 3579 fragment; use Packet.GetEAPMessage).
-func (s AvpEapMessage) Value(p *Packet, a AVP) interface{} {
+func (s AvpEapMessage) Value(p *Packet, a AVP) any {
 	eap, err := EapDecode(a.Value)
 	if err != nil {
 		return a.Value

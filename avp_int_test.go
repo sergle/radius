@@ -86,7 +86,7 @@ func TestSizedIntDecode(t *testing.T) {
 	tests := []struct {
 		name string
 		avp  AVP
-		want interface{}
+		want any
 	}{
 		{"byte", AVP{testByteAttr, []byte{200}}, uint32(200)},
 		{"short", AVP{testShortAttr, []byte{0x12, 0x34}}, uint32(0x1234)},

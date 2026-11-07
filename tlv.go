@@ -38,7 +38,7 @@ var avpTLV AvpTLV
 // AvpTLV formats "tlv" attributes using the default dictionary.
 type AvpTLV struct{}
 
-func (s AvpTLV) Value(p *Packet, a AVP) interface{} {
+func (s AvpTLV) Value(p *Packet, a AVP) any {
 	// as-is
 	return a.Value
 }

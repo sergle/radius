@@ -32,7 +32,7 @@ var saltRand io.Reader = rand.Reader
 // AvpTunnelPassword handles Tunnel-Password values (RFC 2868 section 3.5).
 type AvpTunnelPassword struct{}
 
-func (s AvpTunnelPassword) Value(p *Packet, a AVP) interface{} {
+func (s AvpTunnelPassword) Value(p *Packet, a AVP) any {
 	_, password, _ := s.decrypt(p, a.Value)
 	return password
 }
@@ -130,7 +130,7 @@ func tunnelPasswordEncrypt(tag uint8, salt [tunnelSaltLen]byte, password, secret
 	h.Write(salt[:])
 	for i := 0; i < len(plain); i += blockSize {
 		b := h.Sum(nil)
-		for j := 0; j < blockSize; j++ {
+		for j := range blockSize {
 			c[i+j] = plain[i+j] ^ b[j]
 		}
 		h.Reset()
@@ -165,7 +165,7 @@ func tunnelPasswordDecrypt(secret string, requestAuth, v []byte) ([]byte, bool) 
 	h.Write(v[:tunnelSaltLen])
 	for i := 0; i < len(c); i += blockSize {
 		b := h.Sum(nil)
-		for j := 0; j < blockSize; j++ {
+		for j := range blockSize {
 			plain[i+j] = c[i+j] ^ b[j]
 		}
 		h.Reset()

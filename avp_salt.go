@@ -20,7 +20,7 @@ func (s AvpSaltEncrypted) decrypt(p *Packet, v []byte) ([]byte, bool) {
 	return tunnelPasswordDecrypt(p.Secret, p.cryptAuthenticator(encryptTunnelPassword), v)
 }
 
-func (s AvpSaltEncrypted) Value(p *Packet, a AVP) interface{} {
+func (s AvpSaltEncrypted) Value(p *Packet, a AVP) any {
 	plain, _ := s.decrypt(p, a.Value)
 	return s.plain.Value(p, AVP{Value: plain})
 }

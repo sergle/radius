@@ -44,11 +44,11 @@ func main() {
 		log.Printf("Warning: Cisco VSA template failed: %v", err)
 	}
 
-	var cnt int64
+	var cnt atomic.Int64
 
 	// Create the handler as a closure to keep it clean and avoid struct clutter
 	handler := radius.HandlerFunc(func(ctx context.Context, request *radius.Packet) *radius.Packet {
-		count := atomic.AddInt64(&cnt, 1)
+		count := cnt.Add(1)
 		// String and DecodeAVPValue decrypt passwords and keys; log the masked forms.
 		log.Printf("[%d] [Authenticate] %s\n", count, request.StringMasked())
 

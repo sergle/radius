@@ -83,7 +83,7 @@ var avpVendor AvpVendor
 
 type AvpVendor struct{}
 
-func (s AvpVendor) Value(p *Packet, a AVP) interface{} {
+func (s AvpVendor) Value(p *Packet, a AVP) any {
 	// as-is
 	return a.Value
 }

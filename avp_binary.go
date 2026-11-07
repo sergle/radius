@@ -8,7 +8,7 @@ var avpBinary AvpBinary
 
 type AvpBinary struct{}
 
-func (s AvpBinary) Value(p *Packet, a AVP) interface{} {
+func (s AvpBinary) Value(p *Packet, a AVP) any {
 	return a.Value
 }
 func (s AvpBinary) String(p *Packet, a AVP) string {

@@ -11,7 +11,7 @@ func getLargeRawPacket() []byte {
 		0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, // Authenticator
 	}
 	// Add 20 attributes of type 1 (User-Name) with length 13
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		raw = append(raw, 0x01, 0x0d, 'b', 'e', 'n', 'c', 'h', 'm', 'a', 'r', 'k', '-', byte('a'+i))
 	}
 	// Total length: 20 + 20*13 = 280.
@@ -94,7 +94,7 @@ func BenchmarkDecodePacketLazyPooledValidateLarge(b *testing.B) {
 
 func BenchmarkEncodePacket(b *testing.B) {
 	p := Request(AccessRequest, "secret")
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		p.AddAVP(AVP{Type: 1, Value: []byte("benchmark-x")})
 	}
 
@@ -110,7 +110,7 @@ func BenchmarkEncodePacket(b *testing.B) {
 
 func BenchmarkEncodePacketTo(b *testing.B) {
 	p := Request(AccessRequest, "secret")
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		p.AddAVP(AVP{Type: 1, Value: []byte("benchmark-x")})
 	}
 	buf := make([]byte, maxPacketLen)

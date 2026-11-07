@@ -40,7 +40,7 @@ func (a AVP) Encode(b []byte) (n int, err error) {
 }
 
 // Decode decodes the AVP value using the current default dictionary.
-func (a AVP) Decode(p *Packet) interface{} {
+func (a AVP) Decode(p *Packet) any {
 	return getAttributeTypeDesc(a.Type).dataType.Value(p, a)
 }
 
@@ -66,7 +66,7 @@ func (a AVP) StringMasked(p *Packet) string {
 }
 
 type avpDataType interface {
-	Value(p *Packet, a AVP) interface{}
+	Value(p *Packet, a AVP) any
 	String(p *Packet, a AVP) string
 	FromString(v string) []byte
 }

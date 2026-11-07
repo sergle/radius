@@ -550,7 +550,7 @@ var avpExtended AvpExtended
 // AvpExtended formats RFC 6929 extended attributes (types 241-246) using the default dictionary.
 type AvpExtended struct{}
 
-func (s AvpExtended) Value(p *Packet, a AVP) interface{} {
+func (s AvpExtended) Value(p *Packet, a AVP) any {
 	// as-is
 	return a.Value
 }
